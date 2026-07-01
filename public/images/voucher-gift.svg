@@ -1,0 +1,91 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#FCFAFF"/>
+  <g opacity=".9">
+    <path d="M94 464c34 22 63 17 89 62" stroke="#FFB21E" stroke-width="32" stroke-linecap="round"/>
+    <path d="M786 98c-40 21-49 47-63 78" stroke="#38BDF8" stroke-width="36" stroke-linecap="round"/>
+    <path d="M352 121l18 43" stroke="#38BDF8" stroke-width="16" stroke-linecap="round"/>
+    <path d="M145 231l44 32" stroke="#EC4899" stroke-width="22" stroke-linecap="round"/>
+    <path d="M884 812l32 25" stroke="#EC4899" stroke-width="18" stroke-linecap="round"/>
+    <path d="M748 780l48 18" stroke="#F59E0B" stroke-width="24" stroke-linecap="round"/>
+    <path d="M126 781l39-19" stroke="#6366F1" stroke-width="20" stroke-linecap="round"/>
+    <path d="M793 666l30 26" stroke="#7C3AED" stroke-width="18" stroke-linecap="round"/>
+    <path d="M430 397l25-23" stroke="#22C55E" stroke-width="18" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M233 576l111-42 355 52-116 71-350-81z" fill="#A78BFA"/>
+    <path d="M233 576v216c0 31 22 58 52 65l232 55c42 10 83-22 83-65V657l-367-81z" fill="url(#boxA)"/>
+    <path d="M600 657v229c0 36 39 58 70 39l72-44c20-12 32-34 32-57V586l-174 71z" fill="url(#boxB)"/>
+    <path d="M233 576l367 81 174-71-364-79-177 69z" fill="url(#lid)"/>
+    <path d="M398 544l67-25 223 49-78 33-212-57z" fill="#C4B5FD" opacity=".8"/>
+    <path d="M469 520l44 10v353l-44-10V520z" fill="#A78BFA" opacity=".82"/>
+    <path d="M516 532l48 10v354l-48-12V532z" fill="#4C1D95" opacity=".42"/>
+    <path d="M387 512c38-74 100-68 126-7-61 14-105 17-126 7z" fill="url(#bow1)"/>
+    <path d="M517 506c35-70 106-91 143-34-46 41-95 53-143 34z" fill="url(#bow2)"/>
+    <circle cx="514" cy="519" r="25" fill="url(#knot)"/>
+  </g>
+
+  <g filter="url(#ticketShadow)">
+    <g transform="translate(248 209) rotate(-19)">
+      <path d="M0 20c0-11 9-20 20-20h288c11 0 20 9 20 20v36c-20 0-20 35 0 35v39c0 11-9 20-20 20H20c-11 0-20-9-20-20V91c20 0 20-35 0-35V20z" fill="url(#redTicket)"/>
+      <path d="M34 28h260v94H34z" stroke="#FF91A4" stroke-width="5" opacity=".55"/>
+      <text x="164" y="93" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="47" font-weight="900" fill="white">20% OFF</text>
+    </g>
+    <g transform="translate(637 267) rotate(14)">
+      <path d="M0 20c0-11 9-20 20-20h244c11 0 20 9 20 20v35c-18 0-18 34 0 34v39c0 11-9 20-20 20H20c-11 0-20-9-20-20V89c18 0 18-34 0-34V20z" fill="url(#pinkTicket)"/>
+      <path d="M28 28h228v92H28z" stroke="#FF9ED3" stroke-width="5" opacity=".55"/>
+      <text x="142" y="71" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="41" font-weight="900" fill="white">Free</text>
+      <text x="142" y="113" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="41" font-weight="900" fill="white">Dessert</text>
+    </g>
+    <g transform="translate(552 499) rotate(13)">
+      <path d="M0 20c0-11 9-20 20-20h277c11 0 20 9 20 20v36c-20 0-20 35 0 35v39c0 11-9 20-20 20H20c-11 0-20-9-20-20V91c20 0 20-35 0-35V20z" fill="url(#orangeTicket)"/>
+      <path d="M34 28h249v94H34z" stroke="#FFD17A" stroke-width="5" opacity=".6"/>
+      <text x="158" y="94" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="50" font-weight="900" fill="white">50% OFF</text>
+    </g>
+  </g>
+
+  <defs>
+    <filter id="shadow" x="190" y="430" width="635" height="536" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="28" flood-color="#4C1D95" flood-opacity=".25"/>
+    </filter>
+    <filter id="ticketShadow" x="210" y="140" width="740" height="560" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="14" flood-color="#334155" flood-opacity=".18"/>
+    </filter>
+    <linearGradient id="boxA" x1="251" y1="586" x2="585" y2="904" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#4F1ACB"/>
+    </linearGradient>
+    <linearGradient id="boxB" x1="602" y1="610" x2="779" y2="892" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6D28D9"/>
+      <stop offset="1" stop-color="#3B0CA3"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="268" y1="509" x2="752" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#5B21B6"/>
+    </linearGradient>
+    <linearGradient id="bow1" x1="382" y1="468" x2="512" y2="535" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="bow2" x1="521" y1="453" x2="658" y2="528" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C4B5FD"/>
+      <stop offset="1" stop-color="#5B21B6"/>
+    </linearGradient>
+    <linearGradient id="knot" x1="494" y1="500" x2="537" y2="540" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C4B5FD"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+    <linearGradient id="redTicket" x1="0" y1="0" x2="328" y2="150" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F43F5E"/>
+      <stop offset="1" stop-color="#FB7185"/>
+    </linearGradient>
+    <linearGradient id="pinkTicket" x1="0" y1="0" x2="284" y2="148" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EC4899"/>
+      <stop offset="1" stop-color="#FB7185"/>
+    </linearGradient>
+    <linearGradient id="orangeTicket" x1="0" y1="0" x2="317" y2="150" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#FDBA2D"/>
+    </linearGradient>
+  </defs>
+</svg>
