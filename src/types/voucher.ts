@@ -121,7 +121,9 @@ export type SmsLog = {
   voucherId: string;
   to: string;
   body: string;
-  status: "mock_sent" | "failed";
+  provider: string;
+  status: "pending" | "sent" | "failed";
+  providerMessageId?: string;
   createdAt: string;
   failureReason?: string;
 };
@@ -145,6 +147,16 @@ export type AnalyticsEvent = {
   createdAt: string;
 };
 
+export type ReferralReward = {
+  id: string;
+  campaignId: string;
+  referrerUserId: string;
+  visitorSessionId: string;
+  status: "granted" | "rejected";
+  reason?: string;
+  createdAt: string;
+};
+
 export type AppDb = {
   businesses: Business[];
   campaigns: Campaign[];
@@ -157,6 +169,7 @@ export type AppDb = {
   smsLogs: SmsLog[];
   redemptionLogs: RedemptionLog[];
   analyticsEvents: AnalyticsEvent[];
+  referralRewards: ReferralReward[];
 };
 
 export type SuccessResponse<T> = {

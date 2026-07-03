@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/server/db";
-import { dashboardMetrics, exportCampaignCsv, generateCandidate, listCampaignSlots, selectFinalVoucher, startHunt } from "@/server/voucher-engine";
+import {
+  dashboardMetrics,
+  exportCampaignCsv,
+  generateCandidate,
+  listCampaignSlots,
+  redeemVoucher,
+  selectFinalVoucher,
+  startHunt
+} from "@/server/voucher-engine";
 
 describe("voucher hunt integration", () => {
   beforeEach(() => {
@@ -26,13 +34,23 @@ describe("voucher hunt integration", () => {
     generateCandidate(input);
     generateCandidate(input);
     const selected = selectFinalVoucher({ ...input, attemptId: candidate.id, guestCount: 4 });
+    redeemVoucher({ codeOrToken: selected.voucher.voucherCode, staffName: "Staff Tester", purchaseAmount: 1200 });
 
     const metrics = dashboardMetrics("camp_july_dinner");
     const csv = exportCampaignCsv("camp_july_dinner");
 
     expect(selected.voucher.voucherCode).toContain("BIZ-");
     expect(metrics.summary.finalVouchersIssued).toBe(1);
+
+    expect(csv).toContain("# LEADS");
+    expect(csv).toContain("# VOUCHERS");
+    expect(csv).toContain("# ATTEMPTS");
+    expect(csv).toContain("# REDEMPTIONS");
     expect(csv).toContain(selected.voucher.voucherCode);
     expect(csv).toContain("Integration User");
+    expect(csv).toContain("+639181111111");
+    expect(csv).toContain(candidate.id);
+    expect(csv).toContain("Staff Tester");
+    expect(csv).toContain("1200");
   });
 });

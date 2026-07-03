@@ -8,6 +8,7 @@ import type {
   CampaignSlot,
   EndUser,
   RedemptionLog,
+  ReferralReward,
   Reservation,
   SmsLog,
   Voucher,
@@ -128,7 +129,9 @@ CREATE TABLE IF NOT EXISTS sms_logs (
   voucher_id TEXT NOT NULL,
   to_number TEXT NOT NULL,
   body TEXT NOT NULL,
+  provider TEXT NOT NULL,
   status TEXT NOT NULL,
+  provider_message_id TEXT,
   created_at TEXT NOT NULL,
   failure_reason TEXT
 );
@@ -148,6 +151,16 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   slot_id TEXT,
   metadata TEXT,
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS referral_rewards (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL,
+  referrer_user_id TEXT NOT NULL REFERENCES users(id),
+  visitor_session_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (campaign_id, referrer_user_id, visitor_session_id)
 );
 `;
 
@@ -232,21 +245,76 @@ export const seedData: {
     { id: "slot_shop_0706_2200", campaignId: "camp_8pm_drop", date: "2026-07-06", startTime: "22:00", endTime: "23:59", timezone: "Asia/Manila", totalCapacity: 75, remainingCapacity: 75, status: "active" }
   ],
   pools: [
-    { id: "pool_dinner_90", slotId: "slot_dinner_0705_1900", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
-    { id: "pool_dinner_50", slotId: "slot_dinner_0705_1900", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 3, remainingQuantity: 3, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
-    { id: "pool_dinner_20", slotId: "slot_dinner_0705_1900", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 16, remainingQuantity: 16, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
-    { id: "pool_dinner_2000_50", slotId: "slot_dinner_0705_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
-    { id: "pool_dinner_2000_dessert", slotId: "slot_dinner_0705_2000", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 7, remainingQuantity: 7, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
-    { id: "pool_dinner_0707_20", slotId: "slot_dinner_0707_1900", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 18, remainingQuantity: 18, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
-    { id: "pool_dinner_0707_2000_dessert", slotId: "slot_dinner_0707_2000", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
-    { id: "pool_dinner_0708_dessert", slotId: "slot_dinner_0708_1900", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 5, remainingQuantity: 5, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
-    { id: "pool_dinner_0708_2000_20", slotId: "slot_dinner_0708_2000", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 10, remainingQuantity: 10, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
-    { id: "pool_dinner_0709_30", slotId: "slot_dinner_0709_1900", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 27, remainingQuantity: 27, probabilityWeight: 40, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
-    { id: "pool_dinner_0709_2000_50", slotId: "slot_dinner_0709_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 12, remainingQuantity: 12, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
-    { id: "pool_shop_90", slotId: "slot_shop_0705_2000", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 2, minimumSpend: 2000, status: "active" },
-    { id: "pool_shop_50", slotId: "slot_shop_0705_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 5, remainingQuantity: 5, probabilityWeight: 5, expiryType: "hours", expiryValue: 24, minimumSpend: 1500, status: "active" },
-    { id: "pool_shop_20", slotId: "slot_shop_0705_2000", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 94, remainingQuantity: 94, probabilityWeight: 50, expiryType: "days", expiryValue: 7, minimumSpend: 1000, status: "active" },
-    { id: "pool_shop_ship", slotId: "slot_shop_0706_2200", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 75, remainingQuantity: 75, probabilityWeight: 50, expiryType: "days", expiryValue: 7, status: "active" }
+    // slot_dinner_0705_1900 (capacity 20) - 5 distinct benefit tiers so referral-bonus
+    // attempts have real headroom beyond the 3 base attempts before pools force a repeat.
+    { id: "pool_dinner_0705_1900_90", slotId: "slot_dinner_0705_1900", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0705_1900_50", slotId: "slot_dinner_0705_1900", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0705_1900_30", slotId: "slot_dinner_0705_1900", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 3, remainingQuantity: 3, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0705_1900_20", slotId: "slot_dinner_0705_1900", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 9, remainingQuantity: 9, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0705_1900_dessert", slotId: "slot_dinner_0705_1900", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 5, remainingQuantity: 5, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_dinner_0705_2000 (capacity 8)
+    { id: "pool_dinner_0705_2000_90", slotId: "slot_dinner_0705_2000", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0705_2000_50", slotId: "slot_dinner_0705_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0705_2000_30", slotId: "slot_dinner_0705_2000", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0705_2000_20", slotId: "slot_dinner_0705_2000", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0705_2000_dessert", slotId: "slot_dinner_0705_2000", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 3, remainingQuantity: 3, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_dinner_0707_1900 (capacity 18)
+    { id: "pool_dinner_0707_1900_90", slotId: "slot_dinner_0707_1900", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0707_1900_50", slotId: "slot_dinner_0707_1900", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0707_1900_30", slotId: "slot_dinner_0707_1900", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 3, remainingQuantity: 3, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0707_1900_20", slotId: "slot_dinner_0707_1900", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 8, remainingQuantity: 8, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0707_1900_dessert", slotId: "slot_dinner_0707_1900", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 4, remainingQuantity: 4, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_dinner_0707_2000 (capacity 15)
+    { id: "pool_dinner_0707_2000_90", slotId: "slot_dinner_0707_2000", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0707_2000_50", slotId: "slot_dinner_0707_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0707_2000_30", slotId: "slot_dinner_0707_2000", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0707_2000_20", slotId: "slot_dinner_0707_2000", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0707_2000_dessert", slotId: "slot_dinner_0707_2000", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 5, remainingQuantity: 5, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_dinner_0708_1900 (capacity 5) - small slot, one unit per tier
+    { id: "pool_dinner_0708_1900_90", slotId: "slot_dinner_0708_1900", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0708_1900_50", slotId: "slot_dinner_0708_1900", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0708_1900_30", slotId: "slot_dinner_0708_1900", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0708_1900_20", slotId: "slot_dinner_0708_1900", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0708_1900_dessert", slotId: "slot_dinner_0708_1900", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_dinner_0708_2000 (capacity 10)
+    { id: "pool_dinner_0708_2000_90", slotId: "slot_dinner_0708_2000", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0708_2000_50", slotId: "slot_dinner_0708_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0708_2000_30", slotId: "slot_dinner_0708_2000", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0708_2000_20", slotId: "slot_dinner_0708_2000", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 4, remainingQuantity: 4, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0708_2000_dessert", slotId: "slot_dinner_0708_2000", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_dinner_0709_1900 (capacity 27)
+    { id: "pool_dinner_0709_1900_90", slotId: "slot_dinner_0709_1900", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0709_1900_50", slotId: "slot_dinner_0709_1900", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 3, remainingQuantity: 3, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0709_1900_30", slotId: "slot_dinner_0709_1900", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 5, remainingQuantity: 5, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0709_1900_20", slotId: "slot_dinner_0709_1900", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 13, remainingQuantity: 13, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0709_1900_dessert", slotId: "slot_dinner_0709_1900", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 5, remainingQuantity: 5, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_dinner_0709_2000 (capacity 12)
+    { id: "pool_dinner_0709_2000_90", slotId: "slot_dinner_0709_2000", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_0709_2000_50", slotId: "slot_dinner_0709_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_0709_2000_30", slotId: "slot_dinner_0709_2000", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_0709_2000_20", slotId: "slot_dinner_0709_2000", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_0709_2000_dessert", slotId: "slot_dinner_0709_2000", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+
+    // slot_shop_0705_2000 (capacity 100)
+    { id: "pool_shop_0705_2000_90", slotId: "slot_shop_0705_2000", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 2, minimumSpend: 2000, status: "active" },
+    { id: "pool_shop_0705_2000_50", slotId: "slot_shop_0705_2000", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 5, remainingQuantity: 5, probabilityWeight: 5, expiryType: "hours", expiryValue: 24, minimumSpend: 1500, status: "active" },
+    { id: "pool_shop_0705_2000_20", slotId: "slot_shop_0705_2000", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 50, remainingQuantity: 50, probabilityWeight: 50, expiryType: "days", expiryValue: 7, minimumSpend: 1000, status: "active" },
+    { id: "pool_shop_0705_2000_10", slotId: "slot_shop_0705_2000", benefitType: "discount_percent", benefitValue: "10", displayLabel: "10% OFF", totalQuantity: 14, remainingQuantity: 14, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 500, status: "active" },
+    { id: "pool_shop_0705_2000_ship", slotId: "slot_shop_0705_2000", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 30, remainingQuantity: 30, probabilityWeight: 30, expiryType: "days", expiryValue: 7, status: "active" },
+
+    // slot_shop_0706_2200 (capacity 75)
+    { id: "pool_shop_0706_2200_90", slotId: "slot_shop_0706_2200", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 1, remainingQuantity: 1, probabilityWeight: 1, expiryType: "hours", expiryValue: 2, minimumSpend: 2000, status: "active" },
+    { id: "pool_shop_0706_2200_50", slotId: "slot_shop_0706_2200", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 4, remainingQuantity: 4, probabilityWeight: 5, expiryType: "hours", expiryValue: 24, minimumSpend: 1500, status: "active" },
+    { id: "pool_shop_0706_2200_20", slotId: "slot_shop_0706_2200", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 35, remainingQuantity: 35, probabilityWeight: 50, expiryType: "days", expiryValue: 7, minimumSpend: 1000, status: "active" },
+    { id: "pool_shop_0706_2200_10", slotId: "slot_shop_0706_2200", benefitType: "discount_percent", benefitValue: "10", displayLabel: "10% OFF", totalQuantity: 10, remainingQuantity: 10, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 500, status: "active" },
+    { id: "pool_shop_0706_2200_ship", slotId: "slot_shop_0706_2200", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 25, remainingQuantity: 25, probabilityWeight: 30, expiryType: "days", expiryValue: 7, status: "active" }
   ]
 };
 
@@ -281,6 +349,7 @@ export function resetDb() {
   const wipe = db.transaction(() => {
     for (const table of [
       "analytics_events",
+      "referral_rewards",
       "redemption_logs",
       "sms_logs",
       "reservations",
@@ -420,7 +489,9 @@ export const mapSmsLog = (r: Row): SmsLog => ({
   voucherId: r.voucher_id,
   to: r.to_number,
   body: r.body,
+  provider: r.provider,
   status: r.status,
+  providerMessageId: r.provider_message_id ?? undefined,
   createdAt: r.created_at,
   failureReason: r.failure_reason ?? undefined
 });
@@ -441,5 +512,15 @@ export const mapAnalyticsEvent = (r: Row): AnalyticsEvent => ({
   userId: r.user_id ?? undefined,
   slotId: r.slot_id ?? undefined,
   metadata: r.metadata ? (JSON.parse(r.metadata) as Record<string, unknown>) : undefined,
+  createdAt: r.created_at
+});
+
+export const mapReferralReward = (r: Row): ReferralReward => ({
+  id: r.id,
+  campaignId: r.campaign_id,
+  referrerUserId: r.referrer_user_id,
+  visitorSessionId: r.visitor_session_id,
+  status: r.status,
+  reason: r.reason ?? undefined,
   createdAt: r.created_at
 });

@@ -7,15 +7,24 @@ import {
   mapBusiness,
   mapCampaign,
   mapPool,
+  mapReferralReward,
+  mapRedemptionLog,
   mapSlot,
   mapUser,
   mapVoucher
 } from "@/server/db";
-import type { Campaign, CampaignSlot, EndUser, VoucherAttempt, VoucherPool } from "@/types/voucher";
+import { normalizePhone } from "@/server/phone";
+import { sendSms, type SmsResult } from "@/server/sms";
+import type { Campaign, CampaignSlot, EndUser, SourceType, Voucher, VoucherAttempt, VoucherPool } from "@/types/voucher";
 
 const now = () => new Date();
 const isoNow = () => now().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
+const startOfTodayIso = () => {
+  const d = now();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+};
 
 function isUniqueViolation(error: unknown) {
   return error instanceof Error && "code" in error && String((error as { code: unknown }).code).startsWith("SQLITE_CONSTRAINT");
@@ -71,10 +80,6 @@ function getSlotOrThrow(db: BetterSqlite3.Database, slotId: string, campaignId: 
   return slot;
 }
 
-function normalizePhone(phone: string) {
-  return phone.replace(/[^\d+]/g, "");
-}
-
 function findOrCreateUser(
   db: BetterSqlite3.Database,
   campaignId: string,
@@ -84,8 +89,8 @@ function findOrCreateUser(
   email?: string
 ): EndUser {
   const normalized = normalizePhone(phone);
-  if (!normalized || normalized.length < 7) {
-    throw new AppError("E-USER-PHONE", "A valid phone number is required", 400);
+  if (!normalized) {
+    throw new AppError("E-USER-PHONE", "A valid Philippine mobile number is required", 400);
   }
   const existingRow = db.prepare("SELECT * FROM users WHERE campaign_id = ? AND phone = ?").get(campaignId, normalized);
   if (existingRow) {
@@ -117,6 +122,95 @@ function hasFinalVoucher(db: BetterSqlite3.Database, campaignId: string, userId:
   return Boolean(db.prepare("SELECT 1 FROM vouchers WHERE campaign_id = ? AND user_id = ?").get(campaignId, userId));
 }
 
+function countGrantedRewardsToday(db: BetterSqlite3.Database, campaignId: string, referrerUserId: string) {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM referral_rewards
+         WHERE campaign_id = ? AND referrer_user_id = ? AND status = 'granted' AND created_at >= ?`
+      )
+      .get(campaignId, referrerUserId, startOfTodayIso()) as { c: number }
+  ).c;
+}
+
+function countBonusAttemptsUsedToday(db: BetterSqlite3.Database, campaignId: string, userId: string) {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM attempts
+         WHERE campaign_id = ? AND user_id = ? AND source_type = 'referral_bonus' AND created_at >= ?`
+      )
+      .get(campaignId, userId, startOfTodayIso()) as { c: number }
+  ).c;
+}
+
+function remainingBonusAttempts(db: BetterSqlite3.Database, campaign: Campaign, userId: string) {
+  const granted = Math.min(countGrantedRewardsToday(db, campaign.id, userId), campaign.referralDailyLimit);
+  const used = countBonusAttemptsUsedToday(db, campaign.id, userId);
+  return Math.max(0, granted - used);
+}
+
+function insertReferralReward(
+  db: BetterSqlite3.Database,
+  campaignId: string,
+  referrerUserId: string,
+  visitorSessionId: string,
+  status: "granted" | "rejected",
+  reason?: string
+) {
+  db.prepare(
+    `INSERT INTO referral_rewards (id, campaign_id, referrer_user_id, visitor_session_id, status, reason, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id("ref"), campaignId, referrerUserId, visitorSessionId, status, reason ?? null, isoNow());
+}
+
+/**
+ * Records a visit to a shared referral link. Grants the referrer 1 extra
+ * attempt if the visitor is a distinct session/device and the referrer's
+ * daily referral limit has not been reached. Each (referrer, visitor) pair
+ * can grant at most once, ever, so reloading a link cannot farm rewards.
+ */
+export function recordReferralOpen(input: { campaignSlug: string; ref: string; visitorSessionId: string }) {
+  const db = getDb();
+  return db.transaction(() => {
+    const campaign = getCampaignOrThrow(db, input.campaignSlug);
+    const referrerRow = db.prepare("SELECT * FROM users WHERE id = ? AND campaign_id = ?").get(input.ref, campaign.id);
+    if (!referrerRow) throw new AppError("E-REFERRAL-404", "Referral link is invalid", 404);
+    const referrer = mapUser(referrerRow);
+
+    addAnalytics(db, campaign.id, "share_link_opened", { referrerUserId: referrer.id });
+
+    const existingRow = db
+      .prepare("SELECT * FROM referral_rewards WHERE campaign_id = ? AND referrer_user_id = ? AND visitor_session_id = ?")
+      .get(campaign.id, referrer.id, input.visitorSessionId);
+    if (existingRow) {
+      const existing = mapReferralReward(existingRow);
+      return { granted: existing.status === "granted", reason: existing.reason };
+    }
+
+    if (referrer.sessionId === input.visitorSessionId) {
+      insertReferralReward(db, campaign.id, referrer.id, input.visitorSessionId, "rejected", "self_referral");
+      return { granted: false, reason: "self_referral" };
+    }
+
+    if (countGrantedRewardsToday(db, campaign.id, referrer.id) >= campaign.referralDailyLimit) {
+      insertReferralReward(db, campaign.id, referrer.id, input.visitorSessionId, "rejected", "daily_limit_reached");
+      return { granted: false, reason: "daily_limit_reached" };
+    }
+
+    try {
+      insertReferralReward(db, campaign.id, referrer.id, input.visitorSessionId, "granted");
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return { granted: false, reason: "already_processed" };
+      }
+      throw error;
+    }
+    addAnalytics(db, campaign.id, "extra_attempt_granted", { referrerUserId: referrer.id }, referrer.id);
+    return { granted: true };
+  })();
+}
+
 export function publicSlots(campaignId: string) {
   const db = getDb();
   const slots = db.prepare("SELECT * FROM slots WHERE campaign_id = ?").all(campaignId).map(mapSlot);
@@ -144,6 +238,15 @@ export function listCampaignSlots(slug: string) {
   const db = getDb();
   const campaign = getCampaignOrThrow(db, slug);
   return publicSlots(campaign.id);
+}
+
+/** Active campaigns for the public campaign switcher/tab bar. */
+export function listActiveCampaigns() {
+  const db = getDb();
+  return db
+    .prepare("SELECT * FROM campaigns WHERE status = 'active' ORDER BY start_date DESC")
+    .all()
+    .map(mapCampaign);
 }
 
 export function startHunt(input: {
@@ -180,8 +283,15 @@ function weightedPool(pools: VoucherPool[], existingLabels: Set<string>) {
   return candidates[candidates.length - 1];
 }
 
-export function generateCandidate(input: { campaignSlug: string; slotId: string; phone: string; sessionId: string }) {
+export function generateCandidate(input: {
+  campaignSlug: string;
+  slotId: string;
+  phone: string;
+  sessionId: string;
+  sourceType?: SourceType;
+}) {
   const db = getDb();
+  const sourceType = input.sourceType ?? "base";
   return db.transaction(() => {
     const campaign = getCampaignOrThrow(db, input.campaignSlug);
     const slot = getSlotOrThrow(db, input.slotId, campaign.id);
@@ -193,8 +303,14 @@ export function generateCandidate(input: { campaignSlug: string; slotId: string;
 
     const attempts = db.prepare("SELECT * FROM attempts WHERE campaign_id = ? AND user_id = ?").all(campaign.id, user.id).map(mapAttempt);
     const activeAttempts = attempts.filter((a) => a.status === "Candidate" || a.status === "Held");
-    if (attempts.filter((a) => a.sourceType === "base").length >= campaign.baseAttempts) {
-      throw new AppError("E-ATTEMPT-LIMIT", "Base voucher hunt attempts are already used", 409);
+    if (sourceType === "base") {
+      if (attempts.filter((a) => a.sourceType === "base").length >= campaign.baseAttempts) {
+        throw new AppError("E-ATTEMPT-LIMIT", "Base voucher hunt attempts are already used", 409);
+      }
+    } else if (sourceType === "referral_bonus") {
+      if (remainingBonusAttempts(db, campaign, user.id) <= 0) {
+        throw new AppError("E-ATTEMPT-LIMIT", "No extra attempts earned yet. Share your link to earn one.", 409);
+      }
     }
 
     const pools = db
@@ -224,7 +340,7 @@ export function generateCandidate(input: { campaignSlug: string; slotId: string;
       slotId: slot.id,
       userId: user.id,
       attemptNumber: attempts.length + 1,
-      sourceType: "base",
+      sourceType,
       benefitType: pool.benefitType,
       benefitValue: pool.benefitValue,
       displayLabel: pool.displayLabel,
@@ -331,19 +447,89 @@ export function selectFinalVoucher(input: {
       ).run(id("res"), campaign.id, slot.id, user.id, voucher.id, input.guestCount ?? null, isoNow());
     }
 
-    db.prepare(
-      `INSERT INTO sms_logs (id, campaign_id, user_id, voucher_id, to_number, body, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'mock_sent', ?)`
-    ).run(id("sms"), campaign.id, user.id, voucher.id, user.phone, smsBody(db, campaign, voucher, slot, user), isoNow());
-
     addAnalytics(db, campaign.id, "voucher_final_selected", { voucherCode: voucher.voucherCode }, user.id, slot.id);
     addAnalytics(db, campaign.id, "voucher_issued", { benefit: voucher.displayLabel }, user.id, slot.id);
-    addAnalytics(db, campaign.id, "sms_sent", { provider: "mock" }, user.id, slot.id);
 
     const freshSlot = mapSlot(db.prepare("SELECT * FROM slots WHERE id = ?").get(slot.id));
     const freshVoucher = mapVoucher(db.prepare("SELECT * FROM vouchers WHERE id = ?").get(voucher.id));
     return { voucher: freshVoucher, slot: freshSlot, campaign, user };
   })();
+}
+
+/**
+ * Sends the actual SMS confirmation for a just-issued voucher. Kept outside
+ * selectFinalVoucher's transaction: better-sqlite3 transactions must run
+ * synchronously, but real SMS providers require a network call. The voucher
+ * is already committed by the time this runs, so a failed send never rolls
+ * back the issuance -- it's recorded in sms_logs instead.
+ */
+export async function sendVoucherConfirmationSms(voucherId: string): Promise<SmsResult> {
+  const db = getDb();
+  const voucherRow = db.prepare("SELECT * FROM vouchers WHERE id = ?").get(voucherId);
+  if (!voucherRow) throw new AppError("E-VOUCHER-404", "Voucher was not found", 404);
+  const voucher = mapVoucher(voucherRow);
+  const context = loadSmsContext(db, voucher);
+  const message = smsBody(db, context.campaign, voucher, context.slot, context.user);
+  return dispatchSms(db, {
+    campaignId: context.campaign.id,
+    userId: context.user.id,
+    voucherId: voucher.id,
+    slotId: context.slot.id,
+    phone: context.user.phone,
+    message
+  });
+}
+
+/** Re-sends the SMS confirmation for an existing voucher, e.g. from a "resend" action. */
+export async function resendVoucherSms(input: { codeOrToken: string }): Promise<SmsResult & { voucherCode: string; to: string }> {
+  const db = getDb();
+  const voucher = loadVoucherContext(db, input.codeOrToken);
+  const context = loadSmsContext(db, voucher);
+  const message = smsBody(db, context.campaign, voucher, context.slot, context.user);
+  const result = await dispatchSms(db, {
+    campaignId: context.campaign.id,
+    userId: context.user.id,
+    voucherId: voucher.id,
+    slotId: context.slot.id,
+    phone: context.user.phone,
+    message
+  });
+  return { ...result, voucherCode: voucher.voucherCode, to: context.user.phone };
+}
+
+function loadSmsContext(db: BetterSqlite3.Database, voucher: Voucher) {
+  const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(voucher.userId);
+  const slotRow = db.prepare("SELECT * FROM slots WHERE id = ?").get(voucher.slotId);
+  const campaignRow = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(voucher.campaignId);
+  if (!userRow || !slotRow || !campaignRow) {
+    throw new AppError("E-VOUCHER-404", "Voucher context is incomplete", 404);
+  }
+  return { user: mapUser(userRow), slot: mapSlot(slotRow), campaign: mapCampaign(campaignRow) };
+}
+
+/** Sends via the configured SMS provider and records the attempt in sms_logs. */
+async function dispatchSms(
+  db: BetterSqlite3.Database,
+  params: { campaignId: string; userId: string; voucherId: string; slotId: string; phone: string; message: string }
+): Promise<SmsResult> {
+  const provider = process.env.SMS_PROVIDER ?? "mock";
+  const smsLogId = id("sms");
+  db.prepare(
+    `INSERT INTO sms_logs (id, campaign_id, user_id, voucher_id, to_number, body, provider, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+  ).run(smsLogId, params.campaignId, params.userId, params.voucherId, params.phone, params.message, provider, isoNow());
+
+  const result = await sendSms(params.phone, params.message);
+
+  db.prepare(
+    `UPDATE sms_logs SET status = ?, provider_message_id = ?, failure_reason = ? WHERE id = ?`
+  ).run(result.success ? "sent" : "failed", result.providerMessageId ?? null, result.error ?? null, smsLogId);
+
+  if (result.success) {
+    addAnalytics(db, params.campaignId, "sms_sent", { provider }, params.userId, params.slotId);
+  }
+
+  return result;
 }
 
 function smsBody(
@@ -453,8 +639,29 @@ function huntState(db: BetterSqlite3.Database, campaign: Campaign, slot: Campaig
     slot,
     attempts,
     voucher: voucherRow ? mapVoucher(voucherRow) : undefined,
-    remainingBaseAttempts: Math.max(0, campaign.baseAttempts - attempts.filter((a) => a.sourceType === "base").length)
+    remainingBaseAttempts: Math.max(0, campaign.baseAttempts - attempts.filter((a) => a.sourceType === "base").length),
+    remainingBonusAttempts: remainingBonusAttempts(db, campaign, user.id),
+    sharesGrantedToday: countGrantedRewardsToday(db, campaign.id, user.id)
   };
+}
+
+/**
+ * Read-only hunt/referral snapshot for an already-started user. Used by the
+ * client to refresh earned-share counts without re-triggering hunt_started
+ * analytics the way startHunt does.
+ */
+export function getHuntSnapshot(input: { campaignSlug: string; slotId: string; phone: string }) {
+  const db = getDb();
+  const campaign = getCampaignOrThrow(db, input.campaignSlug);
+  const slotRow = db.prepare("SELECT * FROM slots WHERE id = ? AND campaign_id = ?").get(input.slotId, campaign.id);
+  if (!slotRow) throw new AppError("E-SLOT-404", "Selected slot was not found", 404);
+  const normalized = normalizePhone(input.phone);
+  const userRow = normalized
+    ? db.prepare("SELECT * FROM users WHERE campaign_id = ? AND phone = ?").get(campaign.id, normalized)
+    : undefined;
+  if (!userRow) throw new AppError("E-USER-404", "No hunt session found for this phone number", 404);
+  const user = mapUser(userRow);
+  return huntState(db, campaign, mapSlot(slotRow), user);
 }
 
 export function dashboardMetrics(campaignId: string) {
@@ -496,20 +703,47 @@ export function dashboardMetrics(campaignId: string) {
   };
 }
 
+function csvRow(values: unknown[]) {
+  return values.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",");
+}
+
+function csvSection(title: string, headers: string[], rows: unknown[][]) {
+  return [`# ${title}`, csvRow(headers), ...rows.map(csvRow)].join("\n");
+}
+
 export function exportCampaignCsv(campaignId: string) {
   const db = getDb();
   const campaign = getCampaignOrThrow(db, campaignId);
-  const rows = [
-    ["voucher_code", "phone", "name", "benefit", "status", "issued_at", "expires_at", "slot_date", "slot_start", "slot_end"].join(",")
-  ];
+
+  const users = db.prepare("SELECT * FROM users WHERE campaign_id = ?").all(campaign.id).map(mapUser);
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  const slots = db.prepare("SELECT * FROM slots WHERE campaign_id = ?").all(campaign.id).map(mapSlot);
+  const slotsById = new Map(slots.map((slot) => [slot.id, slot]));
+  const attempts = db.prepare("SELECT * FROM attempts WHERE campaign_id = ?").all(campaign.id).map(mapAttempt);
   const vouchers = db.prepare("SELECT * FROM vouchers WHERE campaign_id = ?").all(campaign.id).map(mapVoucher);
-  vouchers.forEach((voucher) => {
-    const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(voucher.userId);
-    const slotRow = db.prepare("SELECT * FROM slots WHERE id = ?").get(voucher.slotId);
-    const user = userRow ? mapUser(userRow) : undefined;
-    const slot = slotRow ? mapSlot(slotRow) : undefined;
-    rows.push(
-      [
+  const vouchersById = new Map(vouchers.map((voucher) => [voucher.id, voucher]));
+  const redemptions = vouchers.length
+    ? (db
+        .prepare(
+          `SELECT * FROM redemption_logs WHERE voucher_id IN (${vouchers.map(() => "?").join(",")})`
+        )
+        .all(...vouchers.map((voucher) => voucher.id))
+        .map(mapRedemptionLog))
+    : [];
+
+  const leadsSection = csvSection(
+    "LEADS",
+    ["user_id", "name", "phone", "email", "created_at"],
+    users.map((user) => [user.id, user.name ?? "", user.phone, user.email ?? "", user.createdAt])
+  );
+
+  const vouchersSection = csvSection(
+    "VOUCHERS",
+    ["voucher_code", "phone", "name", "benefit", "status", "issued_at", "expires_at", "redeemed_at", "slot_date", "slot_start", "slot_end"],
+    vouchers.map((voucher) => {
+      const user = usersById.get(voucher.userId);
+      const slot = slotsById.get(voucher.slotId);
+      return [
         voucher.voucherCode,
         user?.phone ?? "",
         user?.name ?? "",
@@ -517,13 +751,50 @@ export function exportCampaignCsv(campaignId: string) {
         voucher.status,
         voucher.issuedAt,
         voucher.expiresAt,
+        voucher.redeemedAt ?? "",
         slot?.date ?? "",
         slot?.startTime ?? "",
         slot?.endTime ?? ""
-      ]
-        .map((value) => `"${String(value).replaceAll('"', '""')}"`)
-        .join(",")
-    );
-  });
-  return rows.join("\n");
+      ];
+    })
+  );
+
+  const attemptsSection = csvSection(
+    "ATTEMPTS",
+    ["attempt_id", "phone", "attempt_number", "source_type", "benefit", "status", "slot_date", "created_at", "expires_at"],
+    attempts.map((attempt) => {
+      const user = usersById.get(attempt.userId);
+      const slot = slotsById.get(attempt.slotId);
+      return [
+        attempt.id,
+        user?.phone ?? "",
+        attempt.attemptNumber,
+        attempt.sourceType,
+        attempt.displayLabel,
+        attempt.status,
+        slot?.date ?? "",
+        attempt.createdAt,
+        attempt.expiresAt
+      ];
+    })
+  );
+
+  const redemptionsSection = csvSection(
+    "REDEMPTIONS",
+    ["voucher_code", "phone", "staff_name", "purchase_amount", "note", "redeemed_at"],
+    redemptions.map((redemption) => {
+      const voucher = vouchersById.get(redemption.voucherId);
+      const user = voucher ? usersById.get(voucher.userId) : undefined;
+      return [
+        voucher?.voucherCode ?? "",
+        user?.phone ?? "",
+        redemption.staffName,
+        redemption.purchaseAmount ?? "",
+        redemption.note ?? "",
+        redemption.createdAt
+      ];
+    })
+  );
+
+  return [leadsSection, vouchersSection, attemptsSection, redemptionsSection].join("\n\n");
 }

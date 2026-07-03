@@ -1,7 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
-import { createCampaign, createPool, createSlot, listPools, listSlots, updateCampaign } from "@/server/admin";
+import {
+  createBusiness,
+  createCampaign,
+  createPool,
+  createSlot,
+  listBusinesses,
+  listCampaigns,
+  listPools,
+  listSlots,
+  updateCampaign
+} from "@/server/admin";
 import { generateCandidate, listCampaignSlots, startHunt } from "@/server/voucher-engine";
 
 const campaignInput = {
@@ -91,5 +101,31 @@ describe("admin CRUD", () => {
     const updated = updateCampaign(campaign.id, { title: "Patched Title", status: "paused" });
     expect(updated.title).toBe("Patched Title");
     expect(updated.status).toBe("paused");
+  });
+
+  it("creates a business and a campaign built on top of it end to end", () => {
+    const before = listBusinesses().length;
+    const business = createBusiness({
+      name: "New Sample Cafe",
+      logoText: "NSC",
+      industry: "restaurant",
+      staffPin: "1357"
+    });
+    expect(business.id).toMatch(/^biz_/);
+    expect(listBusinesses()).toHaveLength(before + 1);
+
+    const campaign = createCampaign({
+      ...campaignInput,
+      businessId: business.id,
+      slug: "new-cafe-launch",
+      mode: "restaurant"
+    });
+    expect(listCampaigns().some((c) => c.id === campaign.id)).toBe(true);
+  });
+
+  it("rejects a business with an invalid staff PIN", () => {
+    expect(() =>
+      createBusiness({ name: "Bad Pin Co", logoText: "BP", industry: "retail", staffPin: "12" })
+    ).toThrow(AppError);
   });
 });

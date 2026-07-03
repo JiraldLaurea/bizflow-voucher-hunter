@@ -1,9 +1,44 @@
 import crypto from "node:crypto";
 import { AppError } from "@/server/errors";
-import { getDb, mapCampaign, mapPool, mapSlot } from "@/server/db";
-import type { Campaign, CampaignSlot, VoucherPool } from "@/types/voucher";
+import { getDb, mapBusiness, mapCampaign, mapPool, mapSlot } from "@/server/db";
+import type { Business, Campaign, CampaignSlot, VoucherPool } from "@/types/voucher";
 
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
+
+export type CreateBusinessInput = {
+  name: string;
+  logoText: string;
+  industry: Business["industry"];
+  staffPin: string;
+};
+
+export function listBusinesses(): Business[] {
+  const db = getDb();
+  return db.prepare("SELECT * FROM businesses ORDER BY name").all().map(mapBusiness);
+}
+
+export function createBusiness(input: CreateBusinessInput): Business {
+  const db = getDb();
+  if (!/^\d{4,6}$/.test(input.staffPin)) {
+    throw new AppError("E-BUSINESS-PIN", "staffPin must be 4 to 6 digits", 422);
+  }
+  const business: Business = {
+    id: id("biz"),
+    name: input.name,
+    logoText: input.logoText,
+    industry: input.industry,
+    staffPin: input.staffPin
+  };
+  db.prepare(
+    "INSERT INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)"
+  ).run(business);
+  return business;
+}
+
+export function listCampaigns(): Campaign[] {
+  const db = getDb();
+  return db.prepare("SELECT * FROM campaigns ORDER BY start_date DESC").all().map(mapCampaign);
+}
 
 export type CreateCampaignInput = {
   businessId: string;
