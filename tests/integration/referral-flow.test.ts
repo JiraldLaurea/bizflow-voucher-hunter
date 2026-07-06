@@ -8,6 +8,7 @@ import {
   startHunt,
 } from "@/server/voucher-engine";
 import { GET as visitReferral } from "@/app/api/public/referral/visit/route";
+import { GET as claimReferral } from "@/app/api/public/referral/claim/route";
 
 const bonusDraw = (phone: string) =>
   generateCandidate({
@@ -52,17 +53,37 @@ describe("referral share module", () => {
     await expect(bonusDraw(referrer.phone)).rejects.toThrowError(/No extra attempts earned/);
   });
 
-  it("records a referral through the mobile-safe redirect before loading the campaign", async () => {
+  it("ignores preview fetches and records only the browser handoff", async () => {
     const referrer = await startReferrer();
     const request = new NextRequest(
       `http://localhost/api/public/referral/visit?campaign=july-dinner&ref=${referrer.id}`,
       { headers: { cookie: "bizflow_visitor_session=visitor-phone-session" } },
     );
 
-    const response = await visitReferral(request);
+    const previewResponse = await visitReferral(request);
 
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
+    expect(previewResponse.status).toBe(200);
+    expect(await previewResponse.text()).toContain(
+      "/api/public/referral/claim",
+    );
+    expect(
+      await getReferralSnapshot({
+        campaignSlug: "july-dinner",
+        ref: referrer.id,
+      }),
+    ).toMatchObject({
+      sharesGrantedToday: 0,
+      remainingBonusAttempts: 0,
+    });
+
+    const claimResponse = await claimReferral(
+      new NextRequest(
+        `http://localhost/api/public/referral/claim?campaign=july-dinner&ref=${referrer.id}`,
+        { headers: { cookie: "bizflow_visitor_session=visitor-phone-session" } },
+      ),
+    );
+    expect(claimResponse.status).toBe(307);
+    expect(claimResponse.headers.get("location")).toBe(
       "http://localhost/campaign/july-dinner",
     );
     expect(

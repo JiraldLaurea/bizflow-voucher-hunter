@@ -1,8 +1,6 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { enforceRateLimit } from "@/server/rate-limit";
-import { recordReferralOpen } from "@/server/voucher-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,22 +11,10 @@ const schema = z.object({
   ref: z.string().min(1),
 });
 
-function redirectToCampaign(
-  request: Request,
-  campaign: string,
-  ref?: string,
-) {
-  const destination = new URL(
-    `/campaign/${encodeURIComponent(campaign)}`,
-    request.url,
-  );
-  if (ref) destination.searchParams.set("ref", ref);
-  return NextResponse.redirect(destination);
-}
-
 /**
- * Referral links enter through this redirect so the reward is recorded before
- * an in-app mobile browser can suspend JavaScript or leave the landing page.
+ * Returns a JavaScript handoff instead of granting immediately. Messaging and
+ * social preview crawlers fetch this URL but do not execute the handoff, so
+ * only a real browser visit proceeds to the claim endpoint.
  */
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -40,28 +26,35 @@ export async function GET(request: NextRequest) {
 
   const existingVisitorId = request.cookies.get(VISITOR_COOKIE)?.value ?? "";
   const visitorSessionId = existingVisitorId || crypto.randomUUID();
+  const claimUrl = new URL("/api/public/referral/claim", request.url);
+  claimUrl.searchParams.set("campaign", parsed.data.campaign);
+  claimUrl.searchParams.set("ref", parsed.data.ref);
 
-  let recorded = false;
-  try {
-    await enforceRateLimit(request, "referral/visit", {
-      limit: 30,
-      windowMs: 60_000,
-    });
-    await recordReferralOpen({
-      campaignSlug: parsed.data.campaign,
-      ref: parsed.data.ref,
-      visitorSessionId,
-    });
-    recorded = true;
-  } catch {
-    // Keep the referral parameters on failure so the landing-page retry can
-    // recover from a transient database/network problem.
-  }
-
-  const response = redirectToCampaign(
-    request,
-    parsed.data.campaign,
-    recorded ? undefined : parsed.data.ref,
+  const response = new NextResponse(
+    `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Opening Voucher Hunt…</title>
+  </head>
+  <body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f6ff;color:#0b1d3a;font-family:Arial,sans-serif">
+    <main style="text-align:center;padding:24px">
+      <div style="width:48px;height:48px;margin:0 auto 16px;border:4px solid #ded7ff;border-top-color:#633cff;border-radius:50%;animation:spin .8s linear infinite"></div>
+      <strong>Opening your voucher hunt…</strong>
+      <p style="color:#68738c">Confirming your visit securely.</p>
+    </main>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    <script>window.location.replace(${JSON.stringify(claimUrl.toString())});</script>
+  </body>
+</html>`,
+    {
+      headers: {
+        "cache-control": "private, no-cache, no-store, max-age=0",
+        "content-type": "text/html; charset=utf-8",
+      },
+    },
   );
   if (!existingVisitorId) {
     response.cookies.set({
