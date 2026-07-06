@@ -1,4 +1,4 @@
-import { createClient, type Client, type InArgs, type Transaction } from "@libsql/client";
+import { createClient, type Client, type InArgs, type InStatement, type Transaction } from "@libsql/client";
 import type {
   AnalyticsEvent,
   Business,
@@ -203,17 +203,28 @@ function rawClient(): Client {
   return client;
 }
 
-/** Creates the schema (and seeds an empty database) exactly once per process. */
+/** Creates the schema (and seeds a fresh/partial database) exactly once per process. */
 function ensureReady(): Promise<void> {
-  if (!readyPromise) readyPromise = init();
+  if (!readyPromise) {
+    // Do not cache a rejected init: a transient failure would otherwise poison
+    // every later request in this serverless instance until it cold-starts again.
+    readyPromise = init().catch((error) => {
+      readyPromise = null;
+      throw error;
+    });
+  }
   return readyPromise;
 }
 
 async function init() {
   const c = rawClient();
   await c.executeMultiple(SCHEMA);
-  const rs = await c.execute("SELECT COUNT(*) AS c FROM campaigns");
-  if (Number((rs.rows[0] as Row).c) === 0) await seed(c);
+  // Self-heal: seed when the database is empty OR partially seeded (e.g. a
+  // previous interactive-transaction seed committed campaigns but not slots).
+  // The seed is idempotent (INSERT OR IGNORE), so re-running it is safe.
+  const rs = await c.execute("SELECT (SELECT COUNT(*) FROM campaigns) AS c, (SELECT COUNT(*) FROM slots) AS s");
+  const row = rs.rows[0] as Row;
+  if (Number(row.c) === 0 || Number(row.s) === 0) await seed(c);
 }
 
 /** Returns the ready libSQL client (schema created + seeded on first use). */
@@ -406,113 +417,102 @@ const INSERT_SLOT = `INSERT OR IGNORE INTO slots (id, campaign_id, date, start_t
 const INSERT_POOL = `INSERT OR IGNORE INTO pools (id, slot_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
      VALUES (@id, @slotId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`;
 
-/** Seeds demo data. Idempotent (INSERT OR IGNORE) so concurrent cold starts are safe. */
+/**
+ * Seeds demo data as a single atomic batch. `client.batch(..., "write")` runs
+ * every statement in one implicit transaction over a single network round-trip,
+ * which is far more reliable on Turso/Hrana in serverless than an interactive
+ * transaction (whose stream can drop between round-trips, leaving a partial
+ * seed). Idempotent via INSERT OR IGNORE, so concurrent cold starts are safe.
+ */
 async function seed(c: Client) {
-  const tx = await c.transaction("write");
-  try {
-    for (const r of seedData.businesses) {
-      await tx.execute({
-        sql: INSERT_BUSINESS,
-        args: { id: r.id, name: r.name, logoText: r.logoText, industry: r.industry, staffPin: r.staffPin }
-      });
-    }
-    for (const r of seedData.campaigns) {
-      await tx.execute({
-        sql: INSERT_CAMPAIGN,
-        args: {
-          id: r.id,
-          businessId: r.businessId,
-          slug: r.slug,
-          title: r.title,
-          offerMessage: r.offerMessage,
-          heroImage: r.heroImage,
-          mode: r.mode,
-          status: r.status,
-          startDate: r.startDate,
-          endDate: r.endDate,
-          baseAttempts: r.baseAttempts,
-          referralDailyLimit: r.referralDailyLimit,
-          candidateTimeoutMinutes: r.candidateTimeoutMinutes,
-          terms: r.terms,
-          shopUrl: r.shopUrl ?? null,
-          requireOtp: r.requireOtp ? 1 : 0,
-          allowReschedule: r.allowReschedule ? 1 : 0
-        }
-      });
-    }
-    for (const r of seedData.slots) {
-      await tx.execute({
-        sql: INSERT_SLOT,
-        args: {
-          id: r.id,
-          campaignId: r.campaignId,
-          date: r.date,
-          startTime: r.startTime,
-          endTime: r.endTime,
-          timezone: r.timezone,
-          branchId: r.branchId ?? null,
-          totalCapacity: r.totalCapacity,
-          remainingCapacity: r.remainingCapacity,
-          status: r.status
-        }
-      });
-    }
-    for (const r of seedData.pools) {
-      await tx.execute({
-        sql: INSERT_POOL,
-        args: {
-          id: r.id,
-          slotId: r.slotId,
-          benefitType: r.benefitType,
-          benefitValue: r.benefitValue,
-          displayLabel: r.displayLabel,
-          totalQuantity: r.totalQuantity,
-          remainingQuantity: r.remainingQuantity,
-          probabilityWeight: r.probabilityWeight,
-          expiryType: r.expiryType,
-          expiryValue: r.expiryValue,
-          minimumSpend: r.minimumSpend ?? null,
-          status: r.status,
-          restriction: r.restriction ?? null
-        }
-      });
-    }
-    await tx.commit();
-  } catch (error) {
-    await tx.rollback();
-    throw error;
-  }
+  const statements: InStatement[] = [
+    ...seedData.businesses.map((r) => ({
+      sql: INSERT_BUSINESS,
+      args: { id: r.id, name: r.name, logoText: r.logoText, industry: r.industry, staffPin: r.staffPin }
+    })),
+    ...seedData.campaigns.map((r) => ({
+      sql: INSERT_CAMPAIGN,
+      args: {
+        id: r.id,
+        businessId: r.businessId,
+        slug: r.slug,
+        title: r.title,
+        offerMessage: r.offerMessage,
+        heroImage: r.heroImage,
+        mode: r.mode,
+        status: r.status,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        baseAttempts: r.baseAttempts,
+        referralDailyLimit: r.referralDailyLimit,
+        candidateTimeoutMinutes: r.candidateTimeoutMinutes,
+        terms: r.terms,
+        shopUrl: r.shopUrl ?? null,
+        requireOtp: r.requireOtp ? 1 : 0,
+        allowReschedule: r.allowReschedule ? 1 : 0
+      }
+    })),
+    ...seedData.slots.map((r) => ({
+      sql: INSERT_SLOT,
+      args: {
+        id: r.id,
+        campaignId: r.campaignId,
+        date: r.date,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        timezone: r.timezone,
+        branchId: r.branchId ?? null,
+        totalCapacity: r.totalCapacity,
+        remainingCapacity: r.remainingCapacity,
+        status: r.status
+      }
+    })),
+    ...seedData.pools.map((r) => ({
+      sql: INSERT_POOL,
+      args: {
+        id: r.id,
+        slotId: r.slotId,
+        benefitType: r.benefitType,
+        benefitValue: r.benefitValue,
+        displayLabel: r.displayLabel,
+        totalQuantity: r.totalQuantity,
+        remainingQuantity: r.remainingQuantity,
+        probabilityWeight: r.probabilityWeight,
+        expiryType: r.expiryType,
+        expiryValue: r.expiryValue,
+        minimumSpend: r.minimumSpend ?? null,
+        status: r.status,
+        restriction: r.restriction ?? null
+      }
+    }))
+  ];
+  await c.batch(statements, "write");
 }
 
-/** Wipe every table and re-seed. Used by tests and local resets. */
+/** Wipe every table and re-seed. Used by tests and the admin reset action. */
 export async function resetDb() {
   await ensureReady();
   const c = rawClient();
-  const tx = await c.transaction("write");
-  try {
-    for (const table of [
-      "rate_events",
-      "otp_challenges",
-      "analytics_events",
-      "referral_rewards",
-      "redemption_logs",
-      "sms_logs",
-      "reservations",
-      "vouchers",
-      "attempts",
-      "users",
-      "pools",
-      "slots",
-      "campaigns",
-      "businesses"
-    ]) {
-      await tx.execute(`DELETE FROM ${table}`);
-    }
-    await tx.commit();
-  } catch (error) {
-    await tx.rollback();
-    throw error;
-  }
+  const tables = [
+    "rate_events",
+    "otp_challenges",
+    "analytics_events",
+    "referral_rewards",
+    "redemption_logs",
+    "sms_logs",
+    "reservations",
+    "vouchers",
+    "attempts",
+    "users",
+    "pools",
+    "slots",
+    "campaigns",
+    "businesses"
+  ];
+  await c.batch(
+    tables.map((table) => `DELETE FROM ${table}`),
+    "write"
+  );
   await seed(c);
 }
 
