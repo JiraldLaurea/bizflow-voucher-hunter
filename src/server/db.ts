@@ -219,12 +219,10 @@ function ensureReady(): Promise<void> {
 async function init() {
   const c = rawClient();
   await c.executeMultiple(SCHEMA);
-  // Self-heal: seed when the database is empty OR partially seeded (e.g. a
-  // previous interactive-transaction seed committed campaigns but not slots).
-  // The seed is idempotent (INSERT OR IGNORE), so re-running it is safe.
-  const rs = await c.execute("SELECT (SELECT COUNT(*) FROM campaigns) AS c, (SELECT COUNT(*) FROM slots) AS s");
-  const row = rs.rows[0] as Row;
-  if (Number(row.c) === 0 || Number(row.s) === 0) await seed(c);
+  // Check the identity of every required demo row, not just table totals. A
+  // partial production seed can still have non-zero campaign/slot counts while
+  // one complete campaign (such as 8pm-drop) is absent.
+  if (!(await hasCompleteSeed(c))) await seed(c);
 }
 
 /** Returns the ready libSQL client (schema created + seeded on first use). */
@@ -407,6 +405,26 @@ export const seedData: {
     { id: "pool_shop_0706_2200_ship", slotId: "slot_shop_0706_2200", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 25, remainingQuantity: 25, probabilityWeight: 30, expiryType: "days", expiryValue: 7, status: "active" }
   ]
 };
+
+async function hasCompleteSeed(c: Client) {
+  const groups: Array<[string, Array<{ id: string }>]> = [
+    ["businesses", seedData.businesses],
+    ["campaigns", seedData.campaigns],
+    ["slots", seedData.slots],
+    ["pools", seedData.pools],
+  ];
+
+  for (const [table, rows] of groups) {
+    if (rows.length === 0) continue;
+    const result = await c.execute({
+      sql: `SELECT COUNT(*) AS count FROM ${table} WHERE id IN (${rows.map(() => "?").join(",")})`,
+      args: rows.map((row) => row.id),
+    });
+    if (Number((result.rows[0] as Row).count) !== rows.length) return false;
+  }
+
+  return true;
+}
 
 const INSERT_BUSINESS =
   "INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)";
