@@ -437,23 +437,49 @@ export function PublicStepClient({
           email: state.email,
         }),
       });
-      save({ userId: started.user.id });
-      const attempts: VoucherAttempt[] = [];
-      for (let index = 0; index < campaign.baseAttempts; index += 1) {
+      const activeAttempts = started.attempts.filter(
+        (attempt) =>
+          attempt.status === "Candidate" || attempt.status === "Held",
+      );
+      const previouslySelected = activeAttempts.find(
+        (attempt) => attempt.id === state.selectedAttemptId,
+      );
+      const resumeAttempt =
+        previouslySelected ??
+        (started.remainingBaseAttempts === 0 ? activeAttempts[0] : undefined);
+      const resumeSlotId = resumeAttempt?.slotId ?? state.selectedSlotId;
+      const attempts = activeAttempts.filter(
+        (attempt) => attempt.slotId === resumeSlotId,
+      );
+
+      for (let index = 0; index < started.remainingBaseAttempts; index += 1) {
         attempts.push(
           await api<VoucherAttempt>("/api/public/hunt/attempt", {
             method: "POST",
             body: JSON.stringify({
               campaignSlug: campaign.slug,
-              slotId: state.selectedSlotId,
+              slotId: resumeSlotId,
               phone: state.phone,
               sessionId: state.sessionId,
             }),
           }),
         );
       }
-      save({ attempts, selectedAttemptId: attempts[0]?.id ?? "" });
-      router.push(routeFor("results"));
+
+      const restoredSelection = attempts.find(
+        (attempt) => attempt.id === state.selectedAttemptId,
+      );
+      const restoredSlot = slots.find((slot) => slot.id === resumeSlotId);
+      save({
+        userId: started.user.id,
+        selectedDate: restoredSlot?.date ?? state.selectedDate,
+        selectedSlotId: resumeSlotId,
+        attempts,
+        selectedAttemptId: restoredSelection?.id ?? attempts[0]?.id ?? "",
+      });
+      router.push(
+        restoredSelection ? routeFor("confirm") : routeFor("results"),
+      );
     } catch (caught) {
       reportError(caught, "Unable to start voucher hunt.");
     } finally {
@@ -690,6 +716,28 @@ export function PublicStepClient({
           {soldOut ? renderSoldOutNotice() : null}
           {renderStep()}
         </section>
+        {busy && step === "hunt" ? (
+          <div
+            aria-labelledby="hunt-loading-title"
+            aria-modal="true"
+            className="hunt-loading-backdrop"
+            role="dialog"
+          >
+            <div className="hunt-loading-modal">
+              <div className="hunt-loading-emblem" aria-hidden="true">
+                <span className="hunt-loading-ring" />
+                <FiShoppingBag />
+              </div>
+              <h2 id="hunt-loading-title">Preparing your vouchers…</h2>
+              <p>Restoring your hunt and checking voucher availability.</p>
+              <div className="hunt-loading-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );
@@ -817,14 +865,19 @@ export function PublicStepClient({
                   className={`slot-row ${slot.id === state.selectedSlotId ? "active" : ""} ${soldOut ? "sold-out" : ""}`}
                   disabled={soldOut}
                   key={slot.id}
-                  onClick={() =>
+                  onClick={() => {
+                    const changingSlot = state.selectedSlotId !== slot.id;
                     save({
                       selectedSlotId: slot.id,
-                      attempts: [],
-                      selectedAttemptId: "",
-                      issued: null,
-                    })
-                  }
+                      ...(changingSlot
+                        ? {
+                            attempts: [],
+                            selectedAttemptId: "",
+                            issued: null,
+                          }
+                        : {}),
+                    });
+                  }}
                   type="button"
                 >
                   <strong>{formatTime(slot.startTime)}</strong>
@@ -908,19 +961,12 @@ export function PublicStepClient({
           {error ? <p className="alert">{error}</p> : null}
           <button
             aria-busy={busy}
-            className={`button full mobile-bottom-action hunt-start-button ${busy ? "is-loading" : ""}`}
+            className="button full mobile-bottom-action hunt-start-button"
             disabled={busy || !state.phone}
             onClick={startHunting}
             type="button"
           >
-            {busy ? (
-              <span className="hunt-loading-content" role="status">
-                <span className="hunt-loading-spinner" aria-hidden="true" />
-                Preparing your vouchers…
-              </span>
-            ) : (
-              "Start Hunting"
-            )}
+            Start Hunting
           </button>
         </>
       );
@@ -1151,9 +1197,12 @@ export function PublicStepClient({
                   <div className="otp-verify-row">
                     <input
                       aria-label="6-digit verification code"
+                      autoComplete="one-time-code"
+                      className={`otp-code-input ${otpCode ? "has-value" : ""}`}
                       disabled={!otpSent || otpBusy}
                       inputMode="numeric"
                       maxLength={6}
+                      pattern="[0-9]*"
                       placeholder={
                         otpSent ? "Enter 6-digit code" : "Send a code first"
                       }
@@ -1377,18 +1426,22 @@ export function PublicStepClient({
   }
 
   function selectDate(date: string) {
-    const nextSlot = slots.find(
+    const currentSlot = slots.find(
+      (slot) => slot.id === state.selectedSlotId && slot.date === date,
+    );
+    const nextSlot = currentSlot ?? slots.find(
       (slot) =>
         slot.date === date &&
         slot.status === "active" &&
         slot.remainingCapacity > 0,
     );
+    const changingSlot = nextSlot?.id !== state.selectedSlotId;
     save({
       selectedDate: date,
       selectedSlotId: nextSlot?.id ?? "",
-      attempts: [],
-      selectedAttemptId: "",
-      issued: null,
+      ...(changingSlot
+        ? { attempts: [], selectedAttemptId: "", issued: null }
+        : {}),
     });
   }
 }
