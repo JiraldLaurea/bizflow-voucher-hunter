@@ -413,6 +413,69 @@ h2 {
   box-shadow: none;
 }
 
+.hunt-start-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.hunt-start-button.is-loading:disabled {
+  opacity: 1;
+  cursor: wait;
+  box-shadow: 0 10px 22px rgba(92, 61, 255, 0.28);
+}
+
+.hunt-start-button.is-loading::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(
+    110deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.16) 45%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: hunt-button-shimmer 1.25s ease-in-out infinite;
+}
+
+.hunt-loading-content {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hunt-loading-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: hunt-spinner-rotate 700ms linear infinite;
+}
+
+@keyframes hunt-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hunt-button-shimmer {
+  55%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hunt-loading-spinner,
+  .hunt-start-button.is-loading::before {
+    animation: none;
+  }
+}
+
 .work-area {
   display: grid;
   gap: 18px;
@@ -1962,6 +2025,25 @@ th {
   max-width: 88%;
   margin-top: 12px;
   line-height: 1.45;
+}
+
+.date-empty-state {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 116px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.date-empty-state svg {
+  width: 26px;
+  height: 26px;
+  color: var(--purple);
+}
+
+.date-empty-state p {
+  margin: 0;
 }
 
 @keyframes voucher-shimmer {

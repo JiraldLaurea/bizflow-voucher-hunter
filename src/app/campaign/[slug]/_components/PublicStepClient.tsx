@@ -230,6 +230,7 @@ export function PublicStepClient({
   const [shareNoticeExiting, setShareNoticeExiting] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [soldOut, setSoldOut] = useState(false);
+  const [otpRequired, setOtpRequired] = useState(campaign.requireOtp);
   const [otpSent, setOtpSent] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
   const [otpCode, setOtpCode] = useState("");
@@ -244,6 +245,17 @@ export function PublicStepClient({
     step === "voucher"
       ? viewedVoucher?.voucher.qrToken
       : state.issued?.voucher.qrToken;
+
+  useEffect(() => {
+    if (campaign.requireOtp) setOtpRequired(true);
+  }, [campaign.requireOtp]);
+
+  useEffect(() => {
+    setOtpSent(false);
+    setOtpVerified(false);
+    setOtpCode("");
+    setOtpMessage("");
+  }, [campaign.slug, state.phone]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
@@ -592,7 +604,7 @@ export function PublicStepClient({
       setError("Name and mobile number are required.");
       return;
     }
-    if (campaign.requireOtp && !otpVerified) {
+    if (otpRequired && !otpVerified) {
       setError("Verify your phone number with the code we sent before confirming.");
       return;
     }
@@ -616,7 +628,20 @@ export function PublicStepClient({
       save({ issued });
       router.push(routeFor("confirmation"));
     } catch (caught) {
-      reportError(caught, "Unable to confirm voucher.");
+      const message =
+        caught instanceof Error
+          ? caught.message
+          : "Unable to confirm voucher.";
+      if (/phone verification is required/i.test(message)) {
+        setOtpRequired(true);
+        setOtpVerified(false);
+        setError("");
+        setOtpMessage(
+          "Send a verification code to your mobile number, then enter it below.",
+        );
+      } else {
+        reportError(caught, "Unable to confirm voucher.");
+      }
     } finally {
       setBusy(false);
     }
@@ -717,25 +742,32 @@ export function PublicStepClient({
             Available Dates & Remaining Vouchers
           </h2>
           <div className="date-list refined-date-list">
-            {dates.map((day) => (
-              <button
-                className={`date-card refined-date-card ${day.date === state.selectedDate ? "active" : ""} ${day.remaining <= 0 ? "sold-out" : ""}`}
-                disabled={day.remaining <= 0}
-                key={day.date}
-                onClick={() => selectDate(day.date)}
-                type="button"
-              >
-                <strong>{formatShortDate(day.date)}</strong>
-                <span
-                  className={`badge ${day.remaining <= 5 ? "warning" : ""} ${day.remaining <= 0 ? "danger" : ""}`}
+            {dates.length > 0 ? (
+              dates.map((day) => (
+                <button
+                  className={`date-card refined-date-card ${day.date === state.selectedDate ? "active" : ""} ${day.remaining <= 0 ? "sold-out" : ""}`}
+                  disabled={day.remaining <= 0}
+                  key={day.date}
+                  onClick={() => selectDate(day.date)}
+                  type="button"
                 >
-                  {day.remaining > 0
-                    ? `${day.remaining} vouchers left`
-                    : "Sold Out"}
-                </span>
-                <FiChevronRight aria-hidden="true" />
-              </button>
-            ))}
+                  <strong>{formatShortDate(day.date)}</strong>
+                  <span
+                    className={`badge ${day.remaining <= 5 ? "warning" : ""} ${day.remaining <= 0 ? "danger" : ""}`}
+                  >
+                    {day.remaining > 0
+                      ? `${day.remaining} vouchers left`
+                      : "Sold Out"}
+                  </span>
+                  <FiChevronRight aria-hidden="true" />
+                </button>
+              ))
+            ) : (
+              <div className="info-card date-empty-state">
+                <FiCalendar aria-hidden="true" />
+                <p>No campaign dates are available yet.</p>
+              </div>
+            )}
           </div>
           <p className="realtime-note">
             <FiRefreshCw aria-hidden="true" />
@@ -745,7 +777,11 @@ export function PublicStepClient({
             <Link className="button secondary full" href={routeFor("landing")}>
               Back
             </Link>
-            <Link className="button full" href={routeFor("time")}>
+            <Link
+              aria-disabled={dates.length === 0}
+              className={`button full ${dates.length === 0 ? "disabled-link" : ""}`}
+              href={dates.length > 0 ? routeFor("time") : routeFor("date")}
+            >
               Continue
             </Link>
           </div>
@@ -871,12 +907,20 @@ export function PublicStepClient({
           </label>
           {error ? <p className="alert">{error}</p> : null}
           <button
-            className="button full mobile-bottom-action"
+            aria-busy={busy}
+            className={`button full mobile-bottom-action hunt-start-button ${busy ? "is-loading" : ""}`}
             disabled={busy || !state.phone}
             onClick={startHunting}
             type="button"
           >
-            Start Hunting
+            {busy ? (
+              <span className="hunt-loading-content" role="status">
+                <span className="hunt-loading-spinner" aria-hidden="true" />
+                Preparing your vouchers…
+              </span>
+            ) : (
+              "Start Hunting"
+            )}
           </button>
         </>
       );
@@ -1087,7 +1131,7 @@ export function PublicStepClient({
               }
             />
           </div>
-          {campaign.requireOtp ? (
+          {otpRequired ? (
             <div className="otp-block">
               <span className="otp-block-label">Phone verification required</span>
               {otpVerified ? (
@@ -1104,26 +1148,29 @@ export function PublicStepClient({
                   >
                     {otpSent ? "Resend Verification Code" : "Send Verification Code"}
                   </button>
-                  {otpSent ? (
-                    <div className="otp-verify-row">
-                      <input
-                        aria-label="6-digit verification code"
-                        inputMode="numeric"
-                        maxLength={6}
-                        placeholder="Enter 6-digit code"
-                        value={otpCode}
-                        onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
-                      />
-                      <button
-                        className="button"
-                        disabled={otpBusy || otpCode.length !== 6}
-                        onClick={verifyOtpCode}
-                        type="button"
-                      >
-                        Verify
-                      </button>
-                    </div>
-                  ) : null}
+                  <div className="otp-verify-row">
+                    <input
+                      aria-label="6-digit verification code"
+                      disabled={!otpSent || otpBusy}
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder={
+                        otpSent ? "Enter 6-digit code" : "Send a code first"
+                      }
+                      value={otpCode}
+                      onChange={(event) =>
+                        setOtpCode(event.target.value.replace(/\D/g, ""))
+                      }
+                    />
+                    <button
+                      className="button"
+                      disabled={otpBusy || !otpSent || otpCode.length !== 6}
+                      onClick={verifyOtpCode}
+                      type="button"
+                    >
+                      Verify
+                    </button>
+                  </div>
                 </>
               )}
               {otpMessage ? <p className="muted otp-message">{otpMessage}</p> : null}
@@ -1137,7 +1184,7 @@ export function PublicStepClient({
               !state.name ||
               !state.phone ||
               !state.selectedAttemptId ||
-              (campaign.requireOtp && !otpVerified)
+              (otpRequired && !otpVerified)
             }
             onClick={issueFinalVoucher}
             type="button"
