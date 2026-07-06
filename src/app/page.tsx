@@ -1,8 +1,8 @@
 import { getPublicCampaign, listActiveCampaigns } from "@/server/voucher-engine";
 import { PublicStepClient } from "./campaign/[slug]/_components/PublicStepClient";
 
-export default function HomePage() {
-  const campaigns = listActiveCampaigns();
+export default async function HomePage() {
+  const campaigns = await listActiveCampaigns();
   const featured = campaigns[0];
 
   if (!featured) {
@@ -22,7 +22,7 @@ export default function HomePage() {
     );
   }
 
-  const data = getPublicCampaign(featured.slug);
+  const data = await getPublicCampaign(featured.slug);
   if (!data.business) {
     return null;
   }

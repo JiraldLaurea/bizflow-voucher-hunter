@@ -18,7 +18,7 @@ export async function GET(request: Request) {
       slotId: searchParams.get("slotId"),
       phone: searchParams.get("phone")
     });
-    return ok(getHuntSnapshot(input));
+    return ok(await getHuntSnapshot(input));
   } catch (error) {
     return fail(error);
   }

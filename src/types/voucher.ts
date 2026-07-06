@@ -29,6 +29,10 @@ export type Campaign = {
   candidateTimeoutMinutes: number;
   terms: string;
   shopUrl?: string;
+  /** When true, the final voucher can only be issued after phone OTP verification. */
+  requireOtp: boolean;
+  /** When true, an issued restaurant reservation can be moved to another slot. */
+  allowReschedule: boolean;
 };
 
 export type CampaignSlot = {

@@ -4,10 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
 
-const adminHeaders = {
-  "x-admin-token": process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN ?? "",
-};
-
 const emptySlot = { date: "", startTime: "", endTime: "", totalCapacity: "20", branchId: "" };
 
 export function NewSlotForm({ campaignId }: { campaignId: string }) {
@@ -24,7 +20,6 @@ export function NewSlotForm({ campaignId }: { campaignId: string }) {
     try {
       await api(`/api/campaigns/${campaignId}/slots`, {
         method: "POST",
-        headers: adminHeaders,
         body: JSON.stringify({
           date: slot.date,
           startTime: slot.startTime,

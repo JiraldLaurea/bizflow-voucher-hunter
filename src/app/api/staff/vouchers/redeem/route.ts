@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireAdmin } from "@/server/auth";
 import { fail, ok } from "@/server/errors";
 import { redeemVoucher } from "@/server/voucher-engine";
 
@@ -11,7 +12,8 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    return ok(redeemVoucher(schema.parse(await request.json())));
+    await requireAdmin(request);
+    return ok(await redeemVoucher(schema.parse(await request.json())));
   } catch (error) {
     return fail(error);
   }

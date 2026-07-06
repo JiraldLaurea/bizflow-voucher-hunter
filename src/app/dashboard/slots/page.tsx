@@ -4,18 +4,18 @@ import { CampaignSwitcher } from "../_components/CampaignSwitcher";
 import { NewSlotForm } from "../_components/NewSlotForm";
 import { selectCampaign } from "../_components/selectCampaign";
 
-export default function SlotsPage({
+export default async function SlotsPage({
   searchParams,
 }: {
   searchParams: { campaign?: string };
 }) {
-  const campaigns = listCampaigns();
+  const campaigns = await listCampaigns();
   const selectedCampaign = selectCampaign(campaigns, searchParams.campaign);
 
-  let slotRows: ReturnType<typeof dashboardMetrics>["slotPerformance"] = [];
+  let slotRows: Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"] = [];
   if (selectedCampaign) {
     try {
-      slotRows = dashboardMetrics(selectedCampaign.id).slotPerformance;
+      slotRows = (await dashboardMetrics(selectedCampaign.id)).slotPerformance;
     } catch {
       slotRows = [];
     }

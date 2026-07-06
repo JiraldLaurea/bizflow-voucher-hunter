@@ -13,53 +13,53 @@ const baseInput = {
 };
 
 describe("voucher engine", () => {
-  beforeEach(() => {
-    resetDb();
+  beforeEach(async () => {
+    await resetDb();
   });
 
-  it("generates exactly three base candidates and blocks the fourth", () => {
-    startHunt(baseInput);
-    const first = generateCandidate(baseInput);
-    const second = generateCandidate(baseInput);
-    const third = generateCandidate(baseInput);
+  it("generates exactly three base candidates and blocks the fourth", async () => {
+    await startHunt(baseInput);
+    const first = await generateCandidate(baseInput);
+    const second = await generateCandidate(baseInput);
+    const third = await generateCandidate(baseInput);
 
     expect([first, second, third]).toHaveLength(3);
-    expect(() => generateCandidate(baseInput)).toThrow(AppError);
+    await expect(generateCandidate(baseInput)).rejects.toThrow(AppError);
   });
 
-  it("issues one final voucher and blocks duplicate final issue for the same phone", () => {
-    startHunt(baseInput);
-    const first = generateCandidate(baseInput);
-    generateCandidate(baseInput);
-    generateCandidate(baseInput);
+  it("issues one final voucher and blocks duplicate final issue for the same phone", async () => {
+    await startHunt(baseInput);
+    const first = await generateCandidate(baseInput);
+    await generateCandidate(baseInput);
+    await generateCandidate(baseInput);
 
-    const issued = selectFinalVoucher({ ...baseInput, attemptId: first.id, guestCount: 2 });
+    const issued = await selectFinalVoucher({ ...baseInput, attemptId: first.id, guestCount: 2 });
 
     expect(issued.voucher.voucherCode).toMatch(/^BIZ-/);
     expect(issued.voucher.status).toBe("Issued");
-    expect(() => startHunt({ ...baseInput, sessionId: "another-session" })).toThrow(AppError);
+    await expect(startHunt({ ...baseInput, sessionId: "another-session" })).rejects.toThrow(AppError);
   });
 
-  it("validates and redeems an issued voucher", () => {
-    startHunt(baseInput);
-    const candidate = generateCandidate(baseInput);
-    const issued = selectFinalVoucher({ ...baseInput, attemptId: candidate.id, guestCount: 2 });
+  it("validates and redeems an issued voucher", async () => {
+    await startHunt(baseInput);
+    const candidate = await generateCandidate(baseInput);
+    const issued = await selectFinalVoucher({ ...baseInput, attemptId: candidate.id, guestCount: 2 });
 
-    const validation = validateVoucher({ codeOrToken: issued.voucher.voucherCode });
+    const validation = await validateVoucher({ codeOrToken: issued.voucher.voucherCode });
     expect(validation.voucher.status).toBe("Issued");
 
-    const redeemed = redeemVoucher({
+    const redeemed = await redeemVoucher({
       codeOrToken: issued.voucher.voucherCode,
       staffName: "Front Desk",
       purchaseAmount: 2200
     });
 
     expect(redeemed.voucher.status).toBe("Redeemed");
-    expect(() =>
+    await expect(
       redeemVoucher({
         codeOrToken: issued.voucher.voucherCode,
         staffName: "Front Desk"
       })
-    ).toThrow(AppError);
+    ).rejects.toThrow(AppError);
   });
 });

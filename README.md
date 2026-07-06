@@ -7,11 +7,17 @@ Reservation-based voucher hunting MVP for SMEs. The app lets a customer choose a
 - Mobile-first public voucher hunt flow
 - Desktop-optimized admin dashboard
 - Desktop-optimized staff validation and redemption page
-- SQLite persistence (`better-sqlite3`) with transactional, race-safe stock control
-- Admin CRUD API for campaigns, slots, and voucher pools (token-guarded)
-- Mock SMS logging
-- Dashboard metrics and CSV export
-- Unit and integration tests for the voucher engine, including concurrency guarantees
+- libSQL/Turso persistence (`@libsql/client`) with transactional, race-safe stock control — serverless-ready for Vercel
+- Admin CRUD API for campaigns, slots, and voucher pools (session + token guarded)
+- Real SMS delivery layer (Movider/Twilio/Infobip/ClickSend) with mock fallback
+- Server-enforced referral extra attempts
+- Optional phone **OTP verification** gate for final voucher issuance (per-campaign `requireOtp`)
+- **IP rate limiting** on public hunt/OTP/referral endpoints (hashed IPs)
+- Staff **no-show** tagging and **reservation rescheduling** (per-campaign `allowReschedule`)
+- **CSV redemption import** (e.g. Shopify used-codes report) from the dashboard
+- Sold-out recovery UI that suggests alternate available slots
+- Dashboard metrics and multi-section CSV export
+- Unit and integration tests, including concurrency, OTP, rate-limit, and lifecycle guarantees
 
 ## Public Customer Flow
 
@@ -61,6 +67,16 @@ where the token matches `ADMIN_ACCESS_TOKEN` from the environment.
 | `/api/campaigns/{id}` | GET / PATCH | Read or update a campaign |
 | `/api/campaigns/{id}/slots` | GET / POST | List or create date/time slots |
 | `/api/slots/{slotId}/pools` | GET / POST | List or create voucher pools for a slot |
+| `/api/campaigns/{id}/redemptions/import` | POST | Bulk-redeem codes from a CSV export (Shopify used-codes) |
+| `/api/staff/vouchers/no-show` | POST | Flag a reserved booking + voucher as no-show |
+| `/api/staff/reservations/reschedule` | POST | Move an issued reservation to another slot (if `allowReschedule`) |
+
+Public anti-abuse / verification endpoints (rate-limited, no admin token):
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/public/otp/request` | POST | Send a 6-digit OTP via SMS (campaigns with `requireOtp`) |
+| `/api/public/otp/verify` | POST | Verify the submitted OTP before final selection |
 
 Example:
 
@@ -81,7 +97,7 @@ curl -X POST http://127.0.0.1:3000/api/campaigns \
 - Inter via `next/font/local`
 - Vitest
 - Playwright test scaffold
-- SQLite datastore (`better-sqlite3`) at `data/bizflow.db` (path via `DATABASE_PATH`)
+- libSQL datastore (`@libsql/client`): a local SQLite file for dev/tests (`DATABASE_PATH`), Turso (`DATABASE_URL`) in production
 
 ## Setup
 
@@ -120,30 +136,33 @@ Detailed manual and automated test instructions are in:
 docs/TESTING.md
 ```
 
-## Reset Local Data
+## Database (libSQL / Turso)
 
-Runtime data is stored in a SQLite database at:
+The data layer uses `@libsql/client`, which speaks the SQLite dialect over a
+local file **or** a hosted Turso database:
 
-```text
-data/bizflow.db
-```
+- **Local dev & tests**: a SQLite file (`DATABASE_PATH`, default `data/bizflow.db`).
+  The schema is created and seeded automatically on first use.
+- **Production (Vercel)**: set `DATABASE_URL=libsql://<db>.turso.io` and
+  `DATABASE_AUTH_TOKEN=<token>`. When `DATABASE_URL` is set it takes precedence.
 
-To regenerate seeded campaigns, stop the dev server and delete `data/bizflow.db*`
-(including the `-shm`/`-wal` sidecar files). The next app/API load recreates and
-reseeds it from `src/server/db.ts`. Tests use a separate `data/test-bizflow.db`.
+To deploy on Vercel: create a free Turso DB (`turso db create` + `turso db tokens create`),
+add `DATABASE_URL` / `DATABASE_AUTH_TOKEN` (and `ADMIN_SESSION_SECRET`, admin creds,
+SMS keys) as project env vars, and deploy. The schema/seed runs on the first request.
+
+To regenerate seeded demo data locally, stop the dev server and delete
+`data/bizflow.db*`; the next load recreates and reseeds it. Tests use a separate
+`data/test-bizflow.db`.
 
 ## Stock Control & Concurrency
 
 Slot capacity and voucher-pool quantity are protected against race conditions:
 
-- Every mutation runs inside a `better-sqlite3` transaction.
-- Stock and capacity are reduced with conditional updates (`... WHERE remaining > 0`) and the row-change count is verified, so a depleted pool/slot can never be over-issued.
+- Every mutation runs inside a libSQL write transaction (`withTx`).
+- Stock and capacity are reduced with conditional updates (`... WHERE remaining > 0`) and the affected-row count is verified, so a depleted pool/slot can never be over-issued.
 - A `UNIQUE(campaign_id, user_id)` constraint on `vouchers` is the authoritative guard for the "one final voucher per phone per campaign" rule under concurrent selects.
 
-Covered by `tests/integration/concurrency.test.ts`.
-
-> Note: this protects a single SQLite instance. A multi-instance/serverless
-> deployment should move to PostgreSQL/Supabase with the same transactional pattern.
+Covered by `tests/integration/concurrency.test.ts`. On Turso these guarantees hold across serverless instances (single primary with transactional writes).
 
 ## Important Notes
 
@@ -155,7 +174,7 @@ Covered by `tests/integration/concurrency.test.ts`.
 
 Before production:
 
-- Move SQLite to PostgreSQL/Supabase for multi-instance deployments (keep the transactional / conditional-update pattern).
+- Provision a Turso database and set `DATABASE_URL` / `DATABASE_AUTH_TOKEN` (the data layer is already serverless-ready via `@libsql/client`).
 - Add real SMS provider integration.
 - Add OTP or stronger duplicate prevention for high-value campaigns.
 - Add rate limiting and a real admin auth/session layer (the current admin API uses a single shared token).

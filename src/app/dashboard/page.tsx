@@ -3,18 +3,18 @@ import { dashboardMetrics } from "@/server/voucher-engine";
 import { CampaignSwitcher } from "./_components/CampaignSwitcher";
 import { selectCampaign } from "./_components/selectCampaign";
 
-export default function DashboardPage({
+export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: { campaign?: string };
 }) {
-  const campaigns = listCampaigns();
+  const campaigns = await listCampaigns();
   const selectedCampaign = selectCampaign(campaigns, searchParams.campaign);
 
-  let metrics: ReturnType<typeof dashboardMetrics> | null = null;
+  let metrics: Awaited<ReturnType<typeof dashboardMetrics>> | null = null;
   if (selectedCampaign) {
     try {
-      metrics = dashboardMetrics(selectedCampaign.id);
+      metrics = await dashboardMetrics(selectedCampaign.id);
     } catch {
       metrics = null;
     }

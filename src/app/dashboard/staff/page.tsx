@@ -42,6 +42,8 @@ export default function StaffPage() {
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<Validation | null>(null);
+  const [rescheduleSlots, setRescheduleSlots] = useState<CampaignSlot[]>([]);
+  const [newSlotId, setNewSlotId] = useState("");
   const [scanMessage, setScanMessage] = useState("");
   const [scanning, setScanning] = useState(false);
   const [validationToast, setValidationToast] = useState<{
@@ -204,8 +206,65 @@ export default function StaffPage() {
     }
   }
 
+  async function markNoShowAction() {
+    try {
+      await api("/api/staff/vouchers/no-show", {
+        method: "POST",
+        body: JSON.stringify({ codeOrToken: code, staffName: staffName.trim() || undefined }),
+      });
+      showAdminToast("Reservation marked as no-show.", "success");
+      await validate(code);
+    } catch (error) {
+      showAdminToast(error instanceof Error ? error.message : "Unable to mark no-show.");
+    }
+  }
+
+  async function rescheduleAction() {
+    if (!newSlotId) {
+      showAdminToast("Choose a new slot first.");
+      return;
+    }
+    try {
+      await api("/api/staff/reservations/reschedule", {
+        method: "POST",
+        body: JSON.stringify({ codeOrToken: code, newSlotId }),
+      });
+      showAdminToast("Reservation rescheduled.", "success");
+      setNewSlotId("");
+      await validate(code);
+    } catch (error) {
+      showAdminToast(error instanceof Error ? error.message : "Unable to reschedule.");
+    }
+  }
+
+  // Load alternate slots when the current voucher belongs to a reschedule-enabled campaign.
+  useEffect(() => {
+    const slug = result?.campaign?.slug;
+    if (!slug || !result?.campaign?.allowReschedule) {
+      setRescheduleSlots([]);
+      return;
+    }
+    let active = true;
+    api<Array<CampaignSlot & { remainingPoolQuantity: number }>>(`/api/public/campaigns/${slug}/slots`)
+      .then((slots) => {
+        if (active) {
+          setRescheduleSlots(
+            slots.filter((slot) => slot.status === "active" && slot.remainingCapacity > 0 && slot.id !== result.slot?.id),
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setRescheduleSlots([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [result?.campaign?.slug, result?.campaign?.allowReschedule, result?.slot?.id]);
+
   const presentation = result ? statusPresentation[result.voucher.status] : undefined;
   const canRedeem = result?.voucher.status === "Issued" || result?.voucher.status === "Delivered";
+  const isRestaurant = result?.campaign?.mode === "restaurant";
+  const canManageReservation = canRedeem && isRestaurant;
 
   return (
     <>
@@ -361,6 +420,34 @@ export default function StaffPage() {
                 </div>
               </div>
               <button className="button full staff-panel-action" disabled={!canRedeem} onClick={redeem}>Mark as Used</button>
+              {canManageReservation ? (
+                <div className="staff-reservation-actions">
+                  <button className="button secondary full" onClick={markNoShowAction} type="button">
+                    <FiStopCircle aria-hidden="true" />
+                    Mark No-show
+                  </button>
+                  {result?.campaign?.allowReschedule ? (
+                    <div className="staff-reschedule-row">
+                      <select
+                        aria-label="Move reservation to another slot"
+                        className="field-select"
+                        value={newSlotId}
+                        onChange={(event) => setNewSlotId(event.target.value)}
+                      >
+                        <option value="">Move to another slot…</option>
+                        {rescheduleSlots.map((slot) => (
+                          <option key={slot.id} value={slot.id}>
+                            {slot.date} {slot.startTime}-{slot.endTime} ({slot.remainingCapacity} left)
+                          </option>
+                        ))}
+                      </select>
+                      <button className="button secondary" disabled={!newSlotId} onClick={rescheduleAction} type="button">
+                        Reschedule
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           ) : (
             <div className="staff-result-empty">

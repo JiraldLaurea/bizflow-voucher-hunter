@@ -917,6 +917,284 @@ h2 {
   background: var(--purple);
 }
 
+.sidebar-account {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 28px;
+  padding: 14px 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.sidebar-account-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.sidebar-account-copy strong,
+.sidebar-account-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-account-copy span {
+  opacity: 0.72;
+  font-size: 0.68rem;
+}
+
+.sidebar-account button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.sidebar-account button:hover {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.admin-login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 82% 12%, rgba(92, 61, 255, 0.14), transparent 28%),
+    linear-gradient(145deg, #f8faff, #eff3fb);
+}
+
+.admin-login-shell {
+  width: min(960px, 100%);
+  min-height: 600px;
+  display: grid;
+  grid-template-columns: minmax(310px, 0.9fr) minmax(390px, 1.1fr);
+  overflow: hidden;
+  border: 1px solid #dce3f0;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 28px 70px rgba(9, 30, 66, 0.18);
+}
+
+.admin-login-brand {
+  display: flex;
+  flex-direction: column;
+  padding: 36px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(124, 77, 255, 0.35), transparent 30%),
+    linear-gradient(155deg, #0c2446, #061a35 66%);
+}
+
+.admin-login-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-login-logo > span {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--purple), var(--purple-2));
+  font-size: 1.1rem;
+  font-weight: 950;
+}
+
+.admin-login-logo div {
+  display: grid;
+}
+
+.admin-login-logo strong {
+  font-size: 1.2rem;
+}
+
+.admin-login-logo small {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.admin-login-brand-copy {
+  margin: auto 0;
+}
+
+.admin-login-eyebrow,
+.admin-login-heading > span {
+  color: #a995ff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-login-brand-copy h2 {
+  max-width: 370px;
+  margin: 12px 0 16px;
+  color: #fff;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.02;
+}
+
+.admin-login-brand-copy p {
+  max-width: 390px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.65;
+}
+
+.admin-login-brand-footer {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 0.72rem;
+}
+
+.admin-login-form {
+  align-self: center;
+  display: grid;
+  gap: 18px;
+  padding: clamp(34px, 7vw, 72px);
+}
+
+.admin-login-heading {
+  margin-bottom: 8px;
+}
+
+.admin-login-heading h1 {
+  margin: 9px 0 10px;
+  font-size: clamp(2rem, 4vw, 2.7rem);
+  line-height: 1.05;
+}
+
+.admin-login-heading p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.admin-login-heading .admin-login-account-hint {
+  display: inline-flex;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #5b4db2;
+  background: var(--purple-soft);
+  font-size: 0.74rem;
+}
+
+.admin-login-account-hint strong {
+  font-weight: 850;
+}
+
+.admin-login-field {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-login-field > span {
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.admin-login-field > div {
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.admin-login-field > div:focus-within {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(92, 61, 255, 0.12);
+}
+
+.admin-login-field svg {
+  color: #8993a8;
+}
+
+.admin-login-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 13px 0;
+  border: 0;
+  outline: 0;
+  color: var(--navy);
+  background: transparent;
+}
+
+.admin-login-error {
+  margin: -4px 0 0;
+  padding: 11px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  color: #991b1b;
+  background: #fff1f2;
+  font-size: 0.78rem;
+}
+
+.admin-login-submit {
+  min-height: 50px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+
+.admin-login-security {
+  margin: -5px 0 0;
+  color: #8a94a8;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .admin-login-page {
+    padding: 14px;
+  }
+
+  .admin-login-shell {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-login-brand {
+    min-height: 180px;
+    padding: 24px;
+  }
+
+  .admin-login-brand-copy {
+    margin: 34px 0 0;
+  }
+
+  .admin-login-brand-copy h2 {
+    margin-bottom: 0;
+    font-size: 1.7rem;
+  }
+
+  .admin-login-brand-copy p,
+  .admin-login-brand-footer {
+    display: none;
+  }
+
+  .admin-login-form {
+    padding: 32px 24px;
+  }
+}
+
 .nav-item-icon {
   display: grid;
   place-items: center;
@@ -1667,7 +1945,16 @@ th {
 }
 
 .wallet-voucher {
+  display: block;
+  width: 100%;
+  font: inherit;
   text-align: left;
+  cursor: pointer;
+}
+
+.wallet-voucher:focus-visible {
+  outline: 3px solid var(--purple);
+  outline-offset: 3px;
 }
 
 .wallet-voucher-meta {
@@ -2140,4 +2427,119 @@ th {
   .voucher-art {
     height: 172px;
   }
+}
+
+/* --- OTP verification (public confirm step) --- */
+.otp-block {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  margin: 6px 0 4px;
+  border: 1px solid rgba(11, 29, 58, 0.12);
+  border-radius: 14px;
+  background: rgba(11, 29, 58, 0.03);
+}
+.otp-block-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.otp-verify-row {
+  display: flex;
+  gap: 8px;
+}
+.otp-verify-row input {
+  flex: 1;
+  letter-spacing: 0.35em;
+  text-align: center;
+}
+.otp-verified {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1f9d55;
+  font-weight: 600;
+  margin: 0;
+}
+.otp-message {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* --- Sold-out recovery notice (public flow) --- */
+.soldout-notice {
+  border: 1px solid rgba(229, 90, 54, 0.35);
+  background: rgba(229, 90, 54, 0.08);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.soldout-notice h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: #b23b1e;
+}
+.soldout-slot-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+/* --- Staff reservation actions --- */
+.staff-reservation-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.staff-reschedule-row {
+  display: flex;
+  gap: 8px;
+}
+.staff-reschedule-row .field-select {
+  flex: 1;
+}
+
+/* --- Admin form action row + redemption import --- */
+.admin-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.import-summary {
+  margin: 8px 0;
+}
+.import-result-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.import-result-list code {
+  font-size: 0.82rem;
+}
+
+/* --- Campaign flag toggles --- */
+.admin-form-toggles {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.campaign-flag-toggles {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.campaign-flag-toggles label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }

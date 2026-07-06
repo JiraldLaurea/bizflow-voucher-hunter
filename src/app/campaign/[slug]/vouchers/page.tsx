@@ -2,13 +2,13 @@ import { notFound } from "next/navigation";
 import { getPublicCampaign } from "@/server/voucher-engine";
 import { PublicStepClient } from "../_components/PublicStepClient";
 
-export default function MyVouchersPage({
+export default async function MyVouchersPage({
   params,
 }: {
   params: { slug: string };
 }) {
   try {
-    const data = getPublicCampaign(params.slug);
+    const data = await getPublicCampaign(params.slug);
     if (!data.business) notFound();
 
     return (

@@ -19,8 +19,8 @@ const schema = z.object({
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
-    requireAdmin(request);
-    return ok(listSlots(params.id));
+    await requireAdmin(request);
+    return ok(await listSlots(params.id));
   } catch (error) {
     return fail(error);
   }
@@ -28,9 +28,9 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     const input = schema.parse(await request.json());
-    return ok(createSlot(params.id, input), { status: 201 });
+    return ok(await createSlot(params.id, input), { status: 201 });
   } catch (error) {
     return fail(error);
   }
