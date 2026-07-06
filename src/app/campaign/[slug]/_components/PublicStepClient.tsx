@@ -83,6 +83,10 @@ type TabCampaign = Pick<Campaign, "slug" | "title" | "mode">;
 type FullPageLinkProps = ComponentPropsWithoutRef<"a"> & {
   prefetch?: boolean;
 };
+type ReferralState = Pick<
+  HuntState,
+  "sharesGrantedToday" | "remainingBonusAttempts"
+>;
 
 /**
  * Public campaign steps intentionally use document navigation. Next.js RSC
@@ -376,7 +380,7 @@ export function PublicStepClient({
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, state.selectedSlotId, state.phone]);
+  }, [step, state.userId]);
 
   useEffect(() => {
     if (!shareNotice) return;
@@ -548,15 +552,14 @@ export function PublicStepClient({
   }
 
   async function refreshShareState() {
-    if (!state.selectedSlotId || !state.phone) return;
+    if (!state.userId) return;
     try {
       const params = new URLSearchParams({
         campaignSlug: campaign.slug,
-        slotId: state.selectedSlotId,
-        phone: state.phone,
+        ref: state.userId,
       });
-      const snapshot = await api<HuntState>(
-        `/api/public/hunt/state?${params.toString()}`,
+      const snapshot = await api<ReferralState>(
+        `/api/public/referral/state?${params.toString()}`,
       );
       save({
         shareCount: snapshot.sharesGrantedToday,
@@ -647,22 +650,22 @@ export function PublicStepClient({
     const link = `${window.location.origin}/api/public/referral/visit?${query.toString()}`;
 
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: campaign.title,
-          text: "Open my voucher hunt link to give me one extra chance!",
-          url: link,
-        });
-        setShareNotice("Share link ready! Send it to a friend.");
-      } else if (navigator.clipboard) {
+      if (navigator.clipboard) {
         await navigator.clipboard.writeText(link);
-        setShareNotice("Link copied! Send it to a friend.");
       } else {
-        throw new Error("Sharing is not supported by this browser.");
+        const input = document.createElement("textarea");
+        input.value = link;
+        input.style.position = "fixed";
+        input.style.opacity = "0";
+        document.body.appendChild(input);
+        input.select();
+        const copied = document.execCommand("copy");
+        input.remove();
+        if (!copied) throw new Error("Unable to copy the share link.");
       }
       setShareNoticeExiting(false);
+      setShareNotice("Link copied! Send it to a friend.");
     } catch (caught) {
-      if (caught instanceof DOMException && caught.name === "AbortError") return;
       setError(
         caught instanceof Error
           ? caught.message

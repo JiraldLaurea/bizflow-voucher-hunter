@@ -230,6 +230,36 @@ export function recordReferralOpen(input: { campaignSlug: string; ref: string; v
   });
 }
 
+/** Reads referral progress using the exact referrer id encoded in the link. */
+export async function getReferralSnapshot(input: {
+  campaignSlug: string;
+  ref: string;
+}) {
+  const db = await getDb();
+  const campaign = await getCampaignOrThrow(db, input.campaignSlug);
+  const userRow = await one(
+    db,
+    "SELECT * FROM users WHERE id = ? AND campaign_id = ?",
+    [input.ref, campaign.id],
+  );
+  if (!userRow) {
+    throw new AppError("E-REFERRAL-404", "Referral link is invalid", 404);
+  }
+  const sharesGrantedToday = await countGrantedRewardsToday(
+    db,
+    campaign.id,
+    input.ref,
+  );
+  return {
+    sharesGrantedToday,
+    remainingBonusAttempts: await remainingBonusAttempts(
+      db,
+      campaign,
+      input.ref,
+    ),
+  };
+}
+
 export async function publicSlots(campaignId: string) {
   const db = await getDb();
   const slots = (await all(db, "SELECT * FROM slots WHERE campaign_id = ?", [campaignId])).map(mapSlot);

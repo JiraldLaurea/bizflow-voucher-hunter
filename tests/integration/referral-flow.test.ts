@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { resetDb } from "@/server/db";
-import { generateCandidate, recordReferralOpen, startHunt } from "@/server/voucher-engine";
+import {
+  generateCandidate,
+  getReferralSnapshot,
+  recordReferralOpen,
+  startHunt,
+} from "@/server/voucher-engine";
 import { GET as visitReferral } from "@/app/api/public/referral/visit/route";
 
 const bonusDraw = (phone: string) =>
@@ -60,6 +65,15 @@ describe("referral share module", () => {
     expect(response.headers.get("location")).toBe(
       "http://localhost/campaign/july-dinner",
     );
+    expect(
+      await getReferralSnapshot({
+        campaignSlug: "july-dinner",
+        ref: referrer.id,
+      }),
+    ).toMatchObject({
+      sharesGrantedToday: 1,
+      remainingBonusAttempts: 1,
+    });
     expect((await bonusDraw(referrer.phone)).sourceType).toBe("referral_bonus");
   });
 
