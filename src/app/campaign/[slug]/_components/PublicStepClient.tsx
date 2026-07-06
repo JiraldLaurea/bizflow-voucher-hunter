@@ -740,6 +740,7 @@ export function PublicStepClient({
                 href={
                   step === "voucher" ? routeFor("vouchers") : previousRoute(step)
                 }
+                prefetch={false}
               >
                 <FiChevronLeft aria-hidden="true" />
               </Link>
@@ -810,6 +811,7 @@ export function PublicStepClient({
           <Link
             className="button full landing-primary-action"
             href={routeFor("date")}
+            prefetch={false}
           >
             Let&apos;s Hunt!
           </Link>
@@ -860,13 +862,14 @@ export function PublicStepClient({
             Voucher counts update in real-time.
           </p>
           <div className="mobile-actions">
-            <Link className="button secondary full" href={routeFor("landing")}>
+            <Link className="button secondary full" href={routeFor("landing")} prefetch={false}>
               Back
             </Link>
             <Link
               aria-disabled={dates.length === 0}
               className={`button full ${dates.length === 0 ? "disabled-link" : ""}`}
               href={dates.length > 0 ? routeFor("time") : routeFor("date")}
+              prefetch={false}
             >
               Continue
             </Link>
@@ -888,7 +891,7 @@ export function PublicStepClient({
                 ? formatDate(state.selectedDate)
                 : "No date selected"}
             </strong>
-            <Link className="button tertiary" href={routeFor("date")}>
+            <Link className="button tertiary" href={routeFor("date")} prefetch={false}>
               Change
             </Link>
           </div>
@@ -931,12 +934,13 @@ export function PublicStepClient({
             })}
           </div>
           <div className="mobile-actions">
-            <Link className="button secondary full" href={routeFor("date")}>
+            <Link className="button secondary full" href={routeFor("date")} prefetch={false}>
               Back
             </Link>
             <Link
               className={`button full ${state.selectedSlotId ? "" : "disabled-link"}`}
               href={state.selectedSlotId ? routeFor("hunt") : routeFor("time")}
+              prefetch={false}
             >
               Continue
             </Link>
@@ -1018,7 +1022,7 @@ export function PublicStepClient({
           {state.attempts.length === 0 ? (
             <div className="info-card">
               <p>No voucher candidates yet.</p>
-              <Link className="button full" href={routeFor("hunt")}>
+              <Link className="button full" href={routeFor("hunt")} prefetch={false}>
                 Start Hunt
               </Link>
             </div>
@@ -1057,6 +1061,7 @@ export function PublicStepClient({
             href={
               state.selectedAttemptId ? routeFor("share") : routeFor("results")
             }
+            prefetch={false}
           >
             Continue
           </Link>
@@ -1069,7 +1074,7 @@ export function PublicStepClient({
         return (
           <div className="info-card">
             <p>Start a voucher hunt first to get your share link.</p>
-            <Link className="button full" href={routeFor("hunt")}>
+            <Link className="button full" href={routeFor("hunt")} prefetch={false}>
               Start Hunt
             </Link>
           </div>
@@ -1127,6 +1132,7 @@ export function PublicStepClient({
           <Link
             className="button secondary full mobile-button-gap"
             href={routeFor("confirm")}
+            prefetch={false}
           >
             Skip for Now
           </Link>
@@ -1373,6 +1379,7 @@ export function PublicStepClient({
           <Link
             className="button full mobile-bottom-action"
             href={routeFor("vouchers")}
+            prefetch={false}
           >
             Back to My Vouchers
           </Link>
@@ -1380,7 +1387,7 @@ export function PublicStepClient({
       ) : (
         <div className="info-card">
           <p>This voucher is no longer saved on this device.</p>
-          <Link className="button full" href={routeFor("vouchers")}>
+          <Link className="button full" href={routeFor("vouchers")} prefetch={false}>
             Back to My Vouchers
           </Link>
         </div>
@@ -1454,7 +1461,7 @@ export function PublicStepClient({
         ) : (
           <div className="info-card">
             <p>No confirmed voucher found on this device.</p>
-            <Link className="button full" href={routeFor("landing")}>
+            <Link className="button full" href={routeFor("landing")} prefetch={false}>
               Start Again
             </Link>
           </div>
@@ -1508,6 +1515,7 @@ function CampaignTabs({
           className={`landing-tab ${item.slug === currentSlug ? "active" : ""}`}
           href={`/campaign/${item.slug}`}
           key={item.slug}
+          prefetch={false}
         >
           {modeIcons[item.mode]}
           {item.title}
@@ -1625,6 +1633,7 @@ function BottomNav({
       <Link
         className={activeTab === "home" ? "active" : ""}
         href={routeFor("landing")}
+        prefetch={false}
       >
         <FiHome aria-hidden="true" />
         Home
@@ -1632,6 +1641,7 @@ function BottomNav({
       <Link
         className={activeTab === "vouchers" ? "active" : ""}
         href={routeFor("vouchers")}
+        prefetch={false}
       >
         <FiShoppingBag aria-hidden="true" />
         Vouchers

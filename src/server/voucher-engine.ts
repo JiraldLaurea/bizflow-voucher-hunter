@@ -249,7 +249,14 @@ export async function getPublicCampaign(slug: string) {
   const db = await getDb();
   const campaign = await getCampaignOrThrow(db, slug);
   const businessRow = await one(db, "SELECT * FROM businesses WHERE id = ?", [campaign.businessId]);
-  await addAnalytics(db, campaign.id, "campaign_page_view");
+  // Page availability must not depend on a nonessential analytics write.
+  // Client-side Link prefetch can issue concurrent reads, and a transient
+  // analytics failure previously caused valid campaigns to render as 404.
+  try {
+    await addAnalytics(db, campaign.id, "campaign_page_view");
+  } catch {
+    // Best effort: never make the public campaign unavailable for telemetry.
+  }
   return {
     campaign,
     business: businessRow ? mapBusiness(businessRow) : undefined,
