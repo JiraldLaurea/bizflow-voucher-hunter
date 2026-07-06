@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
 import { resetDb } from "@/server/db";
 import { generateCandidate, recordReferralOpen, startHunt } from "@/server/voucher-engine";
+import { GET as visitReferral } from "@/app/api/public/referral/visit/route";
 
 const bonusDraw = (phone: string) =>
   generateCandidate({
@@ -43,6 +45,22 @@ describe("referral share module", () => {
 
     // The single earned attempt is now spent; a second bonus draw should fail.
     await expect(bonusDraw(referrer.phone)).rejects.toThrowError(/No extra attempts earned/);
+  });
+
+  it("records a referral through the mobile-safe redirect before loading the campaign", async () => {
+    const referrer = await startReferrer();
+    const request = new NextRequest(
+      `http://localhost/api/public/referral/visit?campaign=july-dinner&ref=${referrer.id}`,
+      { headers: { cookie: "bizflow_visitor_session=visitor-phone-session" } },
+    );
+
+    const response = await visitReferral(request);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "http://localhost/campaign/july-dinner",
+    );
+    expect((await bonusDraw(referrer.phone)).sourceType).toBe("referral_bonus");
   });
 
   it("rejects a self-referral (visitor session equals referrer session)", async () => {

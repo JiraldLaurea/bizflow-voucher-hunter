@@ -172,6 +172,7 @@ const steps: Array<{ id: PublicStep; label: string; href: string }> = [
 ];
 
 const claimedVouchersStorageKey = "bizflow-claimed-vouchers";
+const visitorSessionCookie = "bizflow_visitor_session";
 
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -273,6 +274,7 @@ export function PublicStepClient({
     const sessionId =
       window.localStorage.getItem(sessionKey) ?? crypto.randomUUID();
     window.localStorage.setItem(sessionKey, sessionId);
+    document.cookie = `${visitorSessionCookie}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=31536000; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
 
     let referralRetryTimeout: number | undefined;
     let cancelled = false;
@@ -633,6 +635,39 @@ export function PublicStepClient({
       setOtpMessage(caught instanceof Error ? caught.message : "Invalid code.");
     } finally {
       setOtpBusy(false);
+    }
+  }
+
+  async function shareReferralLink() {
+    setError("");
+    const query = new URLSearchParams({
+      campaign: campaign.slug,
+      ref: state.userId,
+    });
+    const link = `${window.location.origin}/api/public/referral/visit?${query.toString()}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: campaign.title,
+          text: "Open my voucher hunt link to give me one extra chance!",
+          url: link,
+        });
+        setShareNotice("Share link ready! Send it to a friend.");
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(link);
+        setShareNotice("Link copied! Send it to a friend.");
+      } else {
+        throw new Error("Sharing is not supported by this browser.");
+      }
+      setShareNoticeExiting(false);
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to prepare the share link.",
+      );
     }
   }
 
@@ -1140,12 +1175,7 @@ export function PublicStepClient({
           ) : (
             <button
               className="button full"
-              onClick={() => {
-                const link = `${window.location.origin}${routeFor("landing")}?ref=${state.userId}`;
-                navigator.clipboard?.writeText(link);
-                setShareNoticeExiting(false);
-                setShareNotice("Link copied! Send it to a friend.");
-              }}
+              onClick={shareReferralLink}
               type="button"
             >
               Share Now
