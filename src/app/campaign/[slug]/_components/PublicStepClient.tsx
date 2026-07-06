@@ -1,11 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import QRCode from "qrcode";
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   FaPaw,
   FaShoppingBag,
@@ -81,6 +79,19 @@ type FlowState = {
 };
 
 type TabCampaign = Pick<Campaign, "slug" | "title" | "mode">;
+
+type FullPageLinkProps = ComponentPropsWithoutRef<"a"> & {
+  prefetch?: boolean;
+};
+
+/**
+ * Public campaign steps intentionally use document navigation. Next.js RSC
+ * transitions can be routed to a stale serverless instance for this dynamic
+ * flow, while direct document requests consistently read current campaign data.
+ */
+function Link({ prefetch: _prefetch, ...props }: FullPageLinkProps) {
+  return <a {...props} />;
+}
 
 type Props = {
   step: PublicStep;
@@ -221,7 +232,6 @@ export function PublicStepClient({
   campaigns = [],
   voucherId,
 }: Props) {
-  const router = useRouter();
   const storageKey = `bizflow-flow-${campaign.slug}`;
   const [state, setState] = useState<FlowState>(() => initialState(slots));
   const [busy, setBusy] = useState(false);
@@ -416,6 +426,16 @@ export function PublicStepClient({
     });
   }
 
+  function saveAndNavigate(next: Partial<FlowState>, path: string) {
+    const updated = { ...state, ...next };
+    window.localStorage.setItem(storageKey, JSON.stringify(updated));
+    window.location.assign(path);
+  }
+
+  function navigate(path: string) {
+    window.location.assign(path);
+  }
+
   const currentStepNumber = steps.findIndex((item) => item.id === step) + 1;
   const selectedSlot = slots.find((slot) => slot.id === state.selectedSlotId);
   const selectedAttempt = state.attempts.find(
@@ -508,14 +528,14 @@ export function PublicStepClient({
         (attempt) => attempt.id === state.selectedAttemptId,
       );
       const restoredSlot = slots.find((slot) => slot.id === resumeSlotId);
-      save({
-        userId: started.user.id,
-        selectedDate: restoredSlot?.date ?? state.selectedDate,
-        selectedSlotId: resumeSlotId,
-        attempts,
-        selectedAttemptId: restoredSelection?.id ?? attempts[0]?.id ?? "",
-      });
-      router.push(
+      saveAndNavigate(
+        {
+          userId: started.user.id,
+          selectedDate: restoredSlot?.date ?? state.selectedDate,
+          selectedSlotId: resumeSlotId,
+          attempts,
+          selectedAttemptId: restoredSelection?.id ?? attempts[0]?.id ?? "",
+        },
         restoredSelection ? routeFor("confirm") : routeFor("results"),
       );
     } catch (caught) {
@@ -559,12 +579,14 @@ export function PublicStepClient({
           sourceType: "referral_bonus",
         }),
       });
-      save({
-        attempts: [...state.attempts, attempt],
-        selectedAttemptId: attempt.id,
-        bonusAttempts: Math.max(0, state.bonusAttempts - 1),
-      });
-      router.push(routeFor("results"));
+      saveAndNavigate(
+        {
+          attempts: [...state.attempts, attempt],
+          selectedAttemptId: attempt.id,
+          bonusAttempts: Math.max(0, state.bonusAttempts - 1),
+        },
+        routeFor("results"),
+      );
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -639,10 +661,12 @@ export function PublicStepClient({
                     className="button secondary full"
                     type="button"
                     onClick={() => {
-                      save({ selectedDate: slot.date, selectedSlotId: slot.id });
+                      saveAndNavigate(
+                        { selectedDate: slot.date, selectedSlotId: slot.id },
+                        routeFor("time"),
+                      );
                       setSoldOut(false);
                       setError("");
-                      router.push(routeFor("time"));
                     }}
                   >
                     {formatShortDate(slot.date)} · {formatTime(slot.startTime)} — {slot.remainingCapacity} left
@@ -689,8 +713,7 @@ export function PublicStepClient({
               : undefined,
         }),
       });
-      save({ issued });
-      router.push(routeFor("confirmation"));
+      saveAndNavigate({ issued }, routeFor("confirmation"));
     } catch (caught) {
       const message =
         caught instanceof Error
@@ -1302,7 +1325,7 @@ export function PublicStepClient({
                   className={`card candidate candidate-button wallet-voucher voucher-${getVoucherPresentation(item.voucher).rarity}`}
                   key={item.voucher.id}
                   onClick={() =>
-                    router.push(
+                    navigate(
                       `/campaign/${item.campaignSlug}/vouchers/${item.voucher.id}`,
                     )
                   }
@@ -1452,7 +1475,7 @@ export function PublicStepClient({
             </div>
             <button
               className="button full mobile-bottom-action"
-              onClick={() => router.push(routeFor("vouchers"))}
+              onClick={() => navigate(routeFor("vouchers"))}
               type="button"
             >
               View My Vouchers
