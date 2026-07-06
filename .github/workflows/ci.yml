@@ -14,7 +14,26 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+
+          for attempt in 1 2 3; do
+            if npm ci --prefer-offline --no-audit --no-fund; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "npm ci failed after 3 attempts"
+              exit 1
+            fi
+
+            echo "npm ci failed on attempt $attempt; retrying..."
+            sleep $((attempt * 10))
+          done
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test
