@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   FiCheckSquare,
   FiClock,
   FiFlag,
   FiGift,
   FiGrid,
+  FiLogOut,
   FiSettings,
 } from "react-icons/fi";
 
@@ -26,8 +27,21 @@ function isNavActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar() {
+export function Sidebar({
+  adminEmail,
+  adminName,
+}: {
+  adminEmail: string;
+  adminName: string;
+}) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login");
+    router.refresh();
+  }
 
   return (
     <aside className="sidebar">
@@ -48,9 +62,14 @@ export function Sidebar() {
           {item.label}
         </Link>
       ))}
-      <div style={{ marginTop: 28, padding: 10, borderTop: "1px solid rgba(255,255,255,.14)" }}>
-        <strong>Jane Admin</strong>
-        <div style={{ fontSize: ".72rem", opacity: 0.72 }}>Super Admin</div>
+      <div className="sidebar-account">
+        <div className="sidebar-account-copy">
+          <strong>{adminName}</strong>
+          <span title={adminEmail}>{adminEmail}</span>
+        </div>
+        <button aria-label="Log out" onClick={logout} type="button">
+          <FiLogOut aria-hidden="true" />
+        </button>
       </div>
     </aside>
   );

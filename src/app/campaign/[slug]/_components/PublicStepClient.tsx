@@ -5,7 +5,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   FaPaw,
   FaShoppingBag,
@@ -15,6 +15,7 @@ import {
   FaUtensils,
 } from "react-icons/fa";
 import {
+  FiAlertTriangle,
   FiBell,
   FiCalendar,
   FiCheckCircle,
@@ -47,6 +48,7 @@ type PublicStep =
   | "share"
   | "confirm"
   | "confirmation"
+  | "voucher"
   | "vouchers";
 type IssuedPayload = { voucher: Voucher; slot: CampaignSlot };
 type ClaimedVoucher = IssuedPayload & {
@@ -87,6 +89,7 @@ type Props = {
   businessLogo: string;
   slots: PublicSlot[];
   campaigns?: TabCampaign[];
+  voucherId?: string;
 };
 
 type VoucherCardProps = {
@@ -183,6 +186,12 @@ function formatTime(time: string) {
   return `${twelveHour}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
+function formatVoucherStatus(status: Voucher["status"]) {
+  if (status === "Issued") return "Confirmed";
+  if (status === "Redeemed") return "Used";
+  return status;
+}
+
 function initialState(slots: PublicSlot[]): FlowState {
   const firstAvailable = slots.find(
     (slot) => slot.status === "active" && slot.remainingCapacity > 0,
@@ -210,9 +219,9 @@ export function PublicStepClient({
   businessName,
   slots,
   campaigns = [],
+  voucherId,
 }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const storageKey = `bizflow-flow-${campaign.slug}`;
   const [state, setState] = useState<FlowState>(() => initialState(slots));
   const [busy, setBusy] = useState(false);
@@ -220,7 +229,21 @@ export function PublicStepClient({
   const [shareNotice, setShareNotice] = useState("");
   const [shareNoticeExiting, setShareNoticeExiting] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [soldOut, setSoldOut] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpMessage, setOtpMessage] = useState("");
   const [claimedVouchers, setClaimedVouchers] = useState<ClaimedVoucher[]>([]);
+  const viewedVoucher =
+    step === "voucher"
+      ? claimedVouchers.find((item) => item.voucher.id === voucherId)
+      : undefined;
+  const qrToken =
+    step === "voucher"
+      ? viewedVoucher?.voucher.qrToken
+      : state.issued?.voucher.qrToken;
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
@@ -229,7 +252,7 @@ export function PublicStepClient({
       window.localStorage.getItem(sessionKey) ?? crypto.randomUUID();
     window.localStorage.setItem(sessionKey, sessionId);
 
-    const ref = searchParams.get("ref");
+    const ref = new URLSearchParams(window.location.search).get("ref");
     if (ref) {
       const processedKey = `bizflow-ref-processed-${campaign.slug}-${ref}`;
       if (!window.sessionStorage.getItem(processedKey)) {
@@ -248,7 +271,7 @@ export function PublicStepClient({
       return;
     }
     setState({ ...initialState(slots), sessionId });
-  }, [slots, storageKey, campaign.slug, searchParams]);
+  }, [slots, storageKey, campaign.slug]);
 
   useEffect(() => {
     try {
@@ -310,7 +333,7 @@ export function PublicStepClient({
   }, [shareNotice]);
 
   useEffect(() => {
-    const token = state.issued?.voucher.qrToken;
+    const token = qrToken;
     if (!token) {
       setQrDataUrl("");
       return;
@@ -333,7 +356,7 @@ export function PublicStepClient({
     return () => {
       active = false;
     };
-  }, [state.issued?.voucher.qrToken]);
+  }, [qrToken]);
 
   function save(next: Partial<FlowState>) {
     setState((current) => {
@@ -373,6 +396,7 @@ export function PublicStepClient({
   }
 
   function pageTitle() {
+    if (step === "voucher") return "Voucher Details";
     return steps[currentStepNumber - 1]?.label ?? "Voucher Hunt";
   }
 
@@ -419,11 +443,7 @@ export function PublicStepClient({
       save({ attempts, selectedAttemptId: attempts[0]?.id ?? "" });
       router.push(routeFor("results"));
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Unable to start voucher hunt.",
-      );
+      reportError(caught, "Unable to start voucher hunt.");
     } finally {
       setBusy(false);
     }
@@ -480,6 +500,88 @@ export function PublicStepClient({
     }
   }
 
+  async function sendOtp() {
+    if (!state.phone) {
+      setOtpMessage("Enter your mobile number first.");
+      return;
+    }
+    setOtpBusy(true);
+    setOtpMessage("");
+    try {
+      const res = await api<{ sent: boolean; devCode?: string }>("/api/public/otp/request", {
+        method: "POST",
+        body: JSON.stringify({ campaignSlug: campaign.slug, phone: state.phone }),
+      });
+      setOtpSent(true);
+      setOtpMessage(res.devCode ? `Code sent. Demo code: ${res.devCode}` : "Verification code sent via SMS.");
+    } catch (caught) {
+      setOtpMessage(caught instanceof Error ? caught.message : "Unable to send code.");
+    } finally {
+      setOtpBusy(false);
+    }
+  }
+
+  async function verifyOtpCode() {
+    setOtpBusy(true);
+    setOtpMessage("");
+    try {
+      await api("/api/public/otp/verify", {
+        method: "POST",
+        body: JSON.stringify({ campaignSlug: campaign.slug, phone: state.phone, code: otpCode }),
+      });
+      setOtpVerified(true);
+      setOtpMessage("Phone number verified.");
+    } catch (caught) {
+      setOtpMessage(caught instanceof Error ? caught.message : "Invalid code.");
+    } finally {
+      setOtpBusy(false);
+    }
+  }
+
+  function reportError(caught: unknown, fallback: string) {
+    const message = caught instanceof Error ? caught.message : fallback;
+    if (/sold out/i.test(message)) setSoldOut(true);
+    setError(message);
+  }
+
+  function renderSoldOutNotice() {
+    const alternatives = slots.filter(
+      (slot) => slot.status === "active" && slot.remainingCapacity > 0 && slot.id !== state.selectedSlotId,
+    );
+    return (
+      <div className="soldout-notice" role="alert">
+        <h3>
+          <FiAlertTriangle aria-hidden="true" /> That slot just sold out
+        </h3>
+        {alternatives.length ? (
+          <>
+            <p className="muted">Pick another available time to keep hunting:</p>
+            <ul className="soldout-slot-list">
+              {alternatives.slice(0, 6).map((slot) => (
+                <li key={slot.id}>
+                  <button
+                    className="button secondary full"
+                    type="button"
+                    onClick={() => {
+                      save({ selectedDate: slot.date, selectedSlotId: slot.id });
+                      setSoldOut(false);
+                      setError("");
+                      router.push(routeFor("time"));
+                    }}
+                  >
+                    {formatShortDate(slot.date)} · {formatTime(slot.startTime)} — {slot.remainingCapacity} left
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="muted">All slots are fully claimed right now. Please check back later.</p>
+        )}
+      </div>
+    );
+  }
+
   async function issueFinalVoucher() {
     setError("");
     if (!state.selectedAttemptId) {
@@ -488,6 +590,10 @@ export function PublicStepClient({
     }
     if (!state.name || !state.phone) {
       setError("Name and mobile number are required.");
+      return;
+    }
+    if (campaign.requireOtp && !otpVerified) {
+      setError("Verify your phone number with the code we sent before confirming.");
       return;
     }
     setBusy(true);
@@ -510,9 +616,7 @@ export function PublicStepClient({
       save({ issued });
       router.push(routeFor("confirmation"));
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Unable to confirm voucher.",
-      );
+      reportError(caught, "Unable to confirm voucher.");
     } finally {
       setBusy(false);
     }
@@ -544,7 +648,9 @@ export function PublicStepClient({
               <Link
                 aria-label="Back"
                 className="step-back-link"
-                href={previousRoute(step)}
+                href={
+                  step === "voucher" ? routeFor("vouchers") : previousRoute(step)
+                }
               >
                 <FiChevronLeft aria-hidden="true" />
               </Link>
@@ -556,6 +662,7 @@ export function PublicStepClient({
         <section
           className={`mobile-screen-card ${step === "vouchers" ? "voucher-wallet-screen" : ""}`}
         >
+          {soldOut ? renderSoldOutNotice() : null}
           {renderStep()}
         </section>
       </div>
@@ -980,11 +1087,57 @@ export function PublicStepClient({
               }
             />
           </div>
+          {campaign.requireOtp ? (
+            <div className="otp-block">
+              <span className="otp-block-label">Phone verification required</span>
+              {otpVerified ? (
+                <p className="otp-verified">
+                  <FiCheckCircle aria-hidden="true" /> Phone number verified
+                </p>
+              ) : (
+                <>
+                  <button
+                    className="button secondary full"
+                    disabled={otpBusy || !state.phone}
+                    onClick={sendOtp}
+                    type="button"
+                  >
+                    {otpSent ? "Resend Verification Code" : "Send Verification Code"}
+                  </button>
+                  {otpSent ? (
+                    <div className="otp-verify-row">
+                      <input
+                        aria-label="6-digit verification code"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="Enter 6-digit code"
+                        value={otpCode}
+                        onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
+                      />
+                      <button
+                        className="button"
+                        disabled={otpBusy || otpCode.length !== 6}
+                        onClick={verifyOtpCode}
+                        type="button"
+                      >
+                        Verify
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              )}
+              {otpMessage ? <p className="muted otp-message">{otpMessage}</p> : null}
+            </div>
+          ) : null}
           {error ? <p className="alert">{error}</p> : null}
           <button
             className="button full mobile-bottom-action"
             disabled={
-              busy || !state.name || !state.phone || !state.selectedAttemptId
+              busy ||
+              !state.name ||
+              !state.phone ||
+              !state.selectedAttemptId ||
+              (campaign.requireOtp && !otpVerified)
             }
             onClick={issueFinalVoucher}
             type="button"
@@ -1004,9 +1157,16 @@ export function PublicStepClient({
           {claimedVouchers.length > 0 ? (
             <div className="candidate-grid">
               {claimedVouchers.map((item) => (
-                <article
-                  className={`card candidate wallet-voucher voucher-${getVoucherPresentation(item.voucher).rarity}`}
+                <button
+                  aria-label={`View details for ${item.voucher.displayLabel}`}
+                  className={`card candidate candidate-button wallet-voucher voucher-${getVoucherPresentation(item.voucher).rarity}`}
                   key={item.voucher.id}
+                  onClick={() =>
+                    router.push(
+                      `/campaign/${item.campaignSlug}/vouchers/${item.voucher.id}`,
+                    )
+                  }
+                  type="button"
                 >
                   <VoucherCard
                     benefit={item.voucher}
@@ -1017,7 +1177,7 @@ export function PublicStepClient({
                     {item.campaignTitle} · {formatDate(item.slot.date)} at{" "}
                     {formatTime(item.slot.startTime)}
                   </small>
-                </article>
+                </button>
               ))}
             </div>
           ) : (
@@ -1026,6 +1186,69 @@ export function PublicStepClient({
             </div>
           )}
           <BottomNav activeTab="vouchers" routeFor={routeFor} />
+        </div>
+      );
+    }
+
+    if (step === "voucher") {
+      return viewedVoucher ? (
+        <div className="confirmation-content voucher-detail-content">
+          <h2>{viewedVoucher.voucher.displayLabel}</h2>
+          <p className="muted">
+            Show this voucher and QR code at the outlet.
+          </p>
+          <article
+            className={`card candidate issued-voucher voucher-${getVoucherPresentation(viewedVoucher.voucher).rarity}`}
+          >
+            <VoucherCard
+              benefit={viewedVoucher.voucher}
+              code={viewedVoucher.voucher.voucherCode}
+              detail={viewedVoucher.businessName}
+            />
+          </article>
+          <div className="qr-code">
+            {qrDataUrl ? (
+              <Image
+                alt={`QR code for voucher ${viewedVoucher.voucher.voucherCode}`}
+                height={164}
+                src={qrDataUrl}
+                unoptimized
+                width={164}
+              />
+            ) : (
+              <span>Generating QR code…</span>
+            )}
+          </div>
+          <div className="summary-list" style={{ textAlign: "left" }}>
+            <SummaryRow
+              icon={<FiCalendar aria-hidden="true" />}
+              label="Date"
+              value={formatDate(viewedVoucher.slot.date)}
+            />
+            <SummaryRow
+              icon={<FiClock aria-hidden="true" />}
+              label="Time"
+              value={formatTime(viewedVoucher.slot.startTime)}
+            />
+            <SummaryRow
+              icon={<FiCheckCircle aria-hidden="true" />}
+              label="Status"
+              value={formatVoucherStatus(viewedVoucher.voucher.status)}
+            />
+          </div>
+          <Link
+            className="button full mobile-bottom-action"
+            href={routeFor("vouchers")}
+          >
+            Back to My Vouchers
+          </Link>
+        </div>
+      ) : (
+        <div className="info-card">
+          <p>This voucher is no longer saved on this device.</p>
+          <Link className="button full" href={routeFor("vouchers")}>
+            Back to My Vouchers
+          </Link>
         </div>
       );
     }

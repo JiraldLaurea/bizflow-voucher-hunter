@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fail, ok } from "@/server/errors";
+import { enforceRateLimit } from "@/server/rate-limit";
 import { recordReferralOpen } from "@/server/voucher-engine";
 
 const schema = z.object({
@@ -10,6 +11,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
+    enforceRateLimit(request, "referral/open", { limit: 30, windowMs: 60_000 });
     const input = schema.parse(await request.json());
     return ok(recordReferralOpen({ campaignSlug: input.campaignSlug, ref: input.ref, visitorSessionId: input.sessionId }));
   } catch (error) {

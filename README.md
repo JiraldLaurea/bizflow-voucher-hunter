@@ -8,10 +8,16 @@ Reservation-based voucher hunting MVP for SMEs. The app lets a customer choose a
 - Desktop-optimized admin dashboard
 - Desktop-optimized staff validation and redemption page
 - SQLite persistence (`better-sqlite3`) with transactional, race-safe stock control
-- Admin CRUD API for campaigns, slots, and voucher pools (token-guarded)
-- Mock SMS logging
-- Dashboard metrics and CSV export
-- Unit and integration tests for the voucher engine, including concurrency guarantees
+- Admin CRUD API for campaigns, slots, and voucher pools (session + token guarded)
+- Real SMS delivery layer (Movider/Twilio/Infobip/ClickSend) with mock fallback
+- Server-enforced referral extra attempts
+- Optional phone **OTP verification** gate for final voucher issuance (per-campaign `requireOtp`)
+- **IP rate limiting** on public hunt/OTP/referral endpoints (hashed IPs)
+- Staff **no-show** tagging and **reservation rescheduling** (per-campaign `allowReschedule`)
+- **CSV redemption import** (e.g. Shopify used-codes report) from the dashboard
+- Sold-out recovery UI that suggests alternate available slots
+- Dashboard metrics and multi-section CSV export
+- Unit and integration tests, including concurrency, OTP, rate-limit, and lifecycle guarantees
 
 ## Public Customer Flow
 
@@ -61,6 +67,16 @@ where the token matches `ADMIN_ACCESS_TOKEN` from the environment.
 | `/api/campaigns/{id}` | GET / PATCH | Read or update a campaign |
 | `/api/campaigns/{id}/slots` | GET / POST | List or create date/time slots |
 | `/api/slots/{slotId}/pools` | GET / POST | List or create voucher pools for a slot |
+| `/api/campaigns/{id}/redemptions/import` | POST | Bulk-redeem codes from a CSV export (Shopify used-codes) |
+| `/api/staff/vouchers/no-show` | POST | Flag a reserved booking + voucher as no-show |
+| `/api/staff/reservations/reschedule` | POST | Move an issued reservation to another slot (if `allowReschedule`) |
+
+Public anti-abuse / verification endpoints (rate-limited, no admin token):
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/public/otp/request` | POST | Send a 6-digit OTP via SMS (campaigns with `requireOtp`) |
+| `/api/public/otp/verify` | POST | Verify the submitted OTP before final selection |
 
 Example:
 

@@ -6,6 +6,28 @@ import { FiRefreshCw } from "react-icons/fi";
 import { api } from "@/lib/api-client";
 
 const CONFIRM_PHRASE = "RESET";
+const CLAIMED_VOUCHERS_STORAGE_KEY = "bizflow-claimed-vouchers";
+const PUBLIC_FLOW_STORAGE_PREFIX = "bizflow-flow-";
+const PUBLIC_REFERRAL_STORAGE_PREFIX = "bizflow-ref-processed-";
+
+function clearPublicVoucherStorage() {
+  window.localStorage.removeItem(CLAIMED_VOUCHERS_STORAGE_KEY);
+  window.localStorage.removeItem("bizflow-session");
+
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(PUBLIC_FLOW_STORAGE_PREFIX)) {
+      window.localStorage.removeItem(key);
+    }
+  }
+
+  for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.sessionStorage.key(index);
+    if (key?.startsWith(PUBLIC_REFERRAL_STORAGE_PREFIX)) {
+      window.sessionStorage.removeItem(key);
+    }
+  }
+}
 
 export function ResetDataButton() {
   const router = useRouter();
@@ -19,18 +41,12 @@ export function ResetDataButton() {
     if (!canReset) return;
     setError("");
 
-    const token = process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN;
-    if (!token) {
-      setError("NEXT_PUBLIC_ADMIN_ACCESS_TOKEN is not configured.");
-      return;
-    }
-
     setBusy(true);
     try {
       await api("/api/dashboard/reset", {
         method: "POST",
-        headers: { "x-admin-token": token },
       });
+      clearPublicVoucherStorage();
       setConfirmation("");
       router.refresh();
     } catch (caught) {

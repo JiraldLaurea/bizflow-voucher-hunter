@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     resetDb();
     return ok({ reset: true });
   } catch (error) {

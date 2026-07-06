@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fail, ok } from "@/server/errors";
+import { enforceRateLimit } from "@/server/rate-limit";
 import { generateCandidate } from "@/server/voucher-engine";
 
 const schema = z.object({
@@ -12,6 +13,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
+    enforceRateLimit(request, "hunt/attempt", { limit: 20, windowMs: 60_000 });
     const input = schema.parse(await request.json());
     return ok(generateCandidate(input));
   } catch (error) {

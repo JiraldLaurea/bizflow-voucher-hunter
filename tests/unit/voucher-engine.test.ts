@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { generateCandidate, redeemVoucher, selectFinalVoucher, startHunt, validateVoucher } from "@/server/voucher-engine";
@@ -14,7 +14,13 @@ const baseInput = {
 
 describe("voucher engine", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-03T12:00:00+08:00"));
     resetDb();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("generates exactly three base candidates and blocks the fourth", () => {

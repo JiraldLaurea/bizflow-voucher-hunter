@@ -162,6 +162,23 @@ CREATE TABLE IF NOT EXISTS referral_rewards (
   created_at TEXT NOT NULL,
   UNIQUE (campaign_id, referrer_user_id, visitor_session_id)
 );
+CREATE TABLE IF NOT EXISTS otp_challenges (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  verified INTEGER NOT NULL DEFAULT 0,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_otp_campaign_phone ON otp_challenges (campaign_id, phone);
+CREATE TABLE IF NOT EXISTS rate_events (
+  id TEXT PRIMARY KEY,
+  bucket_key TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_bucket ON rate_events (bucket_key, created_at);
 `;
 
 let instance: Database.Database | null = null;
@@ -173,9 +190,23 @@ export function getDb(): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  migrate(db);
   instance = db;
   if (isEmpty(db)) seed(db);
   return db;
+}
+
+/** Idempotent column additions for databases created before a column existed. */
+function migrate(db: Database.Database) {
+  addColumn(db, "campaigns", "require_otp", "INTEGER NOT NULL DEFAULT 0");
+  addColumn(db, "campaigns", "allow_reschedule", "INTEGER NOT NULL DEFAULT 0");
+}
+
+function addColumn(db: Database.Database, table: string, column: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 function isEmpty(db: Database.Database) {
@@ -210,7 +241,9 @@ export const seedData: {
       baseAttempts: 3,
       referralDailyLimit: 5,
       candidateTimeoutMinutes: 10,
-      terms: "Valid for selected slot only. Minimum spend applies. One final voucher per phone number."
+      terms: "Valid for selected slot only. Minimum spend applies. One final voucher per phone number.",
+      requireOtp: false,
+      allowReschedule: true
     },
     {
       id: "camp_8pm_drop",
@@ -228,7 +261,9 @@ export const seedData: {
       referralDailyLimit: 5,
       candidateTimeoutMinutes: 10,
       terms: "Valid within the selected drop window or stated expiry. One code per phone number.",
-      shopUrl: "https://example.com/shop"
+      shopUrl: "https://example.com/shop",
+      requireOtp: false,
+      allowReschedule: false
     }
   ],
   slots: [
@@ -323,8 +358,8 @@ function seed(db: Database.Database) {
     "INSERT INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)"
   );
   const insertCampaign = db.prepare(
-    `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url)
-     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl)`
+    `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, require_otp, allow_reschedule)
+     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`
   );
   const insertSlot = db.prepare(
     `INSERT INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
@@ -336,7 +371,14 @@ function seed(db: Database.Database) {
   );
   const run = db.transaction(() => {
     seedData.businesses.forEach((row) => insertBusiness.run(row));
-    seedData.campaigns.forEach((row) => insertCampaign.run({ shopUrl: null, ...row }));
+    seedData.campaigns.forEach((row) =>
+      insertCampaign.run({
+        shopUrl: null,
+        ...row,
+        requireOtp: row.requireOtp ? 1 : 0,
+        allowReschedule: row.allowReschedule ? 1 : 0
+      })
+    );
     seedData.slots.forEach((row) => insertSlot.run({ branchId: null, ...row }));
     seedData.pools.forEach((row) => insertPool.run({ minimumSpend: null, restriction: null, ...row }));
   });
@@ -348,6 +390,8 @@ export function resetDb() {
   const db = getDb();
   const wipe = db.transaction(() => {
     for (const table of [
+      "rate_events",
+      "otp_challenges",
       "analytics_events",
       "referral_rewards",
       "redemption_logs",
@@ -396,7 +440,9 @@ export const mapCampaign = (r: Row): Campaign => ({
   referralDailyLimit: r.referral_daily_limit,
   candidateTimeoutMinutes: r.candidate_timeout_minutes,
   terms: r.terms,
-  shopUrl: r.shop_url ?? undefined
+  shopUrl: r.shop_url ?? undefined,
+  requireOtp: Boolean(r.require_otp),
+  allowReschedule: Boolean(r.allow_reschedule)
 });
 
 export const mapSlot = (r: Row): CampaignSlot => ({

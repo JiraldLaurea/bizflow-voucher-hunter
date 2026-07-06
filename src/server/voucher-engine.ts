@@ -9,10 +9,12 @@ import {
   mapPool,
   mapReferralReward,
   mapRedemptionLog,
+  mapReservation,
   mapSlot,
   mapUser,
   mapVoucher
 } from "@/server/db";
+import { assertOtpVerified } from "@/server/otp";
 import { normalizePhone } from "@/server/phone";
 import { sendSms, type SmsResult } from "@/server/sms";
 import type { Campaign, CampaignSlot, EndUser, SourceType, Voucher, VoucherAttempt, VoucherPool } from "@/types/voucher";
@@ -374,6 +376,8 @@ export function selectFinalVoucher(input: {
     if (hasFinalVoucher(db, campaign.id, user.id)) {
       throw new AppError("E-DUPLICATE-FINAL", "This phone number already has a final voucher for this campaign", 409);
     }
+    // Enforce phone OTP verification for campaigns that require it (no-op otherwise).
+    assertOtpVerified(db, campaign, user.phone);
     expireCandidates(db);
 
     const attemptRow = db
@@ -797,4 +801,155 @@ export function exportCampaignCsv(campaignId: string) {
   );
 
   return [leadsSection, vouchersSection, attemptsSection, redemptionsSection].join("\n\n");
+}
+
+/**
+ * Marks a confirmed restaurant reservation (and its voucher) as No-show.
+ * Only a reservation still in the Reserved state can be flagged; a redeemed
+ * voucher cannot be marked no-show.
+ */
+export function markNoShow(input: { codeOrToken: string; staffName?: string }) {
+  const db = getDb();
+  return db.transaction(() => {
+    const voucher = loadVoucherContext(db, input.codeOrToken);
+    if (voucher.status === "Redeemed") {
+      throw new AppError("E-VOUCHER-REDEEMED", "A redeemed voucher cannot be marked no-show", 409);
+    }
+    const reservationRow = db.prepare("SELECT * FROM reservations WHERE voucher_id = ?").get(voucher.id);
+    if (!reservationRow) throw new AppError("E-RESERVATION-404", "No reservation exists for this voucher", 404);
+    const reservation = mapReservation(reservationRow);
+    if (reservation.status !== "Reserved") {
+      throw new AppError("E-RESERVATION-STATE", "Only a reserved booking can be marked no-show", 409);
+    }
+    db.prepare("UPDATE reservations SET status = 'No-show' WHERE id = ?").run(reservation.id);
+    db.prepare("UPDATE vouchers SET status = 'NoShow' WHERE id = ?").run(voucher.id);
+    addAnalytics(db, voucher.campaignId, "reservation_no_show", { staffName: input.staffName }, voucher.userId, voucher.slotId);
+    return { voucherId: voucher.id, reservationId: reservation.id, status: "No-show" as const };
+  })();
+}
+
+/**
+ * Moves an issued restaurant reservation to a different active slot, when the
+ * campaign allows rescheduling. Capacity is transferred atomically: the new
+ * slot is decremented with a guarded update and the old slot is returned.
+ */
+export function rescheduleReservation(input: { codeOrToken: string; newSlotId: string }) {
+  const db = getDb();
+  return db.transaction(() => {
+    const voucher = loadVoucherContext(db, input.codeOrToken);
+    const campaignRow = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(voucher.campaignId);
+    const campaign = mapCampaign(campaignRow);
+    if (!campaign.allowReschedule) {
+      throw new AppError("E-RESCHEDULE-DISABLED", "Rescheduling is not enabled for this campaign", 403);
+    }
+    if (voucher.status !== "Issued") {
+      throw new AppError("E-VOUCHER-STATE", "Only an active issued voucher can be rescheduled", 409);
+    }
+    if (input.newSlotId === voucher.slotId) {
+      throw new AppError("E-RESCHEDULE-SAME", "Choose a slot different from the current one", 422);
+    }
+    const reservationRow = db.prepare("SELECT * FROM reservations WHERE voucher_id = ?").get(voucher.id);
+    if (!reservationRow) throw new AppError("E-RESERVATION-404", "No reservation exists for this voucher", 404);
+    const reservation = mapReservation(reservationRow);
+    if (reservation.status !== "Reserved") {
+      throw new AppError("E-RESERVATION-STATE", "Only a reserved booking can be rescheduled", 409);
+    }
+    const newSlot = getSlotOrThrow(db, input.newSlotId, campaign.id);
+
+    const cap = db
+      .prepare(
+        `UPDATE slots
+         SET remaining_capacity = remaining_capacity - 1,
+             status = CASE WHEN remaining_capacity - 1 <= 0 THEN 'sold_out' ELSE status END
+         WHERE id = ? AND remaining_capacity > 0`
+      )
+      .run(newSlot.id);
+    if (cap.changes !== 1) throw new AppError("E-SLOT-SOLD-OUT", "Selected slot is sold out", 409);
+
+    db.prepare(
+      `UPDATE slots
+       SET remaining_capacity = remaining_capacity + 1,
+           status = CASE WHEN status = 'sold_out' THEN 'active' ELSE status END
+       WHERE id = ?`
+    ).run(voucher.slotId);
+
+    db.prepare("UPDATE vouchers SET slot_id = ? WHERE id = ?").run(newSlot.id, voucher.id);
+    db.prepare("UPDATE reservations SET slot_id = ? WHERE id = ?").run(newSlot.id, reservation.id);
+
+    // Slot-bound vouchers must follow their new slot's validity window.
+    const attemptRow = db.prepare("SELECT * FROM attempts WHERE id = ?").get(voucher.selectedAttemptId);
+    if (attemptRow) {
+      const poolRow = db.prepare("SELECT * FROM pools WHERE id = ?").get(mapAttempt(attemptRow).poolId);
+      if (poolRow) {
+        const pool = mapPool(poolRow);
+        if (pool.expiryType === "selected_slot_only") {
+          db.prepare("UPDATE vouchers SET expires_at = ? WHERE id = ?").run(expiryFor(pool, newSlot), voucher.id);
+        }
+      }
+    }
+
+    addAnalytics(db, campaign.id, "reservation_rescheduled", { from: voucher.slotId, to: newSlot.id }, voucher.userId, newSlot.id);
+    const freshVoucher = mapVoucher(db.prepare("SELECT * FROM vouchers WHERE id = ?").get(voucher.id));
+    const freshNewSlot = mapSlot(db.prepare("SELECT * FROM slots WHERE id = ?").get(newSlot.id));
+    return { voucher: freshVoucher, newSlot: freshNewSlot };
+  })();
+}
+
+export type RedemptionImportRow = {
+  code: string;
+  status: "redeemed" | "already_redeemed" | "expired" | "not_found";
+};
+
+/**
+ * Bulk-marks vouchers as redeemed from a CSV export (e.g. a Shopify used-codes
+ * report). Accepts one code per line, optional second column = purchase amount,
+ * with an optional header row. Each valid code is redeemed transactionally.
+ */
+export function importRedemptions(input: { campaignId: string; csv: string; staffName: string }) {
+  const db = getDb();
+  const campaign = getCampaignOrThrow(db, input.campaignId);
+  const lines = input.csv.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const results: RedemptionImportRow[] = [];
+  let redeemed = 0;
+
+  for (const line of lines) {
+    const cells = line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""));
+    const code = cells[0];
+    const header = code?.toLowerCase();
+    if (!code || header === "voucher_code" || header === "code") continue; // skip header row
+    const amountRaw = cells[1] ? Number(cells[1]) : undefined;
+    const amount = amountRaw !== undefined && Number.isFinite(amountRaw) ? amountRaw : undefined;
+
+    const row = db
+      .prepare(
+        "SELECT * FROM vouchers WHERE (UPPER(voucher_code) = ? OR UPPER(qr_token) = ?) AND campaign_id = ?"
+      )
+      .get(code.toUpperCase(), code.toUpperCase(), campaign.id);
+    if (!row) {
+      results.push({ code, status: "not_found" });
+      continue;
+    }
+    const voucher = mapVoucher(row);
+    if (voucher.status === "Redeemed") {
+      results.push({ code, status: "already_redeemed" });
+      continue;
+    }
+    if (new Date(voucher.expiresAt).getTime() < Date.now()) {
+      results.push({ code, status: "expired" });
+      continue;
+    }
+    db.transaction(() => {
+      db.prepare("UPDATE vouchers SET status = 'Redeemed', redeemed_at = ? WHERE id = ?").run(isoNow(), voucher.id);
+      db.prepare("UPDATE reservations SET status = 'Redeemed' WHERE voucher_id = ?").run(voucher.id);
+      db.prepare(
+        `INSERT INTO redemption_logs (id, voucher_id, staff_name, purchase_amount, note, created_at)
+         VALUES (?, ?, ?, ?, 'csv_import', ?)`
+      ).run(id("red"), voucher.id, input.staffName, amount ?? null, isoNow());
+      addAnalytics(db, campaign.id, "voucher_redeemed", { source: "csv_import", purchaseAmount: amount }, voucher.userId, voucher.slotId);
+    })();
+    results.push({ code, status: "redeemed" });
+    redeemed += 1;
+  }
+
+  return { total: results.length, redeemed, skipped: results.length - redeemed, results };
 }

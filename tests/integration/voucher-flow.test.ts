@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/server/db";
 import {
   dashboardMetrics,
@@ -12,7 +12,13 @@ import {
 
 describe("voucher hunt integration", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-03T12:00:00+08:00"));
     resetDb();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("supports the restaurant date/time-first flow through dashboard and export", () => {

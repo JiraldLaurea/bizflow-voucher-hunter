@@ -2,6 +2,7 @@ import { listCampaigns, listPools } from "@/server/admin";
 import { dashboardMetrics } from "@/server/voucher-engine";
 import { CampaignSwitcher } from "../_components/CampaignSwitcher";
 import { NewPoolForm } from "../_components/NewPoolForm";
+import { RedemptionImport } from "../_components/RedemptionImport";
 import { selectCampaign } from "../_components/selectCampaign";
 
 export default function VouchersPage({
@@ -36,7 +37,12 @@ export default function VouchersPage({
             <p className="muted">Benefit pools configured per slot for the selected campaign.</p>
           </div>
         </div>
-        {selectedCampaign ? <NewPoolForm slots={slotRows.map((row) => row.slot)} /> : null}
+        {selectedCampaign ? (
+          <div className="admin-form-actions">
+            <NewPoolForm slots={slotRows.map((row) => row.slot)} />
+            <RedemptionImport campaignId={selectedCampaign.id} />
+          </div>
+        ) : null}
         <table>
           <thead>
             <tr>

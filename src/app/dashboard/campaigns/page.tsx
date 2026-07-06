@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listBusinesses, listCampaigns } from "@/server/admin";
+import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
 import { NewCampaignForm } from "../_components/NewCampaignForm";
 import { selectCampaign } from "../_components/selectCampaign";
 
@@ -29,13 +30,14 @@ export default function CampaignsPage({
             <th>Category</th>
             <th>Status</th>
             <th>Date Range</th>
+            <th>Verification / Reschedule</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {campaigns.length === 0 ? (
             <tr>
-              <td colSpan={6}>No campaigns yet. Create one above.</td>
+              <td colSpan={7}>No campaigns yet. Create one above.</td>
             </tr>
           ) : (
             campaigns.map((campaign) => (
@@ -45,6 +47,13 @@ export default function CampaignsPage({
                 <td>{campaign.mode}</td>
                 <td><span className="badge">{campaign.status}</span></td>
                 <td>{campaign.startDate} - {campaign.endDate}</td>
+                <td>
+                  <CampaignFlagToggles
+                    campaignId={campaign.id}
+                    requireOtp={campaign.requireOtp}
+                    allowReschedule={campaign.allowReschedule}
+                  />
+                </td>
                 <td>
                   <Link href={`/dashboard/slots?campaign=${campaign.slug}`}>
                     {campaign.id === selectedCampaign?.id ? "Viewing" : "View"}

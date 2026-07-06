@@ -5,10 +5,6 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
 import type { CampaignSlot } from "@/types/voucher";
 
-const adminHeaders = {
-  "x-admin-token": process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN ?? "",
-};
-
 const emptyPool = {
   slotId: "",
   benefitType: "discount_percent",
@@ -43,7 +39,6 @@ export function NewPoolForm({ slots }: { slots: CampaignSlot[] }) {
     try {
       await api(`/api/slots/${effectiveSlotId}/pools`, {
         method: "POST",
-        headers: adminHeaders,
         body: JSON.stringify({
           benefitType: pool.benefitType,
           benefitValue: pool.benefitValue,

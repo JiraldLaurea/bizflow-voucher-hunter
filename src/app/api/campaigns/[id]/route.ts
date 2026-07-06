@@ -17,13 +17,15 @@ const patchSchema = z
     referralDailyLimit: z.number().int().min(0),
     candidateTimeoutMinutes: z.number().int().min(1),
     terms: z.string().min(1),
-    shopUrl: z.string().url()
+    shopUrl: z.string().url(),
+    requireOtp: z.boolean(),
+    allowReschedule: z.boolean()
   })
   .partial();
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     return ok(getCampaign(params.id));
   } catch (error) {
     return fail(error);
@@ -32,7 +34,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     const patch = patchSchema.parse(await request.json());
     return ok(updateCampaign(params.id, patch));
   } catch (error) {

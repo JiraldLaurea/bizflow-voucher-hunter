@@ -5,10 +5,6 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
 import type { Business, Campaign } from "@/types/voucher";
 
-const adminHeaders = {
-  "x-admin-token": process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN ?? "",
-};
-
 const emptyBusiness = { name: "", logoText: "", industry: "restaurant", staffPin: "" };
 const emptyCampaign = {
   businessId: "",
@@ -24,6 +20,8 @@ const emptyCampaign = {
   candidateTimeoutMinutes: "10",
   terms: "Standard terms and conditions apply.",
   shopUrl: "",
+  requireOtp: false,
+  allowReschedule: false,
 };
 
 export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
@@ -47,7 +45,6 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
       if (creatingBusiness) {
         const createdBusiness = await api<Business>("/api/businesses", {
           method: "POST",
-          headers: adminHeaders,
           body: JSON.stringify(business),
         });
         businessId = createdBusiness.id;
@@ -57,7 +54,6 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
       }
       const createdCampaign = await api<Campaign>("/api/campaigns", {
         method: "POST",
-        headers: adminHeaders,
         body: JSON.stringify({
           businessId,
           slug: campaign.slug,
@@ -72,6 +68,8 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
           candidateTimeoutMinutes: Number(campaign.candidateTimeoutMinutes),
           terms: campaign.terms,
           shopUrl: campaign.shopUrl || undefined,
+          requireOtp: campaign.requireOtp,
+          allowReschedule: campaign.allowReschedule,
           status: "active",
         }),
       });
@@ -285,6 +283,25 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
           onChange={(event) => setCampaign({ ...campaign, terms: event.target.value })}
         />
       </label>
+
+      <div className="admin-form-toggles">
+        <label className="admin-form-toggle-row">
+          <input
+            checked={campaign.requireOtp}
+            onChange={(event) => setCampaign({ ...campaign, requireOtp: event.target.checked })}
+            type="checkbox"
+          />
+          Require phone OTP verification before issuing a voucher
+        </label>
+        <label className="admin-form-toggle-row">
+          <input
+            checked={campaign.allowReschedule}
+            onChange={(event) => setCampaign({ ...campaign, allowReschedule: event.target.checked })}
+            type="checkbox"
+          />
+          Allow rescheduling issued reservations
+        </label>
+      </div>
 
       {error ? <p className="alert">{error}</p> : null}
       <button className="button" disabled={busy} type="submit">

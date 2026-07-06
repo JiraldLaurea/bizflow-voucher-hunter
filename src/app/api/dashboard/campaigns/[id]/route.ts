@@ -1,8 +1,10 @@
+import { requireAdmin } from "@/server/auth";
 import { fail, ok } from "@/server/errors";
 import { dashboardMetrics } from "@/server/voucher-engine";
 
-export function GET(_request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
+    await requireAdmin(request);
     return ok(dashboardMetrics(params.id));
   } catch (error) {
     return fail(error);

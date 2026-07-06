@@ -22,12 +22,14 @@ const schema = z.object({
   candidateTimeoutMinutes: z.number().int().min(1),
   terms: z.string().min(1),
   shopUrl: z.string().url().optional(),
-  status: z.enum(["active", "paused", "closed"]).optional()
+  status: z.enum(["active", "paused", "closed"]).optional(),
+  requireOtp: z.boolean().optional(),
+  allowReschedule: z.boolean().optional()
 });
 
 export async function POST(request: Request) {
   try {
-    requireAdmin(request);
+    await requireAdmin(request);
     const input = schema.parse(await request.json());
     return ok(createCampaign(input), { status: 201 });
   } catch (error) {

@@ -55,6 +55,8 @@ export type CreateCampaignInput = {
   terms: string;
   shopUrl?: string;
   status?: Campaign["status"];
+  requireOtp?: boolean;
+  allowReschedule?: boolean;
 };
 
 export type CreateSlotInput = {
@@ -107,12 +109,19 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     referralDailyLimit: input.referralDailyLimit,
     candidateTimeoutMinutes: input.candidateTimeoutMinutes,
     terms: input.terms,
-    shopUrl: input.shopUrl
+    shopUrl: input.shopUrl,
+    requireOtp: input.requireOtp ?? false,
+    allowReschedule: input.allowReschedule ?? false
   };
   db.prepare(
-    `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url)
-     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl)`
-  ).run({ ...campaign, shopUrl: campaign.shopUrl ?? null });
+    `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, require_otp, allow_reschedule)
+     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`
+  ).run({
+    ...campaign,
+    shopUrl: campaign.shopUrl ?? null,
+    requireOtp: campaign.requireOtp ? 1 : 0,
+    allowReschedule: campaign.allowReschedule ? 1 : 0
+  });
   return campaign;
 }
 
@@ -134,8 +143,12 @@ const CAMPAIGN_PATCH_COLUMNS: Record<string, string> = {
   referralDailyLimit: "referral_daily_limit",
   candidateTimeoutMinutes: "candidate_timeout_minutes",
   terms: "terms",
-  shopUrl: "shop_url"
+  shopUrl: "shop_url",
+  requireOtp: "require_otp",
+  allowReschedule: "allow_reschedule"
 };
+
+const CAMPAIGN_BOOLEAN_KEYS = new Set(["requireOtp", "allowReschedule"]);
 
 export function updateCampaign(idOrSlug: string, patch: Partial<CreateCampaignInput>): Campaign {
   const db = getDb();
@@ -154,7 +167,7 @@ export function updateCampaign(idOrSlug: string, patch: Partial<CreateCampaignIn
     const value = (patch as Record<string, unknown>)[key];
     if (value !== undefined) {
       sets.push(`${column} = ?`);
-      values.push(value);
+      values.push(CAMPAIGN_BOOLEAN_KEYS.has(key) ? (value ? 1 : 0) : value);
     }
   }
   if (sets.length === 0) return current;
