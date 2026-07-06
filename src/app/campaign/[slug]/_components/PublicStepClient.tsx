@@ -264,25 +264,54 @@ export function PublicStepClient({
       window.localStorage.getItem(sessionKey) ?? crypto.randomUUID();
     window.localStorage.setItem(sessionKey, sessionId);
 
+    let referralRetryTimeout: number | undefined;
+    let cancelled = false;
     const ref = new URLSearchParams(window.location.search).get("ref");
     if (ref) {
-      const processedKey = `bizflow-ref-processed-${campaign.slug}-${ref}`;
+      // v2 ignores markers written by the previous implementation, which
+      // marked referrals processed before the server confirmed them.
+      const processedKey = `bizflow-ref-processed-v2-${campaign.slug}-${ref}`;
       if (!window.sessionStorage.getItem(processedKey)) {
-        window.sessionStorage.setItem(processedKey, "1");
-        api("/api/public/referral/open", {
-          method: "POST",
-          body: JSON.stringify({ campaignSlug: campaign.slug, ref, sessionId }),
-        }).catch(() => {
-          // Non-critical: a failed referral-open ping should not block the visit.
-        });
+        const recordOpen = async (attempt = 0) => {
+          try {
+            await api("/api/public/referral/open", {
+              method: "POST",
+              body: JSON.stringify({
+                campaignSlug: campaign.slug,
+                ref,
+                sessionId,
+              }),
+            });
+            if (!cancelled) {
+              window.sessionStorage.setItem(processedKey, "1");
+            }
+          } catch {
+            // Retry transient deployment/network failures instead of permanently
+            // suppressing the referral after the first unsuccessful request.
+            if (!cancelled && attempt < 2) {
+              referralRetryTimeout = window.setTimeout(
+                () => recordOpen(attempt + 1),
+                1500 * (attempt + 1),
+              );
+            }
+          }
+        };
+        void recordOpen();
       }
     }
 
     if (saved) {
       setState({ ...initialState(slots), ...JSON.parse(saved), sessionId });
-      return;
+    } else {
+      setState({ ...initialState(slots), sessionId });
     }
-    setState({ ...initialState(slots), sessionId });
+
+    return () => {
+      cancelled = true;
+      if (referralRetryTimeout) {
+        window.clearTimeout(referralRetryTimeout);
+      }
+    };
   }, [slots, storageKey, campaign.slug]);
 
   useEffect(() => {
@@ -324,7 +353,16 @@ export function PublicStepClient({
     if (step !== "share") return;
     refreshShareState();
     const interval = setInterval(refreshShareState, 4000);
-    return () => clearInterval(interval);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshShareState();
+    };
+    window.addEventListener("focus", refreshShareState);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", refreshShareState);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, state.selectedSlotId, state.phone]);
 
