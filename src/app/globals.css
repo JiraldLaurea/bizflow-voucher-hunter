@@ -414,46 +414,74 @@ h2 {
 }
 
 .hunt-start-button {
-  position: relative;
-  overflow: hidden;
+  transition: background 160ms ease, box-shadow 160ms ease;
 }
 
-.hunt-start-button.is-loading:disabled {
+.hunt-start-button:disabled {
   opacity: 1;
-  cursor: wait;
-  box-shadow: 0 10px 22px rgba(92, 61, 255, 0.28);
+  color: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(135deg, #b5a3ff, #a68cff);
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
-.hunt-start-button.is-loading::before {
+.hunt-loading-backdrop {
   position: absolute;
   inset: 0;
-  content: "";
-  background: linear-gradient(
-    110deg,
-    transparent 20%,
-    rgba(255, 255, 255, 0.16) 45%,
-    transparent 70%
-  );
-  transform: translateX(-100%);
-  animation: hunt-button-shimmer 1.25s ease-in-out infinite;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(11, 29, 58, 0.28);
+  backdrop-filter: blur(3px);
 }
 
-.hunt-loading-content {
+.hunt-loading-modal {
+  width: min(100%, 320px);
+  padding: 30px 26px 26px;
+  border: 1px solid rgba(92, 61, 255, 0.14);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(11, 29, 58, 0.24);
+  text-align: center;
+}
+
+.hunt-loading-modal h2 {
+  margin: 18px 0 8px;
+  font-size: 1.25rem;
+}
+
+.hunt-loading-modal p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.hunt-loading-emblem {
   position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  border-radius: 50%;
+  color: var(--purple);
+  background: var(--purple-soft);
 }
 
-.hunt-loading-spinner {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-top-color: #fff;
+.hunt-loading-emblem svg {
+  width: 27px;
+  height: 27px;
+}
+
+.hunt-loading-ring {
+  position: absolute;
+  inset: -4px;
+  border: 3px solid rgba(92, 61, 255, 0.18);
+  border-top-color: var(--purple);
   border-radius: 50%;
-  animation: hunt-spinner-rotate 700ms linear infinite;
+  animation: hunt-spinner-rotate 760ms linear infinite;
 }
 
 @keyframes hunt-spinner-rotate {
@@ -462,16 +490,39 @@ h2 {
   }
 }
 
-@keyframes hunt-button-shimmer {
-  55%,
-  100% {
-    transform: translateX(100%);
+.hunt-loading-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.hunt-loading-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--purple);
+  animation: hunt-dot-pulse 900ms ease-in-out infinite alternate;
+}
+
+.hunt-loading-dots span:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.hunt-loading-dots span:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes hunt-dot-pulse {
+  to {
+    opacity: 0.3;
+    transform: translateY(-4px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hunt-loading-spinner,
-  .hunt-start-button.is-loading::before {
+  .hunt-loading-ring,
+  .hunt-loading-dots span {
     animation: none;
   }
 }
@@ -2526,13 +2577,48 @@ th {
   font-size: 0.9rem;
 }
 .otp-verify-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
   gap: 8px;
 }
 .otp-verify-row input {
-  flex: 1;
-  letter-spacing: 0.35em;
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid #ccd5e5;
+  border-radius: 10px;
+  outline: 0;
+  color: var(--navy);
+  background: #fff;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
   text-align: center;
+}
+.otp-verify-row input:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(92, 61, 255, 0.12);
+}
+.otp-verify-row input.has-value {
+  padding-left: 0.28em;
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+}
+.otp-verify-row input::placeholder {
+  color: #8893a8;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+}
+.otp-verify-row input:disabled {
+  color: #7e889d;
+  background: #f2f4f8;
+  cursor: not-allowed;
+}
+.otp-verify-row .button {
+  min-width: 0;
+  padding-inline: 12px;
 }
 .otp-verified {
   display: flex;
