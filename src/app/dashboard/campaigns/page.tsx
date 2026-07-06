@@ -4,13 +4,13 @@ import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
 import { NewCampaignForm } from "../_components/NewCampaignForm";
 import { selectCampaign } from "../_components/selectCampaign";
 
-export default function CampaignsPage({
+export default async function CampaignsPage({
   searchParams,
 }: {
   searchParams: { campaign?: string };
 }) {
-  const businesses = listBusinesses();
-  const campaigns = listCampaigns();
+  const businesses = await listBusinesses();
+  const campaigns = await listCampaigns();
   const selectedCampaign = selectCampaign(campaigns, searchParams.campaign);
 
   return (

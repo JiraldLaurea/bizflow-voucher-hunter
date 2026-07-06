@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/server/db";
 import {
   dashboardMetrics,
@@ -11,18 +11,12 @@ import {
 } from "@/server/voucher-engine";
 
 describe("voucher hunt integration", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-03T12:00:00+08:00"));
-    resetDb();
+  beforeEach(async () => {
+    await resetDb();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("supports the restaurant date/time-first flow through dashboard and export", () => {
-    const slots = listCampaignSlots("july-dinner");
+  it("supports the restaurant date/time-first flow through dashboard and export", async () => {
+    const slots = await listCampaignSlots("july-dinner");
     const activeSlot = slots.find((slot) => slot.status === "active" && slot.remainingCapacity > 0);
     expect(activeSlot).toBeDefined();
 
@@ -35,15 +29,15 @@ describe("voucher hunt integration", () => {
       email: "integration@example.com"
     };
 
-    startHunt(input);
-    const candidate = generateCandidate(input);
-    generateCandidate(input);
-    generateCandidate(input);
-    const selected = selectFinalVoucher({ ...input, attemptId: candidate.id, guestCount: 4 });
-    redeemVoucher({ codeOrToken: selected.voucher.voucherCode, staffName: "Staff Tester", purchaseAmount: 1200 });
+    await startHunt(input);
+    const candidate = await generateCandidate(input);
+    await generateCandidate(input);
+    await generateCandidate(input);
+    const selected = await selectFinalVoucher({ ...input, attemptId: candidate.id, guestCount: 4 });
+    await redeemVoucher({ codeOrToken: selected.voucher.voucherCode, staffName: "Staff Tester", purchaseAmount: 1200 });
 
-    const metrics = dashboardMetrics("camp_july_dinner");
-    const csv = exportCampaignCsv("camp_july_dinner");
+    const metrics = await dashboardMetrics("camp_july_dinner");
+    const csv = await exportCampaignCsv("camp_july_dinner");
 
     expect(selected.voucher.voucherCode).toContain("BIZ-");
     expect(metrics.summary.finalVouchersIssued).toBe(1);

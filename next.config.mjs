@@ -2,7 +2,7 @@
 const nextConfig = {
   experimental: {
     typedRoutes: false,
-    serverComponentsExternalPackages: ["better-sqlite3"]
+    serverComponentsExternalPackages: ["@libsql/client", "libsql"]
   }
 };
 

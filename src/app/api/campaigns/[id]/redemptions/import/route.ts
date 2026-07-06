@@ -14,7 +14,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   try {
     await requireAdmin(request);
     const input = schema.parse(await request.json());
-    return ok(importRedemptions({ campaignId: params.id, csv: input.csv, staffName: input.staffName }));
+    return ok(await importRedemptions({ campaignId: params.id, csv: input.csv, staffName: input.staffName }));
   } catch (error) {
     return fail(error);
   }

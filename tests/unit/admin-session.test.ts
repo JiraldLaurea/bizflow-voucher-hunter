@@ -32,13 +32,11 @@ describe("admin session", () => {
       name: "Test Admin",
     });
     const [payload, signature] = token.split(".");
-    const replacement = signature.endsWith("a") ? "b" : "a";
+    // The HMAC is computed over the payload string, so flipping its first
+    // character deterministically invalidates the signature.
+    const tamperedPayload = `${payload[0] === "A" ? "B" : "A"}${payload.slice(1)}`;
 
-    expect(
-      await verifyAdminSession(
-        `${payload}.${signature.slice(0, -1)}${replacement}`,
-      ),
-    ).toBeNull();
+    expect(await verifyAdminSession(`${tamperedPayload}.${signature}`)).toBeNull();
   });
 
   it("authorizes requests with the HTTP-only session cookie", async () => {

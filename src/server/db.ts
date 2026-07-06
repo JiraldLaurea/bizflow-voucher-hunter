@@ -1,6 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-import Database from "better-sqlite3";
+import { createClient, type Client, type InArgs, type Transaction } from "@libsql/client";
 import type {
   AnalyticsEvent,
   Business,
@@ -16,7 +14,19 @@ import type {
   VoucherPool
 } from "@/types/voucher";
 
-const dbPath = path.resolve(process.env.DATABASE_PATH ?? "./data/bizflow.db");
+// libSQL returns rows keyed by column name; mappers narrow them to domain types.
+type Row = any;
+type Exec = Client | Transaction;
+
+/**
+ * Connection target. Turso/libSQL in production via DATABASE_URL (libsql://...)
+ * plus DATABASE_AUTH_TOKEN; a local file (file:./data/...) for dev and tests.
+ */
+function resolveUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const p = process.env.DATABASE_PATH ?? "./data/bizflow.db";
+  return `file:${p.replace(/\\/g, "/")}`;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS businesses (
@@ -41,7 +51,9 @@ CREATE TABLE IF NOT EXISTS campaigns (
   referral_daily_limit INTEGER NOT NULL,
   candidate_timeout_minutes INTEGER NOT NULL,
   terms TEXT NOT NULL,
-  shop_url TEXT
+  shop_url TEXT,
+  require_otp INTEGER NOT NULL DEFAULT 0,
+  allow_reschedule INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS slots (
   id TEXT PRIMARY KEY,
@@ -181,38 +193,70 @@ CREATE TABLE IF NOT EXISTS rate_events (
 CREATE INDEX IF NOT EXISTS idx_rate_bucket ON rate_events (bucket_key, created_at);
 `;
 
-let instance: Database.Database | null = null;
+let client: Client | null = null;
+let readyPromise: Promise<void> | null = null;
 
-export function getDb(): Database.Database {
-  if (instance) return instance;
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.exec(SCHEMA);
-  migrate(db);
-  instance = db;
-  if (isEmpty(db)) seed(db);
-  return db;
+function rawClient(): Client {
+  if (!client) {
+    client = createClient({ url: resolveUrl(), authToken: process.env.DATABASE_AUTH_TOKEN, intMode: "number" });
+  }
+  return client;
 }
 
-/** Idempotent column additions for databases created before a column existed. */
-function migrate(db: Database.Database) {
-  addColumn(db, "campaigns", "require_otp", "INTEGER NOT NULL DEFAULT 0");
-  addColumn(db, "campaigns", "allow_reschedule", "INTEGER NOT NULL DEFAULT 0");
+/** Creates the schema (and seeds an empty database) exactly once per process. */
+function ensureReady(): Promise<void> {
+  if (!readyPromise) readyPromise = init();
+  return readyPromise;
 }
 
-function addColumn(db: Database.Database, table: string, column: string, definition: string) {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  if (!columns.some((c) => c.name === column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+async function init() {
+  const c = rawClient();
+  await c.executeMultiple(SCHEMA);
+  const rs = await c.execute("SELECT COUNT(*) AS c FROM campaigns");
+  if (Number((rs.rows[0] as Row).c) === 0) await seed(c);
+}
+
+/** Returns the ready libSQL client (schema created + seeded on first use). */
+export async function getDb(): Promise<Client> {
+  await ensureReady();
+  return rawClient();
+}
+
+/** Runs a callback inside a write transaction, committing on success and rolling back on error. */
+export async function withTx<T>(fn: (tx: Transaction) => Promise<T>): Promise<T> {
+  await ensureReady();
+  const tx = await rawClient().transaction("write");
+  try {
+    const result = await fn(tx);
+    await tx.commit();
+    return result;
+  } catch (error) {
+    try {
+      await tx.rollback();
+    } catch {
+      // Ignore rollback failure; the original error is the useful one.
+    }
+    throw error;
   }
 }
 
-function isEmpty(db: Database.Database) {
-  const row = db.prepare("SELECT COUNT(*) AS c FROM campaigns").get() as { c: number };
-  return row.c === 0;
+/** Query helpers usable with either the pooled client or an open transaction. */
+export async function all(db: Exec, sql: string, args?: InArgs): Promise<Row[]> {
+  const rs = await db.execute(args === undefined ? sql : { sql, args });
+  return rs.rows as Row[];
 }
+
+export async function one(db: Exec, sql: string, args?: InArgs): Promise<Row | undefined> {
+  const rs = await db.execute(args === undefined ? sql : { sql, args });
+  return rs.rows[0];
+}
+
+/** Runs a write statement and returns the number of affected rows. */
+export async function run(db: Exec, sql: string, args?: InArgs): Promise<number> {
+  const rs = await db.execute(args === undefined ? sql : { sql, args });
+  return rs.rowsAffected;
+}
+
 
 /** Seed data. Also used to (re)populate the database for local dev and tests. */
 export const seedData: {
@@ -353,42 +397,99 @@ export const seedData: {
   ]
 };
 
-function seed(db: Database.Database) {
-  const insertBusiness = db.prepare(
-    "INSERT INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)"
-  );
-  const insertCampaign = db.prepare(
-    `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, require_otp, allow_reschedule)
-     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`
-  );
-  const insertSlot = db.prepare(
-    `INSERT INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
-     VALUES (@id, @campaignId, @date, @startTime, @endTime, @timezone, @branchId, @totalCapacity, @remainingCapacity, @status)`
-  );
-  const insertPool = db.prepare(
-    `INSERT INTO pools (id, slot_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
-     VALUES (@id, @slotId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`
-  );
-  const run = db.transaction(() => {
-    seedData.businesses.forEach((row) => insertBusiness.run(row));
-    seedData.campaigns.forEach((row) =>
-      insertCampaign.run({
-        shopUrl: null,
-        ...row,
-        requireOtp: row.requireOtp ? 1 : 0,
-        allowReschedule: row.allowReschedule ? 1 : 0
-      })
-    );
-    seedData.slots.forEach((row) => insertSlot.run({ branchId: null, ...row }));
-    seedData.pools.forEach((row) => insertPool.run({ minimumSpend: null, restriction: null, ...row }));
-  });
-  run();
+const INSERT_BUSINESS =
+  "INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)";
+const INSERT_CAMPAIGN = `INSERT OR IGNORE INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, require_otp, allow_reschedule)
+     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`;
+const INSERT_SLOT = `INSERT OR IGNORE INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
+     VALUES (@id, @campaignId, @date, @startTime, @endTime, @timezone, @branchId, @totalCapacity, @remainingCapacity, @status)`;
+const INSERT_POOL = `INSERT OR IGNORE INTO pools (id, slot_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
+     VALUES (@id, @slotId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`;
+
+/** Seeds demo data. Idempotent (INSERT OR IGNORE) so concurrent cold starts are safe. */
+async function seed(c: Client) {
+  const tx = await c.transaction("write");
+  try {
+    for (const r of seedData.businesses) {
+      await tx.execute({
+        sql: INSERT_BUSINESS,
+        args: { id: r.id, name: r.name, logoText: r.logoText, industry: r.industry, staffPin: r.staffPin }
+      });
+    }
+    for (const r of seedData.campaigns) {
+      await tx.execute({
+        sql: INSERT_CAMPAIGN,
+        args: {
+          id: r.id,
+          businessId: r.businessId,
+          slug: r.slug,
+          title: r.title,
+          offerMessage: r.offerMessage,
+          heroImage: r.heroImage,
+          mode: r.mode,
+          status: r.status,
+          startDate: r.startDate,
+          endDate: r.endDate,
+          baseAttempts: r.baseAttempts,
+          referralDailyLimit: r.referralDailyLimit,
+          candidateTimeoutMinutes: r.candidateTimeoutMinutes,
+          terms: r.terms,
+          shopUrl: r.shopUrl ?? null,
+          requireOtp: r.requireOtp ? 1 : 0,
+          allowReschedule: r.allowReschedule ? 1 : 0
+        }
+      });
+    }
+    for (const r of seedData.slots) {
+      await tx.execute({
+        sql: INSERT_SLOT,
+        args: {
+          id: r.id,
+          campaignId: r.campaignId,
+          date: r.date,
+          startTime: r.startTime,
+          endTime: r.endTime,
+          timezone: r.timezone,
+          branchId: r.branchId ?? null,
+          totalCapacity: r.totalCapacity,
+          remainingCapacity: r.remainingCapacity,
+          status: r.status
+        }
+      });
+    }
+    for (const r of seedData.pools) {
+      await tx.execute({
+        sql: INSERT_POOL,
+        args: {
+          id: r.id,
+          slotId: r.slotId,
+          benefitType: r.benefitType,
+          benefitValue: r.benefitValue,
+          displayLabel: r.displayLabel,
+          totalQuantity: r.totalQuantity,
+          remainingQuantity: r.remainingQuantity,
+          probabilityWeight: r.probabilityWeight,
+          expiryType: r.expiryType,
+          expiryValue: r.expiryValue,
+          minimumSpend: r.minimumSpend ?? null,
+          status: r.status,
+          restriction: r.restriction ?? null
+        }
+      });
+    }
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
 }
 
 /** Wipe every table and re-seed. Used by tests and local resets. */
-export function resetDb() {
-  const db = getDb();
-  const wipe = db.transaction(() => {
+export async function resetDb() {
+  await ensureReady();
+  const c = rawClient();
+  const tx = await c.transaction("write");
+  try {
     for (const table of [
       "rate_events",
       "otp_challenges",
@@ -405,17 +506,17 @@ export function resetDb() {
       "campaigns",
       "businesses"
     ]) {
-      db.prepare(`DELETE FROM ${table}`).run();
+      await tx.execute(`DELETE FROM ${table}`);
     }
-  });
-  wipe();
-  seed(db);
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
+  await seed(c);
 }
 
 // ---- Row mappers: SQLite snake_case rows -> typed camelCase domain objects ----
-
-// better-sqlite3 returns rows as `unknown`; mappers narrow them to typed domain objects.
-type Row = any;
 
 export const mapBusiness = (r: Row): Business => ({
   id: r.id,

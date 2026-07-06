@@ -26,7 +26,7 @@ const patchSchema = z
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     await requireAdmin(request);
-    return ok(getCampaign(params.id));
+    return ok(await getCampaign(params.id));
   } catch (error) {
     return fail(error);
   }
@@ -36,7 +36,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   try {
     await requireAdmin(request);
     const patch = patchSchema.parse(await request.json());
-    return ok(updateCampaign(params.id, patch));
+    return ok(await updateCampaign(params.id, patch));
   } catch (error) {
     return fail(error);
   }

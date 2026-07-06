@@ -13,7 +13,7 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     await requireAdmin(request);
-    return ok(rescheduleReservation(schema.parse(await request.json())));
+    return ok(await rescheduleReservation(schema.parse(await request.json())));
   } catch (error) {
     return fail(error);
   }

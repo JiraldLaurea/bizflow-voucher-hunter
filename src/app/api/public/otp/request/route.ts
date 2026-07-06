@@ -10,7 +10,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    enforceRateLimit(request, "otp/request", { limit: 5, windowMs: 5 * 60_000 });
+    await enforceRateLimit(request, "otp/request", { limit: 5, windowMs: 5 * 60_000 });
     const input = schema.parse(await request.json());
     return ok(await requestOtp(input));
   } catch (error) {

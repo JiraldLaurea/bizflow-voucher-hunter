@@ -21,7 +21,7 @@ const schema = z.object({
 export async function GET(request: Request, { params }: { params: { slotId: string } }) {
   try {
     await requireAdmin(request);
-    return ok(listPools(params.slotId));
+    return ok(await listPools(params.slotId));
   } catch (error) {
     return fail(error);
   }
@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: { slotId: str
   try {
     await requireAdmin(request);
     const input = schema.parse(await request.json());
-    return ok(createPool(params.slotId, input), { status: 201 });
+    return ok(await createPool(params.slotId, input), { status: 201 });
   } catch (error) {
     return fail(error);
   }

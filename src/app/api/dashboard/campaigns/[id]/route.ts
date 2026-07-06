@@ -5,7 +5,7 @@ import { dashboardMetrics } from "@/server/voucher-engine";
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     await requireAdmin(request);
-    return ok(dashboardMetrics(params.id));
+    return ok(await dashboardMetrics(params.id));
   } catch (error) {
     return fail(error);
   }

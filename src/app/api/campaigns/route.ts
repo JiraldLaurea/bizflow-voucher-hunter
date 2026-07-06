@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   try {
     await requireAdmin(request);
     const input = schema.parse(await request.json());
-    return ok(createCampaign(input), { status: 201 });
+    return ok(await createCampaign(input), { status: 201 });
   } catch (error) {
     return fail(error);
   }

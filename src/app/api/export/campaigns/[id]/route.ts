@@ -5,7 +5,7 @@ import { exportCampaignCsv } from "@/server/voucher-engine";
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     await requireAdmin(request);
-    const csv = exportCampaignCsv(params.id);
+    const csv = await exportCampaignCsv(params.id);
     return new Response(csv, {
       headers: {
         "content-type": "text/csv; charset=utf-8",

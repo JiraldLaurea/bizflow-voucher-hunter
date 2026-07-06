@@ -11,9 +11,9 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    enforceRateLimit(request, "otp/verify", { limit: 10, windowMs: 5 * 60_000 });
+    await enforceRateLimit(request, "otp/verify", { limit: 10, windowMs: 5 * 60_000 });
     const input = schema.parse(await request.json());
-    return ok(verifyOtp(input));
+    return ok(await verifyOtp(input));
   } catch (error) {
     return fail(error);
   }

@@ -8,7 +8,7 @@ const schema = z.object({ codeOrToken: z.string().min(3) });
 export async function POST(request: Request) {
   try {
     await requireAdmin(request);
-    return ok(validateVoucher(schema.parse(await request.json())));
+    return ok(await validateVoucher(schema.parse(await request.json())));
   } catch (error) {
     return fail(error);
   }

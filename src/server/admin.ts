@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
+import type { InArgs } from "@libsql/client";
 import { AppError } from "@/server/errors";
-import { getDb, mapBusiness, mapCampaign, mapPool, mapSlot } from "@/server/db";
+import { all, getDb, mapBusiness, mapCampaign, mapPool, mapSlot, one, run } from "@/server/db";
 import type { Business, Campaign, CampaignSlot, VoucherPool } from "@/types/voucher";
 
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
@@ -12,13 +13,13 @@ export type CreateBusinessInput = {
   staffPin: string;
 };
 
-export function listBusinesses(): Business[] {
-  const db = getDb();
-  return db.prepare("SELECT * FROM businesses ORDER BY name").all().map(mapBusiness);
+export async function listBusinesses(): Promise<Business[]> {
+  const db = await getDb();
+  return (await all(db, "SELECT * FROM businesses ORDER BY name")).map(mapBusiness);
 }
 
-export function createBusiness(input: CreateBusinessInput): Business {
-  const db = getDb();
+export async function createBusiness(input: CreateBusinessInput): Promise<Business> {
+  const db = await getDb();
   if (!/^\d{4,6}$/.test(input.staffPin)) {
     throw new AppError("E-BUSINESS-PIN", "staffPin must be 4 to 6 digits", 422);
   }
@@ -29,15 +30,17 @@ export function createBusiness(input: CreateBusinessInput): Business {
     industry: input.industry,
     staffPin: input.staffPin
   };
-  db.prepare(
-    "INSERT INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)"
-  ).run(business);
+  await run(
+    db,
+    "INSERT INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)",
+    business
+  );
   return business;
 }
 
-export function listCampaigns(): Campaign[] {
-  const db = getDb();
-  return db.prepare("SELECT * FROM campaigns ORDER BY start_date DESC").all().map(mapCampaign);
+export async function listCampaigns(): Promise<Campaign[]> {
+  const db = await getDb();
+  return (await all(db, "SELECT * FROM campaigns ORDER BY start_date DESC")).map(mapCampaign);
 }
 
 export type CreateCampaignInput = {
@@ -82,16 +85,16 @@ export type CreatePoolInput = {
   status?: VoucherPool["status"];
 };
 
-export function createCampaign(input: CreateCampaignInput): Campaign {
-  const db = getDb();
+export async function createCampaign(input: CreateCampaignInput): Promise<Campaign> {
+  const db = await getDb();
   if (new Date(input.endDate).getTime() < new Date(input.startDate).getTime()) {
     throw new AppError("E-CAMPAIGN-DATES", "Campaign end date must be on or after the start date", 422);
   }
   if (input.baseAttempts < 1) throw new AppError("E-CAMPAIGN-ATTEMPTS", "baseAttempts must be at least 1", 422);
-  if (!db.prepare("SELECT 1 FROM businesses WHERE id = ?").get(input.businessId)) {
+  if (!(await one(db, "SELECT 1 FROM businesses WHERE id = ?", [input.businessId]))) {
     throw new AppError("E-BUSINESS-404", "Referenced business does not exist", 422);
   }
-  if (db.prepare("SELECT 1 FROM campaigns WHERE slug = ?").get(input.slug)) {
+  if (await one(db, "SELECT 1 FROM campaigns WHERE slug = ?", [input.slug])) {
     throw new AppError("E-CAMPAIGN-SLUG", "Campaign slug is already in use", 409);
   }
   const campaign: Campaign = {
@@ -113,21 +116,36 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     requireOtp: input.requireOtp ?? false,
     allowReschedule: input.allowReschedule ?? false
   };
-  db.prepare(
+  await run(
+    db,
     `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, require_otp, allow_reschedule)
-     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`
-  ).run({
-    ...campaign,
-    shopUrl: campaign.shopUrl ?? null,
-    requireOtp: campaign.requireOtp ? 1 : 0,
-    allowReschedule: campaign.allowReschedule ? 1 : 0
-  });
+     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`,
+    {
+      id: campaign.id,
+      businessId: campaign.businessId,
+      slug: campaign.slug,
+      title: campaign.title,
+      offerMessage: campaign.offerMessage,
+      heroImage: campaign.heroImage,
+      mode: campaign.mode,
+      status: campaign.status,
+      startDate: campaign.startDate,
+      endDate: campaign.endDate,
+      baseAttempts: campaign.baseAttempts,
+      referralDailyLimit: campaign.referralDailyLimit,
+      candidateTimeoutMinutes: campaign.candidateTimeoutMinutes,
+      terms: campaign.terms,
+      shopUrl: campaign.shopUrl ?? null,
+      requireOtp: campaign.requireOtp ? 1 : 0,
+      allowReschedule: campaign.allowReschedule ? 1 : 0
+    }
+  );
   return campaign;
 }
 
-export function getCampaign(idOrSlug: string): Campaign {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM campaigns WHERE id = ? OR slug = ?").get(idOrSlug, idOrSlug);
+export async function getCampaign(idOrSlug: string): Promise<Campaign> {
+  const db = await getDb();
+  const row = await one(db, "SELECT * FROM campaigns WHERE id = ? OR slug = ?", [idOrSlug, idOrSlug]);
   if (!row) throw new AppError("E-CAMPAIGN-404", "Campaign was not found", 404);
   return mapCampaign(row);
 }
@@ -150,9 +168,9 @@ const CAMPAIGN_PATCH_COLUMNS: Record<string, string> = {
 
 const CAMPAIGN_BOOLEAN_KEYS = new Set(["requireOtp", "allowReschedule"]);
 
-export function updateCampaign(idOrSlug: string, patch: Partial<CreateCampaignInput>): Campaign {
-  const db = getDb();
-  const current = getCampaign(idOrSlug);
+export async function updateCampaign(idOrSlug: string, patch: Partial<CreateCampaignInput>): Promise<Campaign> {
+  const db = await getDb();
+  const current = await getCampaign(idOrSlug);
   const startDate = patch.startDate ?? current.startDate;
   const endDate = patch.endDate ?? current.endDate;
   if (new Date(endDate).getTime() < new Date(startDate).getTime()) {
@@ -162,29 +180,29 @@ export function updateCampaign(idOrSlug: string, patch: Partial<CreateCampaignIn
     throw new AppError("E-CAMPAIGN-ATTEMPTS", "baseAttempts must be at least 1", 422);
   }
   const sets: string[] = [];
-  const values: unknown[] = [];
+  const values: Array<string | number> = [];
   for (const [key, column] of Object.entries(CAMPAIGN_PATCH_COLUMNS)) {
     const value = (patch as Record<string, unknown>)[key];
     if (value !== undefined) {
       sets.push(`${column} = ?`);
-      values.push(CAMPAIGN_BOOLEAN_KEYS.has(key) ? (value ? 1 : 0) : value);
+      values.push(CAMPAIGN_BOOLEAN_KEYS.has(key) ? (value ? 1 : 0) : (value as string | number));
     }
   }
   if (sets.length === 0) return current;
   values.push(current.id);
-  db.prepare(`UPDATE campaigns SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+  await run(db, `UPDATE campaigns SET ${sets.join(", ")} WHERE id = ?`, values as InArgs);
   return getCampaign(current.id);
 }
 
-export function listSlots(campaignIdOrSlug: string): CampaignSlot[] {
-  const db = getDb();
-  const campaign = getCampaign(campaignIdOrSlug);
-  return db.prepare("SELECT * FROM slots WHERE campaign_id = ? ORDER BY date, start_time").all(campaign.id).map(mapSlot);
+export async function listSlots(campaignIdOrSlug: string): Promise<CampaignSlot[]> {
+  const db = await getDb();
+  const campaign = await getCampaign(campaignIdOrSlug);
+  return (await all(db, "SELECT * FROM slots WHERE campaign_id = ? ORDER BY date, start_time", [campaign.id])).map(mapSlot);
 }
 
-export function createSlot(campaignIdOrSlug: string, input: CreateSlotInput): CampaignSlot {
-  const db = getDb();
-  const campaign = getCampaign(campaignIdOrSlug);
+export async function createSlot(campaignIdOrSlug: string, input: CreateSlotInput): Promise<CampaignSlot> {
+  const db = await getDb();
+  const campaign = await getCampaign(campaignIdOrSlug);
   if (input.totalCapacity < 1) throw new AppError("E-SLOT-CAPACITY", "totalCapacity must be at least 1", 422);
   if (input.endTime <= input.startTime) {
     throw new AppError("E-SLOT-TIME", "Slot endTime must be after startTime", 422);
@@ -201,24 +219,26 @@ export function createSlot(campaignIdOrSlug: string, input: CreateSlotInput): Ca
     remainingCapacity: input.totalCapacity,
     status: input.status ?? "active"
   };
-  db.prepare(
+  await run(
+    db,
     `INSERT INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
-     VALUES (@id, @campaignId, @date, @startTime, @endTime, @timezone, @branchId, @totalCapacity, @remainingCapacity, @status)`
-  ).run({ ...slot, branchId: slot.branchId ?? null });
+     VALUES (@id, @campaignId, @date, @startTime, @endTime, @timezone, @branchId, @totalCapacity, @remainingCapacity, @status)`,
+    { ...slot, branchId: slot.branchId ?? null }
+  );
   return slot;
 }
 
-export function listPools(slotId: string): VoucherPool[] {
-  const db = getDb();
-  if (!db.prepare("SELECT 1 FROM slots WHERE id = ?").get(slotId)) {
+export async function listPools(slotId: string): Promise<VoucherPool[]> {
+  const db = await getDb();
+  if (!(await one(db, "SELECT 1 FROM slots WHERE id = ?", [slotId]))) {
     throw new AppError("E-SLOT-404", "Slot was not found", 404);
   }
-  return db.prepare("SELECT * FROM pools WHERE slot_id = ?").all(slotId).map(mapPool);
+  return (await all(db, "SELECT * FROM pools WHERE slot_id = ?", [slotId])).map(mapPool);
 }
 
-export function createPool(slotId: string, input: CreatePoolInput): VoucherPool {
-  const db = getDb();
-  if (!db.prepare("SELECT 1 FROM slots WHERE id = ?").get(slotId)) {
+export async function createPool(slotId: string, input: CreatePoolInput): Promise<VoucherPool> {
+  const db = await getDb();
+  if (!(await one(db, "SELECT 1 FROM slots WHERE id = ?", [slotId]))) {
     throw new AppError("E-SLOT-404", "Slot was not found", 404);
   }
   if (input.totalQuantity < 1) throw new AppError("E-POOL-QUANTITY", "totalQuantity must be at least 1", 422);
@@ -239,9 +259,11 @@ export function createPool(slotId: string, input: CreatePoolInput): VoucherPool 
     status: input.status ?? "active",
     restriction: input.restriction
   };
-  db.prepare(
+  await run(
+    db,
     `INSERT INTO pools (id, slot_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
-     VALUES (@id, @slotId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`
-  ).run({ ...pool, minimumSpend: pool.minimumSpend ?? null, restriction: pool.restriction ?? null });
+     VALUES (@id, @slotId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`,
+    { ...pool, minimumSpend: pool.minimumSpend ?? null, restriction: pool.restriction ?? null }
+  );
   return pool;
 }

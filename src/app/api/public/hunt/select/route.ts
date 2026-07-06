@@ -15,9 +15,9 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    enforceRateLimit(request, "hunt/select", { limit: 15, windowMs: 60_000 });
+    await enforceRateLimit(request, "hunt/select", { limit: 15, windowMs: 60_000 });
     const input = schema.parse(await request.json());
-    const result = selectFinalVoucher(input);
+    const result = await selectFinalVoucher(input);
     // Voucher issuance already succeeded; an SMS delivery failure is logged
     // in sms_logs and must not fail this request.
     await sendVoucherConfirmationSms(result.voucher.id).catch(() => undefined);

@@ -5,25 +5,28 @@ import { NewPoolForm } from "../_components/NewPoolForm";
 import { RedemptionImport } from "../_components/RedemptionImport";
 import { selectCampaign } from "../_components/selectCampaign";
 
-export default function VouchersPage({
+export default async function VouchersPage({
   searchParams,
 }: {
   searchParams: { campaign?: string };
 }) {
-  const campaigns = listCampaigns();
+  const campaigns = await listCampaigns();
   const selectedCampaign = selectCampaign(campaigns, searchParams.campaign);
 
-  let slotRows: ReturnType<typeof dashboardMetrics>["slotPerformance"] = [];
+  let slotRows: Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"] = [];
   if (selectedCampaign) {
     try {
-      slotRows = dashboardMetrics(selectedCampaign.id).slotPerformance;
+      slotRows = (await dashboardMetrics(selectedCampaign.id)).slotPerformance;
     } catch {
       slotRows = [];
     }
   }
-  const poolRows = slotRows.flatMap((row) =>
-    listPools(row.slot.id).map((pool) => ({ slot: row.slot, pool })),
-  );
+  const poolRows: Array<{ slot: (typeof slotRows)[number]["slot"]; pool: Awaited<ReturnType<typeof listPools>>[number] }> = [];
+  for (const row of slotRows) {
+    for (const pool of await listPools(row.slot.id)) {
+      poolRows.push({ slot: row.slot, pool });
+    }
+  }
 
   return (
     <>

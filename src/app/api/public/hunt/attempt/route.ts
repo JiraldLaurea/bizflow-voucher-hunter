@@ -13,9 +13,9 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    enforceRateLimit(request, "hunt/attempt", { limit: 20, windowMs: 60_000 });
+    await enforceRateLimit(request, "hunt/attempt", { limit: 20, windowMs: 60_000 });
     const input = schema.parse(await request.json());
-    return ok(generateCandidate(input));
+    return ok(await generateCandidate(input));
   } catch (error) {
     return fail(error);
   }

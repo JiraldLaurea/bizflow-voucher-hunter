@@ -18,53 +18,59 @@ const base = {
   name: "Lifecycle User"
 };
 
-function issue(phone: string, slotId = base.slotId) {
+async function issue(phone: string, slotId = base.slotId) {
   const input = { ...base, slotId, phone };
-  startHunt(input);
-  const candidate = generateCandidate(input);
+  await startHunt(input);
+  const candidate = await generateCandidate(input);
   return selectFinalVoucher({ ...input, attemptId: candidate.id, guestCount: 2 });
 }
 
 describe("no-show", () => {
-  beforeEach(() => resetDb());
-
-  it("marks a reserved booking and its voucher as no-show and counts it", () => {
-    const { voucher } = issue("+639170000001");
-    const result = markNoShow({ codeOrToken: voucher.voucherCode, staffName: "Host" });
-    expect(result.status).toBe("No-show");
-    expect(dashboardMetrics("camp_july_dinner").summary.noShows).toBe(1);
+  beforeEach(async () => {
+    await resetDb();
   });
 
-  it("cannot mark a redeemed voucher as no-show", () => {
-    const { voucher } = issue("+639170000002");
-    redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "Front Desk" });
-    expect(() => markNoShow({ codeOrToken: voucher.voucherCode })).toThrow(AppError);
+  it("marks a reserved booking and its voucher as no-show and counts it", async () => {
+    const { voucher } = await issue("+639170000001");
+    const result = await markNoShow({ codeOrToken: voucher.voucherCode, staffName: "Host" });
+    expect(result.status).toBe("No-show");
+    expect((await dashboardMetrics("camp_july_dinner")).summary.noShows).toBe(1);
+  });
+
+  it("cannot mark a redeemed voucher as no-show", async () => {
+    const { voucher } = await issue("+639170000002");
+    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "Front Desk" });
+    await expect(markNoShow({ codeOrToken: voucher.voucherCode })).rejects.toThrow(AppError);
   });
 });
 
 describe("reschedule", () => {
-  beforeEach(() => resetDb());
+  beforeEach(async () => {
+    await resetDb();
+  });
 
-  it("moves an issued reservation to another active slot and transfers capacity", () => {
-    const { voucher, slot } = issue("+639170000003");
+  it("moves an issued reservation to another active slot and transfers capacity", async () => {
+    const { voucher, slot } = await issue("+639170000003");
     const target = "slot_dinner_0707_1900";
-    const { voucher: moved, newSlot } = rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: target });
+    const { voucher: moved, newSlot } = await rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: target });
     expect(moved.slotId).toBe(target);
     // Old slot regained a seat, new slot lost one.
     expect(newSlot.remainingCapacity).toBe(18 - 1);
-    const metrics = dashboardMetrics("camp_july_dinner");
+    const metrics = await dashboardMetrics("camp_july_dinner");
     const oldPerf = metrics.slotPerformance.find((s) => s.slot.id === slot.id)!;
     expect(oldPerf.slot.remainingCapacity).toBe(20); // seat returned
   });
 
-  it("rejects rescheduling to the same slot", () => {
-    const { voucher } = issue("+639170000004");
-    expect(() => rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: base.slotId })).toThrow(AppError);
+  it("rejects rescheduling to the same slot", async () => {
+    const { voucher } = await issue("+639170000004");
+    await expect(rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: base.slotId })).rejects.toThrow(AppError);
   });
 
-  it("rejects rescheduling onto a sold-out slot", () => {
-    const { voucher } = issue("+639170000005");
+  it("rejects rescheduling onto a sold-out slot", async () => {
+    const { voucher } = await issue("+639170000005");
     // slot_dinner_0706_1900 is seeded sold_out.
-    expect(() => rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: "slot_dinner_0706_1900" })).toThrow(AppError);
+    await expect(
+      rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: "slot_dinner_0706_1900" })
+    ).rejects.toThrow(AppError);
   });
 });

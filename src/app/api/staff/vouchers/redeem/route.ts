@@ -13,7 +13,7 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     await requireAdmin(request);
-    return ok(redeemVoucher(schema.parse(await request.json())));
+    return ok(await redeemVoucher(schema.parse(await request.json())));
   } catch (error) {
     return fail(error);
   }

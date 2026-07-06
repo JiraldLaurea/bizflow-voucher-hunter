@@ -15,7 +15,7 @@ const schema = z.object({
 export async function GET(request: Request) {
   try {
     await requireAdmin(request);
-    return ok(listBusinesses());
+    return ok(await listBusinesses());
   } catch (error) {
     return fail(error);
   }
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   try {
     await requireAdmin(request);
     const input = schema.parse(await request.json());
-    return ok(createBusiness(input), { status: 201 });
+    return ok(await createBusiness(input), { status: 201 });
   } catch (error) {
     return fail(error);
   }
