@@ -9,6 +9,7 @@ import {
 } from "@/server/voucher-engine";
 import { GET as visitReferral } from "@/app/api/public/referral/visit/route";
 import { GET as claimReferral } from "@/app/api/public/referral/claim/route";
+import { POST as deprecatedOpenReferral } from "@/app/api/public/referral/open/route";
 
 const bonusDraw = (phone: string) =>
   generateCandidate({
@@ -96,6 +97,35 @@ describe("referral share module", () => {
       remainingBonusAttempts: 1,
     });
     expect((await bonusDraw(referrer.phone)).sourceType).toBe("referral_bonus");
+  });
+
+  it("does not grant from the deprecated page-load open endpoint", async () => {
+    const referrer = await startReferrer();
+
+    const response = await deprecatedOpenReferral(
+      new Request("http://localhost/api/public/referral/open", {
+        method: "POST",
+        body: JSON.stringify({
+          campaignSlug: "july-dinner",
+          ref: referrer.id,
+          sessionId: "visitor-session-legacy",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      await getReferralSnapshot({
+        campaignSlug: "july-dinner",
+        ref: referrer.id,
+      }),
+    ).toMatchObject({
+      sharesGrantedToday: 0,
+      remainingBonusAttempts: 0,
+    });
+    await expect(bonusDraw(referrer.phone)).rejects.toThrowError(
+      /No extra attempts earned/,
+    );
   });
 
   it("rejects a self-referral (visitor session equals referrer session)", async () => {

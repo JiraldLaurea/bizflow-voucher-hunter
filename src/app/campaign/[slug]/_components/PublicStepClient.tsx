@@ -280,54 +280,11 @@ export function PublicStepClient({
     window.localStorage.setItem(sessionKey, sessionId);
     document.cookie = `${visitorSessionCookie}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=31536000; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
 
-    let referralRetryTimeout: number | undefined;
-    let cancelled = false;
-    const ref = new URLSearchParams(window.location.search).get("ref");
-    if (ref) {
-      // v2 ignores markers written by the previous implementation, which
-      // marked referrals processed before the server confirmed them.
-      const processedKey = `bizflow-ref-processed-v2-${campaign.slug}-${ref}`;
-      if (!window.sessionStorage.getItem(processedKey)) {
-        const recordOpen = async (attempt = 0) => {
-          try {
-            await api("/api/public/referral/open", {
-              method: "POST",
-              body: JSON.stringify({
-                campaignSlug: campaign.slug,
-                ref,
-                sessionId,
-              }),
-            });
-            if (!cancelled) {
-              window.sessionStorage.setItem(processedKey, "1");
-            }
-          } catch {
-            // Retry transient deployment/network failures instead of permanently
-            // suppressing the referral after the first unsuccessful request.
-            if (!cancelled && attempt < 2) {
-              referralRetryTimeout = window.setTimeout(
-                () => recordOpen(attempt + 1),
-                1500 * (attempt + 1),
-              );
-            }
-          }
-        };
-        void recordOpen();
-      }
-    }
-
     if (saved) {
       setState({ ...initialState(slots), ...JSON.parse(saved), sessionId });
     } else {
       setState({ ...initialState(slots), sessionId });
     }
-
-    return () => {
-      cancelled = true;
-      if (referralRetryTimeout) {
-        window.clearTimeout(referralRetryTimeout);
-      }
-    };
   }, [slots, storageKey, campaign.slug]);
 
   useEffect(() => {
