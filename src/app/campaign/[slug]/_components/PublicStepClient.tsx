@@ -729,7 +729,7 @@ export function PublicStepClient({
           shareCount: started.sharesGrantedToday,
           bonusAttempts: started.remainingBonusAttempts,
         },
-        routeFor("hunt"),
+        routeFor("landing"),
       );
     } catch (caught) {
       reportError(caught, "Unable to sign in.");
@@ -741,46 +741,10 @@ export function PublicStepClient({
   async function startHuntFromLanding() {
     setError("");
     if (!state.phone) {
-      setError("Enter your mobile number to start hunting.");
+      navigate(routeFor("signin"));
       return;
     }
-    setBusy(true);
-    try {
-      const started = await api<HuntState>("/api/public/hunt/start", {
-        method: "POST",
-        body: JSON.stringify({
-          campaignSlug: campaign.slug,
-          phone: state.phone,
-          sessionId: state.sessionId,
-          name: state.name || "Voucher Hunter",
-          email: state.email,
-        }),
-      });
-      const activeAttempts = started.attempts.filter(
-        (attempt) =>
-          attempt.status === "Candidate" || attempt.status === "Held",
-      );
-      const pendingAttempt =
-        activeAttempts.find((a) => a.id === state.selectedAttemptId) ??
-        activeAttempts[activeAttempts.length - 1];
-      saveAndNavigate(
-        {
-          userId: started.user.id,
-          attempts: pendingAttempt ? [pendingAttempt] : [],
-          selectedAttemptId: pendingAttempt?.id ?? "",
-          selectedSlotId: "",
-          selectedDate: "",
-          issued: null,
-          shareCount: started.sharesGrantedToday,
-          bonusAttempts: started.remainingBonusAttempts,
-        },
-        pendingAttempt ? routeFor("results") : routeFor("roulette"),
-      );
-    } catch (caught) {
-      reportError(caught, "Unable to start your voucher hunt.");
-    } finally {
-      setBusy(false);
-    }
+    await revealVouchers();
   }
 
   async function spinToAttempt(
@@ -1398,24 +1362,19 @@ export function PublicStepClient({
               text="Higher discounts unlock fewer time slots"
             />
           </div>
-          <label className="field landing-phone-field">
-            <span>Mobile Number</span>
-            <input
-              value={state.phone}
-              onChange={(event) => save({ phone: event.target.value })}
-              placeholder="09614073159"
-              inputMode="tel"
-            />
-          </label>
           {error ? <p className="alert">{error}</p> : null}
           <button
             aria-busy={busy}
             className="button full landing-primary-action hunt-start-button"
-            disabled={busy || !state.phone || !state.sessionId}
+            disabled={busy || !state.sessionId}
             onClick={startHuntFromLanding}
             type="button"
           >
-            {busy ? "Searching for vouchers..." : "Let's Hunt!"}
+            {busy
+              ? "Searching for vouchers..."
+              : state.phone
+                ? "Let's Hunt!"
+                : "Sign In to Hunt"}
           </button>
           <BottomNav activeTab="home" routeFor={routeFor} />
         </>
