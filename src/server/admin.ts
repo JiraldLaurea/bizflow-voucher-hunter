@@ -83,7 +83,11 @@ export type CreatePoolInput = {
   minimumSpend?: number;
   restriction?: string;
   status?: VoucherPool["status"];
+  /** Slots at which this benefit tier is offered (rarity-gated availability). */
+  slotIds?: string[];
 };
+
+export type PoolWithSlots = VoucherPool & { slotIds: string[] };
 
 export async function createCampaign(input: CreateCampaignInput): Promise<Campaign> {
   const db = await getDb();
@@ -228,25 +232,40 @@ export async function createSlot(campaignIdOrSlug: string, input: CreateSlotInpu
   return slot;
 }
 
-export async function listPools(slotId: string): Promise<VoucherPool[]> {
+/** Lists a campaign's benefit tiers, each with the slot IDs it is offered at. */
+export async function listPools(campaignIdOrSlug: string): Promise<PoolWithSlots[]> {
   const db = await getDb();
-  if (!(await one(db, "SELECT 1 FROM slots WHERE id = ?", [slotId]))) {
-    throw new AppError("E-SLOT-404", "Slot was not found", 404);
-  }
-  return (await all(db, "SELECT * FROM pools WHERE slot_id = ?", [slotId])).map(mapPool);
+  const campaign = await getCampaign(campaignIdOrSlug);
+  const pools = (await all(db, "SELECT * FROM pools WHERE campaign_id = ?", [campaign.id])).map(mapPool);
+  const links = await all(db, "SELECT pool_id, slot_id FROM pool_slots", []);
+  return pools.map((pool) => ({
+    ...pool,
+    slotIds: links.filter((l) => l.pool_id === pool.id).map((l) => l.slot_id as string)
+  }));
 }
 
-export async function createPool(slotId: string, input: CreatePoolInput): Promise<VoucherPool> {
+export async function createPool(campaignIdOrSlug: string, input: CreatePoolInput): Promise<PoolWithSlots> {
   const db = await getDb();
-  if (!(await one(db, "SELECT 1 FROM slots WHERE id = ?", [slotId]))) {
-    throw new AppError("E-SLOT-404", "Slot was not found", 404);
-  }
+  const campaign = await getCampaign(campaignIdOrSlug);
   if (input.totalQuantity < 1) throw new AppError("E-POOL-QUANTITY", "totalQuantity must be at least 1", 422);
   if (input.probabilityWeight < 1) throw new AppError("E-POOL-WEIGHT", "probabilityWeight must be at least 1", 422);
   if (input.expiryValue < 0) throw new AppError("E-POOL-EXPIRY", "expiryValue cannot be negative", 422);
+
+  const slotIds = input.slotIds ?? [];
+  if (slotIds.length > 0) {
+    const owned = await all(
+      db,
+      `SELECT id FROM slots WHERE campaign_id = ? AND id IN (${slotIds.map(() => "?").join(",")})`,
+      [campaign.id, ...slotIds]
+    );
+    if (owned.length !== slotIds.length) {
+      throw new AppError("E-POOL-SLOTS", "One or more assigned slots do not belong to this campaign", 422);
+    }
+  }
+
   const pool: VoucherPool = {
     id: id("pool"),
-    slotId,
+    campaignId: campaign.id,
     benefitType: input.benefitType,
     benefitValue: input.benefitValue,
     displayLabel: input.displayLabel,
@@ -261,9 +280,12 @@ export async function createPool(slotId: string, input: CreatePoolInput): Promis
   };
   await run(
     db,
-    `INSERT INTO pools (id, slot_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
-     VALUES (@id, @slotId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`,
+    `INSERT INTO pools (id, campaign_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
+     VALUES (@id, @campaignId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`,
     { ...pool, minimumSpend: pool.minimumSpend ?? null, restriction: pool.restriction ?? null }
   );
-  return pool;
+  for (const slotId of slotIds) {
+    await run(db, "INSERT OR IGNORE INTO pool_slots (pool_id, slot_id) VALUES (?, ?)", [pool.id, slotId]);
+  }
+  return { ...pool, slotIds };
 }

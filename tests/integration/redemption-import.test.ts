@@ -1,15 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/server/db";
-import { generateCandidate, importRedemptions, selectFinalVoucher, startHunt, validateVoucher } from "@/server/voucher-engine";
+import { importRedemptions, validateVoucher } from "@/server/voucher-engine";
+import { huntAndSelect } from "../helpers";
 
-const base = { campaignSlug: "8pm-drop", slotId: "slot_shop_0705_2000", sessionId: "imp-session", name: "Import User" };
-
-async function issueShopVoucher(phone: string) {
-  const input = { ...base, phone };
-  await startHunt(input);
-  const candidate = await generateCandidate(input);
-  return (await selectFinalVoucher({ ...input, attemptId: candidate.id })).voucher;
-}
+const issueShopVoucher = async (phone: string) =>
+  (await huntAndSelect({ campaignSlug: "8pm-drop", phone, name: "Import User" })).voucher;
 
 describe("redemption CSV import", () => {
   beforeEach(async () => {

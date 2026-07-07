@@ -6,7 +6,6 @@ import { api } from "@/lib/api-client";
 import type { CampaignSlot } from "@/types/voucher";
 
 const emptyPool = {
-  slotId: "",
   benefitType: "discount_percent",
   benefitValue: "",
   displayLabel: "",
@@ -17,27 +16,28 @@ const emptyPool = {
   minimumSpend: "",
 };
 
-export function NewPoolForm({ slots }: { slots: CampaignSlot[] }) {
+export function NewPoolForm({ campaignId, slots }: { campaignId: string; slots: CampaignSlot[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pool, setPool] = useState(emptyPool);
+  const [slotIds, setSlotIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // slots can arrive after this component first mounts (e.g. a slot is
-  // created while this form is open), so fall back to the first slot
-  // instead of relying solely on state captured at mount time.
-  const effectiveSlotId = pool.slotId || slots[0]?.id || "";
+
+  function toggleSlot(slotId: string) {
+    setSlotIds((current) => (current.includes(slotId) ? current.filter((id) => id !== slotId) : [...current, slotId]));
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
-    if (!effectiveSlotId) {
-      setError("Add a slot to this campaign first.");
+    if (slotIds.length === 0) {
+      setError("Select at least one date/time slot this tier is offered at.");
       return;
     }
     setBusy(true);
     try {
-      await api(`/api/slots/${effectiveSlotId}/pools`, {
+      await api(`/api/campaigns/${campaignId}/pools`, {
         method: "POST",
         body: JSON.stringify({
           benefitType: pool.benefitType,
@@ -48,13 +48,15 @@ export function NewPoolForm({ slots }: { slots: CampaignSlot[] }) {
           expiryType: pool.expiryType,
           expiryValue: Number(pool.expiryValue),
           minimumSpend: pool.minimumSpend ? Number(pool.minimumSpend) : undefined,
+          slotIds,
         }),
       });
       router.refresh();
       setOpen(false);
       setPool(emptyPool);
+      setSlotIds([]);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to create voucher pool.");
+      setError(caught instanceof Error ? caught.message : "Unable to create benefit tier.");
     } finally {
       setBusy(false);
     }
@@ -69,7 +71,7 @@ export function NewPoolForm({ slots }: { slots: CampaignSlot[] }) {
         title={slots.length === 0 ? "Add a slot to this campaign first" : undefined}
         type="button"
       >
-        + Add Voucher
+        + Add Benefit Tier
       </button>
     );
   }
@@ -77,26 +79,12 @@ export function NewPoolForm({ slots }: { slots: CampaignSlot[] }) {
   return (
     <form className="admin-inline-form" onSubmit={handleSubmit}>
       <div className="admin-form-header">
-        <strong>New Voucher Pool</strong>
+        <strong>New Benefit Tier</strong>
         <button className="button tertiary" onClick={() => setOpen(false)} type="button">
           Cancel
         </button>
       </div>
       <div className="admin-form-grid">
-        <label className="field">
-          <span>Slot</span>
-          <select
-            required
-            value={effectiveSlotId}
-            onChange={(event) => setPool({ ...pool, slotId: event.target.value })}
-          >
-            {slots.map((slot) => (
-              <option key={slot.id} value={slot.id}>
-                {slot.date} {slot.startTime}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="field">
           <span>Benefit Type</span>
           <select
@@ -179,9 +167,20 @@ export function NewPoolForm({ slots }: { slots: CampaignSlot[] }) {
           />
         </label>
       </div>
+      <fieldset className="pool-slot-picker">
+        <legend>Offered at these date/time slots (rarer tiers = fewer slots)</legend>
+        <div className="pool-slot-options">
+          {slots.map((slot) => (
+            <label key={slot.id} className="pool-slot-option">
+              <input type="checkbox" checked={slotIds.includes(slot.id)} onChange={() => toggleSlot(slot.id)} />
+              {slot.date} {slot.startTime}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       {error ? <p className="alert">{error}</p> : null}
       <button className="button" disabled={busy} type="submit">
-        {busy ? "Creating..." : "Create Voucher Pool"}
+        {busy ? "Creating..." : "Create Benefit Tier"}
       </button>
     </form>
   );

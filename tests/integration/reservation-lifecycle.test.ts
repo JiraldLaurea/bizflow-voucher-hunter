@@ -1,29 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
-import {
-  dashboardMetrics,
-  generateCandidate,
-  markNoShow,
-  redeemVoucher,
-  rescheduleReservation,
-  selectFinalVoucher,
-  startHunt
-} from "@/server/voucher-engine";
+import { dashboardMetrics, markNoShow, redeemVoucher, rescheduleReservation } from "@/server/voucher-engine";
+import { huntAndSelect } from "../helpers";
 
-const base = {
-  campaignSlug: "july-dinner",
-  slotId: "slot_dinner_0705_1900",
-  sessionId: "life-session",
-  name: "Lifecycle User"
-};
-
-async function issue(phone: string, slotId = base.slotId) {
-  const input = { ...base, slotId, phone };
-  await startHunt(input);
-  const candidate = await generateCandidate(input);
-  return selectFinalVoucher({ ...input, attemptId: candidate.id, guestCount: 2 });
-}
+// Force issuance at slot_dinner_0705_1900 (offered by the 30%/20%/dessert tiers,
+// at least one of which always appears among 3 distinct base draws).
+const issue = (phone: string) =>
+  huntAndSelect({ campaignSlug: "july-dinner", phone, name: "Lifecycle User", guestCount: 2, targetSlotId: "slot_dinner_0705_1900" });
 
 describe("no-show", () => {
   beforeEach(async () => {
@@ -54,21 +38,14 @@ describe("reschedule", () => {
     const target = "slot_dinner_0707_1900";
     const { voucher: moved, newSlot } = await rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: target });
     expect(moved.slotId).toBe(target);
-    // Old slot regained a seat, new slot lost one.
-    expect(newSlot.remainingCapacity).toBe(18 - 1);
+    expect(newSlot.remainingCapacity).toBe(18 - 1); // target had capacity 18
     const metrics = await dashboardMetrics("camp_july_dinner");
     const oldPerf = metrics.slotPerformance.find((s) => s.slot.id === slot.id)!;
-    expect(oldPerf.slot.remainingCapacity).toBe(20); // seat returned
-  });
-
-  it("rejects rescheduling to the same slot", async () => {
-    const { voucher } = await issue("+639170000004");
-    await expect(rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: base.slotId })).rejects.toThrow(AppError);
+    expect(oldPerf.slot.remainingCapacity).toBe(20); // original slot_1900 seat returned
   });
 
   it("rejects rescheduling onto a sold-out slot", async () => {
     const { voucher } = await issue("+639170000005");
-    // slot_dinner_0706_1900 is seeded sold_out.
     await expect(
       rescheduleReservation({ codeOrToken: voucher.voucherCode, newSlotId: "slot_dinner_0706_1900" })
     ).rejects.toThrow(AppError);

@@ -2,11 +2,11 @@ import { notFound } from "next/navigation";
 import { getPublicCampaign } from "@/server/voucher-engine";
 import { PublicStepClient } from "../_components/PublicStepClient";
 
-export default async function SelectTimePage({ params }: { params: { slug: string } }) {
+export default async function DateTimePage({ params }: { params: { slug: string } }) {
   try {
     const data = await getPublicCampaign(params.slug);
     if (!data.business) notFound();
-    return <PublicStepClient step="time" campaign={data.campaign} businessName={data.business.name} businessLogo={data.business.logoText} slots={data.slots} />;
+    return <PublicStepClient step="datetime" campaign={data.campaign} businessName={data.business.name} businessLogo={data.business.logoText} slots={data.slots} />;
   } catch {
     notFound();
   }

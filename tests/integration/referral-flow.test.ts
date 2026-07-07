@@ -14,7 +14,6 @@ import { POST as deprecatedOpenReferral } from "@/app/api/public/referral/open/r
 const bonusDraw = (phone: string) =>
   generateCandidate({
     campaignSlug: "july-dinner",
-    slotId: "slot_dinner_0705_1900",
     phone,
     sessionId: "referrer-session",
     sourceType: "referral_bonus"
@@ -28,7 +27,6 @@ describe("referral share module", () => {
   async function startReferrer() {
     const state = await startHunt({
       campaignSlug: "july-dinner",
-      slotId: "slot_dinner_0705_1900",
       phone: "+639181234561",
       sessionId: "referrer-session",
       name: "Referrer",

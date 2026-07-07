@@ -50,7 +50,7 @@ export type CampaignSlot = {
 
 export type VoucherPool = {
   id: string;
-  slotId: string;
+  campaignId: string;
   benefitType: "discount_percent" | "fixed_amount" | "free_item" | "free_shipping";
   benefitValue: string;
   displayLabel: string;
@@ -77,7 +77,8 @@ export type EndUser = {
 export type VoucherAttempt = {
   id: string;
   campaignId: string;
-  slotId: string;
+  /** Chosen only at final confirmation; a fresh candidate has no slot yet. */
+  slotId?: string;
   userId: string;
   attemptNumber: number;
   sourceType: SourceType;

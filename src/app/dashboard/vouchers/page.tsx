@@ -14,19 +14,20 @@ export default async function VouchersPage({
   const selectedCampaign = selectCampaign(campaigns, searchParams.campaign);
 
   let slotRows: Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"] = [];
+  let pools: Awaited<ReturnType<typeof listPools>> = [];
   if (selectedCampaign) {
     try {
       slotRows = (await dashboardMetrics(selectedCampaign.id)).slotPerformance;
+      pools = await listPools(selectedCampaign.id);
     } catch {
       slotRows = [];
+      pools = [];
     }
   }
-  const poolRows: Array<{ slot: (typeof slotRows)[number]["slot"]; pool: Awaited<ReturnType<typeof listPools>>[number] }> = [];
-  for (const row of slotRows) {
-    for (const pool of await listPools(row.slot.id)) {
-      poolRows.push({ slot: row.slot, pool });
-    }
-  }
+  const slotLabel = (slotId: string) => {
+    const slot = slotRows.find((row) => row.slot.id === slotId)?.slot;
+    return slot ? `${slot.date} ${slot.startTime}` : slotId;
+  };
 
   return (
     <>
@@ -36,40 +37,40 @@ export default async function VouchersPage({
       <section className="panel table-wrap">
         <div className="admin-topbar">
           <div>
-            <h2>Voucher Pool Configuration</h2>
-            <p className="muted">Benefit pools configured per slot for the selected campaign.</p>
+            <h2>Voucher Benefit Tiers</h2>
+            <p className="muted">Campaign-wide benefit tiers and the date/time slots each is offered at.</p>
           </div>
         </div>
         {selectedCampaign ? (
           <div className="admin-form-actions">
-            <NewPoolForm slots={slotRows.map((row) => row.slot)} />
+            <NewPoolForm campaignId={selectedCampaign.id} slots={slotRows.map((row) => row.slot)} />
             <RedemptionImport campaignId={selectedCampaign.id} />
           </div>
         ) : null}
         <table>
           <thead>
             <tr>
-              <th>Slot</th>
               <th>Benefit</th>
               <th>Qty</th>
               <th>Remaining</th>
               <th>Weight</th>
+              <th>Available at</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
-            {poolRows.length === 0 ? (
+            {pools.length === 0 ? (
               <tr>
-                <td colSpan={6}>No voucher pools yet. Add one above.</td>
+                <td colSpan={6}>No benefit tiers yet. Add one above.</td>
               </tr>
             ) : (
-              poolRows.map(({ slot, pool }) => (
+              pools.map((pool) => (
                 <tr key={pool.id}>
-                  <td>{slot.date} {slot.startTime}</td>
                   <td>{pool.displayLabel}</td>
                   <td>{pool.totalQuantity}</td>
                   <td>{pool.remainingQuantity}</td>
                   <td>{pool.probabilityWeight}</td>
+                  <td>{pool.slotIds.length === 0 ? "—" : pool.slotIds.map(slotLabel).join(", ")}</td>
                   <td><span className="badge">{pool.status}</span></td>
                 </tr>
               ))

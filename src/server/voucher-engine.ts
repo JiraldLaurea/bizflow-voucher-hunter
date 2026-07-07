@@ -263,16 +263,8 @@ export async function getReferralSnapshot(input: {
 export async function publicSlots(campaignId: string) {
   const db = await getDb();
   const slots = (await all(db, "SELECT * FROM slots WHERE campaign_id = ?", [campaignId])).map(mapSlot);
-  const withCounts = [];
-  for (const slot of slots) {
-    const agg = await one(
-      db,
-      "SELECT COALESCE(SUM(remaining_quantity), 0) AS q FROM pools WHERE slot_id = ? AND status = 'active'",
-      [slot.id]
-    );
-    withCounts.push({ ...slot, remainingPoolQuantity: Number(agg.q) });
-  }
-  return withCounts;
+  // Benefit pools are now campaign-level; a slot's "remaining" is its own capacity.
+  return slots.map((slot) => ({ ...slot, remainingPoolQuantity: slot.remainingCapacity }));
 }
 
 export async function getPublicCampaign(slug: string) {
@@ -300,15 +292,37 @@ export async function listCampaignSlots(slug: string) {
   return publicSlots(campaign.id);
 }
 
+export async function listPublicVoucherPools(slug: string) {
+  const db = await getDb();
+  const campaign = await getCampaignOrThrow(db, slug);
+  return (
+    await all(
+      db,
+      `SELECT * FROM pools
+       WHERE campaign_id = ? AND status = 'active' AND remaining_quantity > 0
+       ORDER BY probability_weight DESC, display_label ASC`,
+      [campaign.id],
+    )
+  )
+    .map(mapPool)
+    .map((pool) => ({
+      benefitType: pool.benefitType,
+      benefitValue: pool.benefitValue,
+      displayLabel: pool.displayLabel,
+      probabilityWeight: pool.probabilityWeight,
+      remainingQuantity: pool.remainingQuantity,
+    }));
+}
+
 /** Active campaigns for the public campaign switcher/tab bar. */
 export async function listActiveCampaigns() {
   const db = await getDb();
   return (await all(db, "SELECT * FROM campaigns WHERE status = 'active' ORDER BY start_date DESC")).map(mapCampaign);
 }
 
+/** Phone sign-in: identifies the user and lets them hunt immediately (no slot yet). */
 export async function startHunt(input: {
   campaignSlug: string;
-  slotId: string;
   phone: string;
   sessionId: string;
   name?: string;
@@ -316,16 +330,15 @@ export async function startHunt(input: {
 }) {
   const result = await withTx(async (tx) => {
     const campaign = await getCampaignOrThrow(tx, input.campaignSlug);
-    const slot = await getSlotOrThrow(tx, input.slotId, campaign.id);
     const user = await findOrCreateUser(tx, campaign.id, input.phone, input.sessionId, input.name, input.email);
     if (await hasFinalVoucher(tx, campaign.id, user.id)) {
       throw new AppError("E-DUPLICATE-FINAL", "This phone number already has a final voucher for this campaign", 409);
     }
-    await addAnalytics(tx, campaign.id, "hunt_started", { phone: user.phone }, user.id, slot.id);
-    return { campaign, slot, user };
+    await addAnalytics(tx, campaign.id, "hunt_started", { phone: user.phone }, user.id);
+    return { campaign, user };
   });
   const db = await getDb();
-  return huntState(db, result.campaign, result.slot, result.user);
+  return huntState(db, result.campaign, result.user);
 }
 
 function weightedPool(pools: VoucherPool[], existingLabels: Set<string>) {
@@ -342,7 +355,6 @@ function weightedPool(pools: VoucherPool[], existingLabels: Set<string>) {
 
 export function generateCandidate(input: {
   campaignSlug: string;
-  slotId: string;
   phone: string;
   sessionId: string;
   sourceType?: SourceType;
@@ -350,7 +362,6 @@ export function generateCandidate(input: {
   const sourceType = input.sourceType ?? "base";
   return withTx(async (tx) => {
     const campaign = await getCampaignOrThrow(tx, input.campaignSlug);
-    const slot = await getSlotOrThrow(tx, input.slotId, campaign.id);
     const user = await findOrCreateUser(tx, campaign.id, input.phone, input.sessionId);
     if (await hasFinalVoucher(tx, campaign.id, user.id)) {
       throw new AppError("E-DUPLICATE-FINAL", "Final voucher already issued", 409);
@@ -371,10 +382,12 @@ export function generateCandidate(input: {
       }
     }
 
+    // Candidates are drawn from campaign-wide benefit tiers; the slot is chosen
+    // later (post-selection), filtered by the winning tier's availability.
     const pools = (
-      await all(tx, "SELECT * FROM pools WHERE slot_id = ? AND status = 'active' AND remaining_quantity > 0", [slot.id])
+      await all(tx, "SELECT * FROM pools WHERE campaign_id = ? AND status = 'active' AND remaining_quantity > 0", [campaign.id])
     ).map(mapPool);
-    if (pools.length === 0) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this slot", 409);
+    if (pools.length === 0) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this campaign", 409);
 
     const pool = weightedPool(pools, new Set(activeAttempts.map((a) => a.displayLabel)));
 
@@ -387,14 +400,13 @@ export function generateCandidate(input: {
        WHERE id = ? AND remaining_quantity > 0`,
       [pool.id]
     );
-    if (dec !== 1) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this slot", 409);
+    if (dec !== 1) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this campaign", 409);
 
     const expires = now();
     expires.setMinutes(expires.getMinutes() + campaign.candidateTimeoutMinutes);
     const attempt: VoucherAttempt = {
       id: id("att"),
       campaignId: campaign.id,
-      slotId: slot.id,
       userId: user.id,
       attemptNumber: attempts.length + 1,
       sourceType,
@@ -410,16 +422,53 @@ export function generateCandidate(input: {
       tx,
       `INSERT INTO attempts (id, campaign_id, slot_id, user_id, attempt_number, source_type, benefit_type, benefit_value, display_label, pool_id, status, expires_at, created_at)
        VALUES (@id, @campaignId, @slotId, @userId, @attemptNumber, @sourceType, @benefitType, @benefitValue, @displayLabel, @poolId, @status, @expiresAt, @createdAt)`,
-      attempt
+      { ...attempt, slotId: null }
     );
-    await addAnalytics(tx, campaign.id, "voucher_candidate_generated", { benefit: attempt.displayLabel }, user.id, slot.id);
+    await addAnalytics(tx, campaign.id, "voucher_candidate_generated", { benefit: attempt.displayLabel }, user.id);
     return attempt;
   });
+}
+
+/**
+ * Lists the date/time slots at which the chosen candidate's benefit tier can be
+ * redeemed. Rarer/higher tiers map to fewer (off-peak) slots via pool_slots.
+ * Called after the user picks 1 of their candidates, before final confirmation.
+ */
+export async function listSlotsForAttempt(input: { campaignSlug: string; phone: string; attemptId: string }) {
+  const db = await getDb();
+  const campaign = await getCampaignOrThrow(db, input.campaignSlug);
+  const normalized = normalizePhone(input.phone);
+  const userRow = normalized
+    ? await one(db, "SELECT * FROM users WHERE campaign_id = ? AND phone = ?", [campaign.id, normalized])
+    : undefined;
+  if (!userRow) throw new AppError("E-USER-404", "No hunt session found for this phone number", 404);
+  const attemptRow = await one(db, "SELECT * FROM attempts WHERE id = ? AND campaign_id = ? AND user_id = ?", [
+    input.attemptId,
+    campaign.id,
+    mapUser(userRow).id
+  ]);
+  if (!attemptRow) throw new AppError("E-ATTEMPT-404", "Selected candidate was not found", 404);
+  const attempt = mapAttempt(attemptRow);
+  const slots = (
+    await all(
+      db,
+      `SELECT s.* FROM slots s
+       JOIN pool_slots ps ON ps.slot_id = s.id
+       WHERE ps.pool_id = ? AND s.campaign_id = ?
+       ORDER BY s.date, s.start_time`,
+      [attempt.poolId, campaign.id]
+    )
+  ).map(mapSlot);
+  return {
+    attempt,
+    slots: slots.map((slot) => ({ ...slot, remainingPoolQuantity: slot.remainingCapacity }))
+  };
 }
 
 export function selectFinalVoucher(input: {
   campaignSlug: string;
   attemptId: string;
+  slotId: string;
   phone: string;
   sessionId: string;
   name: string;
@@ -451,7 +500,12 @@ export function selectFinalVoucher(input: {
       throw new AppError("E-ATTEMPT-EXPIRED", "Selected candidate has expired", 409);
     }
 
-    const slot = await getSlotOrThrow(tx, attempt.slotId, campaign.id);
+    const slot = await getSlotOrThrow(tx, input.slotId, campaign.id);
+    // The chosen slot must offer this benefit tier (rarity-gated availability).
+    const offered = await one(tx, "SELECT 1 FROM pool_slots WHERE pool_id = ? AND slot_id = ?", [attempt.poolId, slot.id]);
+    if (!offered) {
+      throw new AppError("E-SLOT-TIER", "This voucher is not available at the selected date and time", 409);
+    }
     const pool = mapPool(await one(tx, "SELECT * FROM pools WHERE id = ?", [attempt.poolId]));
 
     // Conditional capacity decrement guards the slot against over-booking.
@@ -703,7 +757,7 @@ export async function redeemVoucher(input: { codeOrToken: string; staffName: str
   return validateVoucher({ codeOrToken: input.codeOrToken });
 }
 
-async function huntState(db: Exec, campaign: Campaign, slot: CampaignSlot, user: EndUser) {
+async function huntState(db: Exec, campaign: Campaign, user: EndUser) {
   const attempts = (await all(db, "SELECT * FROM attempts WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id])).map(
     mapAttempt
   );
@@ -711,7 +765,6 @@ async function huntState(db: Exec, campaign: Campaign, slot: CampaignSlot, user:
   return {
     user,
     campaign,
-    slot,
     attempts,
     voucher: voucherRow ? mapVoucher(voucherRow) : undefined,
     remainingBaseAttempts: Math.max(0, campaign.baseAttempts - attempts.filter((a) => a.sourceType === "base").length),
@@ -721,20 +774,17 @@ async function huntState(db: Exec, campaign: Campaign, slot: CampaignSlot, user:
 }
 
 /**
- * Read-only hunt/referral snapshot for an already-started user. Used by the
- * client to refresh earned-share counts without re-triggering hunt_started
- * analytics the way startHunt does.
+ * Read-only hunt/referral snapshot for an already signed-in user. Used by the
+ * client to refresh candidates and earned-share counts without re-triggering
+ * hunt_started analytics.
  */
-export async function getHuntSnapshot(input: { campaignSlug: string; slotId: string; phone: string }) {
+export async function getHuntSnapshot(input: { campaignSlug: string; phone: string }) {
   const db = await getDb();
   const campaign = await getCampaignOrThrow(db, input.campaignSlug);
-  const slotRow = await one(db, "SELECT * FROM slots WHERE id = ? AND campaign_id = ?", [input.slotId, campaign.id]);
-  if (!slotRow) throw new AppError("E-SLOT-404", "Selected slot was not found", 404);
   const normalized = normalizePhone(input.phone);
   const userRow = normalized ? await one(db, "SELECT * FROM users WHERE campaign_id = ? AND phone = ?", [campaign.id, normalized]) : undefined;
   if (!userRow) throw new AppError("E-USER-404", "No hunt session found for this phone number", 404);
-  const user = mapUser(userRow);
-  return huntState(db, campaign, mapSlot(slotRow), user);
+  return huntState(db, campaign, mapUser(userRow));
 }
 
 export async function dashboardMetrics(campaignId: string) {
@@ -840,7 +890,7 @@ export async function exportCampaignCsv(campaignId: string) {
     ["attempt_id", "phone", "attempt_number", "source_type", "benefit", "status", "slot_date", "created_at", "expires_at"],
     attempts.map((attempt) => {
       const user = usersById.get(attempt.userId);
-      const slot = slotsById.get(attempt.slotId);
+      const slot = attempt.slotId ? slotsById.get(attempt.slotId) : undefined;
       return [
         attempt.id,
         user?.phone ?? "",

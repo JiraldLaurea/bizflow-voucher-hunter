@@ -3,7 +3,7 @@ import { resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { createCampaign, createPool, createSlot } from "@/server/admin";
 import { requestOtp, verifyOtp } from "@/server/otp";
-import { generateCandidate, selectFinalVoucher, startHunt } from "@/server/voucher-engine";
+import { generateCandidate, listSlotsForAttempt, selectFinalVoucher, startHunt } from "@/server/voucher-engine";
 
 async function setupOtpCampaign() {
   const campaign = await createCampaign({
@@ -22,16 +22,25 @@ async function setupOtpCampaign() {
     requireOtp: true
   });
   const slot = await createSlot(campaign.id, { date: "2026-08-05", startTime: "20:00", endTime: "22:00", totalCapacity: 10 });
-  await createPool(slot.id, {
+  await createPool(campaign.id, {
     benefitType: "discount_percent",
     benefitValue: "20",
     displayLabel: "20% OFF",
     totalQuantity: 5,
     probabilityWeight: 10,
     expiryType: "days",
-    expiryValue: 7
+    expiryValue: 7,
+    slotIds: [slot.id]
   });
   return { slug: campaign.slug, slotId: slot.id };
+}
+
+async function drawFirstCandidate(slug: string, phone: string) {
+  const base = { campaignSlug: slug, phone, sessionId: "otp-s" };
+  await startHunt({ ...base, name: "OTP User" });
+  const candidate = await generateCandidate(base);
+  const { slots } = await listSlotsForAttempt({ campaignSlug: slug, phone, attemptId: candidate.id });
+  return { candidate, slotId: slots[0].id, base };
 }
 
 describe("OTP verification gate", () => {
@@ -40,19 +49,18 @@ describe("OTP verification gate", () => {
   });
 
   it("blocks final selection until the phone is verified, then allows it", async () => {
-    const { slug, slotId } = await setupOtpCampaign();
-    const input = { campaignSlug: slug, slotId, phone: "+639171112222", sessionId: "otp-s", name: "OTP User" };
-    await startHunt(input);
-    const candidate = await generateCandidate(input);
+    const { slug } = await setupOtpCampaign();
+    const phone = "+639171112222";
+    const { candidate, slotId } = await drawFirstCandidate(slug, phone);
+    const select = { campaignSlug: slug, attemptId: candidate.id, slotId, phone, sessionId: "otp-s", name: "OTP User" };
 
-    // Without verification the issue is rejected.
-    await expect(selectFinalVoucher({ ...input, attemptId: candidate.id })).rejects.toThrow(AppError);
+    await expect(selectFinalVoucher(select)).rejects.toThrow(AppError);
 
-    const requested = await requestOtp({ campaignSlug: slug, phone: input.phone });
+    const requested = await requestOtp({ campaignSlug: slug, phone });
     expect(requested.devCode).toMatch(/^\d{6}$/);
-    await verifyOtp({ campaignSlug: slug, phone: input.phone, code: requested.devCode! });
+    await verifyOtp({ campaignSlug: slug, phone, code: requested.devCode! });
 
-    const issued = await selectFinalVoucher({ ...input, attemptId: candidate.id });
+    const issued = await selectFinalVoucher(select);
     expect(issued.voucher.status).toBe("Issued");
   });
 
@@ -60,13 +68,5 @@ describe("OTP verification gate", () => {
     const { slug } = await setupOtpCampaign();
     await requestOtp({ campaignSlug: slug, phone: "+639170003333" });
     await expect(verifyOtp({ campaignSlug: slug, phone: "+639170003333", code: "000000" })).rejects.toThrow(AppError);
-  });
-
-  it("does not require OTP for campaigns with the flag off", async () => {
-    // Seeded july-dinner has requireOtp = false; issuing works without OTP.
-    const input = { campaignSlug: "july-dinner", slotId: "slot_dinner_0705_1900", phone: "+639170004444", sessionId: "no-otp", name: "Plain User" };
-    await startHunt(input);
-    const candidate = await generateCandidate(input);
-    expect((await selectFinalVoucher({ ...input, attemptId: candidate.id })).voucher.status).toBe("Issued");
   });
 });

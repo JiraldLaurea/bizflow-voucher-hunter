@@ -1,12 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getDb, one, resetDb } from "@/server/db";
-import {
-  generateCandidate,
-  resendVoucherSms,
-  selectFinalVoucher,
-  sendVoucherConfirmationSms,
-  startHunt
-} from "@/server/voucher-engine";
+import { resendVoucherSms, sendVoucherConfirmationSms } from "@/server/voucher-engine";
+import { huntAndSelect } from "../helpers";
 
 describe("SMS confirmation", () => {
   beforeEach(async () => {
@@ -15,16 +10,7 @@ describe("SMS confirmation", () => {
   });
 
   async function issueVoucher(phone: string) {
-    const input = {
-      campaignSlug: "july-dinner",
-      slotId: "slot_dinner_0705_1900",
-      phone,
-      sessionId: `sms-session-${phone}`,
-      name: "SMS Test User"
-    };
-    await startHunt(input);
-    const candidate = await generateCandidate(input);
-    return selectFinalVoucher({ ...input, attemptId: candidate.id, guestCount: 2 });
+    return huntAndSelect({ campaignSlug: "july-dinner", phone, sessionId: `sms-session-${phone}`, name: "SMS Test User", guestCount: 2 });
   }
 
   it("sends the confirmation SMS via the mock provider and logs it", async () => {

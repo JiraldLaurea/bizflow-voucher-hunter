@@ -6,6 +6,7 @@ import { selectFinalVoucher, sendVoucherConfirmationSms } from "@/server/voucher
 const schema = z.object({
   campaignSlug: z.string().min(1),
   attemptId: z.string().min(1),
+  slotId: z.string().min(1),
   phone: z.string().min(7),
   sessionId: z.string().min(1),
   name: z.string().min(2),

@@ -15,23 +15,24 @@ const schema = z.object({
   expiryValue: z.number().int().min(0),
   minimumSpend: z.number().int().min(0).optional(),
   restriction: z.string().optional(),
-  status: z.enum(["active", "paused", "depleted"]).optional()
+  status: z.enum(["active", "paused", "depleted"]).optional(),
+  slotIds: z.array(z.string()).optional()
 });
 
-export async function GET(request: Request, { params }: { params: { slotId: string } }) {
+export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     await requireAdmin(request);
-    return ok(await listPools(params.slotId));
+    return ok(await listPools(params.id));
   } catch (error) {
     return fail(error);
   }
 }
 
-export async function POST(request: Request, { params }: { params: { slotId: string } }) {
+export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     await requireAdmin(request);
     const input = schema.parse(await request.json());
-    return ok(await createPool(params.slotId, input), { status: 201 });
+    return ok(await createPool(params.id, input), { status: 201 });
   } catch (error) {
     return fail(error);
   }

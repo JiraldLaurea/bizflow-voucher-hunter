@@ -12,7 +12,7 @@ import {
   listSlots,
   updateCampaign
 } from "@/server/admin";
-import { generateCandidate, listCampaignSlots, startHunt } from "@/server/voucher-engine";
+import { generateCandidate, listSlotsForAttempt, startHunt } from "@/server/voucher-engine";
 
 const campaignInput = {
   businessId: "biz_demo_shop",
@@ -46,26 +46,28 @@ describe("admin CRUD", () => {
     });
     expect(slot.remainingCapacity).toBe(10);
 
-    await createPool(slot.id, {
+    const pool = await createPool(campaign.id, {
       benefitType: "discount_percent",
       benefitValue: "25",
       displayLabel: "25% OFF",
       totalQuantity: 5,
       probabilityWeight: 10,
       expiryType: "days",
-      expiryValue: 7
+      expiryValue: 7,
+      slotIds: [slot.id]
     });
+    expect(pool.slotIds).toEqual([slot.id]);
 
     expect(await listSlots(campaign.id)).toHaveLength(1);
-    expect(await listPools(slot.id)).toHaveLength(1);
+    expect(await listPools(campaign.id)).toHaveLength(1);
 
-    // Public flow works against the admin-created campaign.
-    const publicSlots = await listCampaignSlots("admin-created");
-    expect(publicSlots[0].remainingPoolQuantity).toBe(5);
-    const input = { campaignSlug: "admin-created", slotId: slot.id, phone: "+639170001111", sessionId: "admin-flow" };
-    await startHunt(input);
+    // Public flow works against the admin-created campaign (single tier -> always drawn).
+    const input = { campaignSlug: "admin-created", phone: "+639170001111", sessionId: "admin-flow" };
+    await startHunt({ ...input, name: "Admin Flow" });
     const candidate = await generateCandidate(input);
     expect(candidate.displayLabel).toBe("25% OFF");
+    const { slots } = await listSlotsForAttempt({ campaignSlug: "admin-created", phone: input.phone, attemptId: candidate.id });
+    expect(slots.map((s) => s.id)).toEqual([slot.id]);
   });
 
   it("rejects a duplicate slug", async () => {
@@ -82,9 +84,9 @@ describe("admin CRUD", () => {
     await expect(
       createSlot(campaign.id, { date: "2026-08-05", startTime: "22:00", endTime: "20:00", totalCapacity: 5 })
     ).rejects.toThrow(AppError);
-    const slot = await createSlot(campaign.id, { date: "2026-08-05", startTime: "20:00", endTime: "22:00", totalCapacity: 5 });
+    await createSlot(campaign.id, { date: "2026-08-05", startTime: "20:00", endTime: "22:00", totalCapacity: 5 });
     await expect(
-      createPool(slot.id, {
+      createPool(campaign.id, {
         benefitType: "discount_percent",
         benefitValue: "10",
         displayLabel: "10% OFF",

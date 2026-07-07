@@ -446,6 +446,12 @@ h2 {
   text-align: center;
 }
 
+.hunt-loading-modal.roulette-modal {
+  width: min(100%, 464px);
+  padding: 20px 0 24px;
+  overflow: hidden;
+}
+
 .hunt-loading-modal h2 {
   margin: 18px 0 8px;
   font-size: 1.25rem;
@@ -524,6 +530,344 @@ h2 {
   .hunt-loading-ring,
   .hunt-loading-dots span {
     animation: none;
+  }
+}
+
+.roulette-stage {
+  --roulette-card-width: 304px;
+  --roulette-gap: 12px;
+  position: relative;
+  width: 100%;
+  min-height: 222px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 42px 0 24px;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(92, 61, 255, 0.18), transparent 58%),
+    linear-gradient(180deg, rgba(246, 243, 255, 0.96), rgba(255, 255, 255, 0));
+  border-block: 1px solid rgba(92, 61, 255, 0.08);
+}
+
+.roulette-reel-clip {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  overflow: hidden;
+}
+
+.roulette-pointer {
+  position: absolute;
+  z-index: 5;
+  top: 13px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-top: 18px solid var(--purple);
+  filter: drop-shadow(0 7px 9px rgba(92, 61, 255, 0.34));
+  transform: translateX(-50%);
+}
+
+.roulette-track {
+  display: flex;
+  gap: var(--roulette-gap);
+  width: max-content;
+  padding-inline: calc(50% - (var(--roulette-card-width) / 2) + 2px);
+  transform: translateX(0);
+  will-change: transform;
+}
+
+.roulette-track.searching {
+  animation: roulette-reel-search 520ms linear infinite;
+}
+
+.roulette-track.landing {
+  animation: none;
+}
+
+.roulette-track.settled {
+  transform: translateX(var(--roulette-target-offset));
+}
+
+.roulette-ticket {
+  flex: 0 0 var(--roulette-card-width);
+  min-height: 172px !important;
+  padding: 18px !important;
+  box-shadow: 0 12px 24px var(--voucher-shadow, rgba(92, 61, 255, 0.16)) !important;
+  transition:
+    filter 220ms ease,
+    transform 220ms ease;
+}
+
+.roulette-track.searching .roulette-ticket,
+.roulette-track.landing .roulette-ticket {
+  filter: saturate(1.08);
+}
+
+.roulette-track.settled .roulette-ticket:not(.selected) {
+  filter: saturate(0.72) opacity(0.45);
+}
+
+.roulette-track.settled .roulette-ticket.selected {
+  animation: roulette-winner-pop 680ms ease-out both;
+  filter: none;
+  box-shadow:
+    0 18px 34px var(--voucher-shadow, rgba(92, 61, 255, 0.2)) !important,
+    0 0 0 5px rgba(124, 70, 255, 0.1),
+    0 0 42px rgba(124, 70, 255, 0.2) !important;
+}
+
+.roulette-ticket .rarity-badge {
+  max-width: 100%;
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+.roulette-ticket h3 {
+  font-size: 1.72rem !important;
+}
+
+.roulette-confetti-wrap,
+.roulette-confetti {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+}
+
+.roulette-confetti-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.roulette-confetti-overlay .roulette-confetti-wrap {
+  left: 50%;
+  top: 45%;
+}
+
+.roulette-confetti-wrap {
+  width: 1px;
+  height: 1px;
+  transform: translate(-50%, -50%);
+}
+
+.roulette-confetti {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.confetti-primary {
+  animation: roulette-confetti-burst 900ms ease-out both;
+  box-shadow:
+    -142px -42px 0 -3px #ff4da6,
+    -112px 38px 0 -4px #32c96f,
+    -74px -76px 0 -3px #5cc8ff,
+    -34px 58px 0 -4px #ffb02e,
+    38px -68px 0 -3px #7b46ff,
+    78px 52px 0 -4px #38d17a,
+    116px -34px 0 -3px #ffcf54,
+    148px 34px 0 -4px #ff5d5d;
+}
+
+.confetti-secondary {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  animation: roulette-confetti-burst-wide 1120ms ease-out 80ms both;
+  box-shadow:
+    -176px -8px 0 -4px #7b46ff,
+    -150px 74px 0 -5px #ffcf54,
+    -118px -96px 0 -4px #38d17a,
+    -78px 102px 0 -5px #5cc8ff,
+    -28px -116px 0 -4px #ff8a00,
+    24px 116px 0 -5px #ff4da6,
+    74px -98px 0 -4px #ff5d5d,
+    116px 86px 0 -5px #32c96f,
+    154px -68px 0 -4px #5cc8ff,
+    182px 8px 0 -5px #7b46ff;
+}
+
+.confetti-sparkles {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  animation: roulette-confetti-sparkle 1300ms ease-out 130ms both;
+  box-shadow:
+    -122px -18px 0 -2px rgba(255, 255, 255, 0.95),
+    -86px -72px 0 -2px #ffe27a,
+    -58px 32px 0 -2px rgba(255, 255, 255, 0.95),
+    0 -96px 0 -2px #ffffff,
+    44px 50px 0 -2px #ffe27a,
+    92px -52px 0 -2px rgba(255, 255, 255, 0.95),
+    130px 22px 0 -2px #ffffff;
+}
+
+.roulette-confirm-actions {
+  padding: 18px 32px 0;
+}
+
+.roulette-page-content {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  min-height: 100%;
+  align-content: start;
+  padding-bottom: 20px;
+  overflow-x: clip;
+}
+
+.roulette-page-stage {
+  width: 100%;
+  margin-inline: 0;
+}
+
+.roulette-page-actions {
+  width: 100%;
+  max-width: 460px;
+  margin-inline: auto;
+  padding-inline: 44px;
+}
+
+.roulette-page-content > .hunt-title,
+.roulette-page-content > .hunt-subtitle,
+.roulette-page-content > .alert,
+.roulette-result-copy {
+  padding-inline: 18px;
+}
+
+.roulette-page-content > .hunt-subtitle {
+  margin-top: 22px;
+  margin-bottom: 18px;
+  color: var(--muted);
+}
+
+.roulette-result-copy {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  min-height: 92px;
+  padding-top: 20px;
+  background: #fff;
+  color: var(--navy);
+}
+
+.roulette-result-copy .hunt-title,
+.roulette-result-copy .hunt-subtitle {
+  margin-bottom: 0;
+}
+
+.roulette-result-copy .hunt-subtitle {
+  color: var(--muted);
+}
+
+.single-result-stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.single-result-ticket {
+  min-height: 172px !important;
+}
+
+.result-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.result-share-note {
+  margin: 0;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.result-replace-note {
+  margin: 4px 0 0;
+  text-align: center;
+}
+
+@keyframes roulette-reel-search {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(
+      calc(-1 * (var(--roulette-card-width) + var(--roulette-gap)))
+    );
+  }
+}
+
+@keyframes roulette-winner-pop {
+  0% {
+    transform: scale(0.985);
+  }
+  55% {
+    transform: scale(1.035);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes roulette-confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.18);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.85) rotate(18deg);
+  }
+}
+
+@keyframes roulette-confetti-burst-wide {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.12) rotate(0deg);
+  }
+  16% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.2) rotate(52deg);
+  }
+}
+
+@keyframes roulette-confetti-sparkle {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.2);
+  }
+  22% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.55) rotate(-24deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roulette-track.searching,
+  .roulette-track.landing {
+    animation: none;
+    transform: translateX(var(--roulette-target-offset));
   }
 }
 
@@ -1624,7 +1968,13 @@ th {
 .mobile-screen-card {
   flex: 1;
   padding: 26px 18px 18px;
+  overflow-x: hidden;
   overflow-y: auto;
+}
+
+.mobile-screen-card.roulette-screen {
+  padding-right: 0;
+  padding-left: 0;
 }
 
 .mobile-h1 {
@@ -2411,6 +2761,21 @@ th {
   box-shadow: 0 14px 30px rgba(9, 30, 66, 0.1);
 }
 
+.landing-phone-field {
+  margin-top: 14px;
+}
+
+.landing-phone-field span {
+  color: #536078;
+  font-size: 0.78rem;
+}
+
+.landing-phone-field input {
+  min-height: 50px;
+  border-radius: 12px;
+  font-size: 1rem;
+}
+
 .landing-rule-row {
   display: grid;
   grid-template-columns: 26px 1fr;
@@ -2709,5 +3074,47 @@ th {
   display: flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
+}
+
+/* --- Date & time step (post-selection, tier-filtered) --- */
+.datetime-day {
+  margin-bottom: 14px;
+}
+.datetime-day .date-list-title {
+  margin: 10px 0 6px;
+}
+.share-card {
+  display: grid;
+  gap: 10px;
+  text-align: center;
+  margin-top: 6px;
+}
+.share-card strong {
+  font-size: 0.95rem;
+}
+
+/* --- Benefit-tier slot picker (admin) --- */
+.pool-slot-picker {
+  border: 1px solid rgba(11, 29, 58, 0.14);
+  border-radius: 12px;
+  padding: 12px;
+  margin: 4px 0 12px;
+}
+.pool-slot-picker legend {
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0 6px;
+}
+.pool-slot-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+}
+.pool-slot-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
   cursor: pointer;
 }

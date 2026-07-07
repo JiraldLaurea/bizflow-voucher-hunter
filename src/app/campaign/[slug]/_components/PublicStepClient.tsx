@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import QRCode from "qrcode";
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import type { ComponentPropsWithoutRef, CSSProperties, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FaPaw,
   FaShoppingBag,
@@ -39,11 +39,11 @@ import type {
 type PublicSlot = CampaignSlot & { remainingPoolQuantity: number };
 type PublicStep =
   | "landing"
-  | "date"
-  | "time"
+  | "signin"
   | "hunt"
+  | "roulette"
   | "results"
-  | "share"
+  | "datetime"
   | "confirm"
   | "confirmation"
   | "voucher"
@@ -87,6 +87,22 @@ type ReferralState = Pick<
   HuntState,
   "sharesGrantedToday" | "remainingBonusAttempts"
 >;
+type RoulettePreview = Pick<
+  VoucherAttempt,
+  "benefitType" | "benefitValue" | "displayLabel"
+> & {
+  probabilityWeight?: number;
+  remainingQuantity?: number;
+};
+type RoulettePhase = "idle" | "searching" | "landing" | "selected";
+type PendingSpinCompletion = {
+  destination?: string;
+  nextState: Partial<FlowState>;
+};
+type RouletteSequenceResult = {
+  items: RoulettePreview[];
+  winnerIndex: number;
+};
 
 /**
  * Public campaign steps intentionally use document navigation. Next.js RSC
@@ -165,11 +181,11 @@ function VoucherCard({
 
 const steps: Array<{ id: PublicStep; label: string; href: string }> = [
   { id: "landing", label: "Campaign Landing", href: "" },
-  { id: "date", label: "Select Date", href: "date" },
-  { id: "time", label: "Select Time", href: "time" },
-  { id: "hunt", label: "Hunt Intro", href: "hunt" },
+  { id: "signin", label: "Sign In", href: "signin" },
+  { id: "hunt", label: "Hunt", href: "hunt" },
+  { id: "roulette", label: "Voucher Roulette", href: "roulette" },
   { id: "results", label: "Voucher Results", href: "results" },
-  { id: "share", label: "Share for Extra Chance", href: "share" },
+  { id: "datetime", label: "Date & Time", href: "datetime" },
   { id: "confirm", label: "Confirm & Details", href: "confirm" },
   { id: "confirmation", label: "Confirmation", href: "confirmation" },
   { id: "vouchers", label: "My Vouchers", href: "vouchers" },
@@ -177,6 +193,12 @@ const steps: Array<{ id: PublicStep; label: string; href: string }> = [
 
 const claimedVouchersStorageKey = "bizflow-claimed-vouchers";
 const visitorSessionCookie = "bizflow_visitor_session";
+const rouletteCardWidth = 304;
+const rouletteGap = 12;
+const rouletteSpinCount = 42;
+const rouletteSpinMs = 10000;
+const rouletteSettleMs = 450;
+const rouletteFastProgress = 0.84;
 
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -208,13 +230,43 @@ function formatVoucherStatus(status: Voucher["status"]) {
   return status;
 }
 
-function initialState(slots: PublicSlot[]): FlowState {
-  const firstAvailable = slots.find(
-    (slot) => slot.status === "active" && slot.remainingCapacity > 0,
+function voucherDetail(
+  benefit: Pick<VoucherAttempt, "benefitType" | "benefitValue">,
+) {
+  if (benefit.benefitType === "free_item") return "Any dessert";
+  if (benefit.benefitType === "free_shipping") return "Free shipping reward";
+  return "On selected items";
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function nextPaint() {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(resolve);
+    });
+  });
+}
+
+function rouletteEase(progress: number) {
+  if (progress <= 0.5) {
+    return (progress / 0.5) * rouletteFastProgress;
+  }
+
+  const slowedProgress = (progress - 0.5) / 0.5;
+  return (
+    rouletteFastProgress +
+    (1 - rouletteFastProgress) *
+      (1 - Math.pow(1 - slowedProgress, 3.4))
   );
+}
+
+function initialState(_slots: PublicSlot[]): FlowState {
   return {
-    selectedDate: firstAvailable?.date ?? slots[0]?.date ?? "",
-    selectedSlotId: firstAvailable?.id ?? "",
+    selectedDate: "",
+    selectedSlotId: "",
     sessionId: "",
     userId: "",
     name: "",
@@ -245,6 +297,7 @@ export function PublicStepClient({
   const [shareNoticeExiting, setShareNoticeExiting] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [soldOut, setSoldOut] = useState(false);
+  const [tierSlots, setTierSlots] = useState<PublicSlot[]>([]);
   const [otpRequired, setOtpRequired] = useState(campaign.requireOtp);
   const [otpSent, setOtpSent] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
@@ -252,6 +305,18 @@ export function PublicStepClient({
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpMessage, setOtpMessage] = useState("");
   const [claimedVouchers, setClaimedVouchers] = useState<ClaimedVoucher[]>([]);
+  const [rouletteItems, setRouletteItems] = useState<RoulettePreview[]>([]);
+  const [rouletteWinner, setRouletteWinner] = useState<RoulettePreview | null>(
+    null,
+  );
+  const [rouletteMessage, setRouletteMessage] = useState("");
+  const [roulettePhase, setRoulettePhase] = useState<RoulettePhase>("idle");
+  const [rouletteTargetIndex, setRouletteTargetIndex] = useState(0);
+  const [rouletteOffset, setRouletteOffset] = useState(0);
+  const [rouletteDurationMs, setRouletteDurationMs] = useState(rouletteSpinMs);
+  const [pendingSpinCompletion, setPendingSpinCompletion] =
+    useState<PendingSpinCompletion | null>(null);
+  const rouletteAnimationRef = useRef<number | null>(null);
   const viewedVoucher =
     step === "voucher"
       ? claimedVouchers.find((item) => item.voucher.id === voucherId)
@@ -264,6 +329,14 @@ export function PublicStepClient({
   useEffect(() => {
     if (campaign.requireOtp) setOtpRequired(true);
   }, [campaign.requireOtp]);
+
+  useEffect(() => {
+    return () => {
+      if (rouletteAnimationRef.current) {
+        window.cancelAnimationFrame(rouletteAnimationRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setOtpSent(false);
@@ -323,8 +396,9 @@ export function PublicStepClient({
   }, [businessName, campaign.slug, campaign.title, state.issued]);
 
   useEffect(() => {
-    if (step !== "share") return;
+    if (step !== "datetime" && step !== "results") return;
     refreshShareState();
+    if (step === "datetime") fetchTierSlots();
     const interval = setInterval(refreshShareState, 4000);
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") refreshShareState();
@@ -337,7 +411,7 @@ export function PublicStepClient({
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, state.userId]);
+  }, [step, state.userId, state.selectedAttemptId]);
 
   useEffect(() => {
     if (!shareNotice) return;
@@ -354,6 +428,18 @@ export function PublicStepClient({
       window.clearTimeout(dismissTimeout);
     };
   }, [shareNotice]);
+
+  useEffect(() => {
+    if (step !== "roulette" || !state.sessionId || roulettePhase !== "idle") {
+      return;
+    }
+    if (!state.phone) {
+      setError("Sign in with your mobile number before spinning.");
+      return;
+    }
+    void startRouletteSpin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, state.sessionId, state.phone, roulettePhase]);
 
   useEffect(() => {
     const token = qrToken;
@@ -404,6 +490,26 @@ export function PublicStepClient({
   const selectedAttempt = state.attempts.find(
     (attempt) => attempt.id === state.selectedAttemptId,
   );
+  const visibleResult =
+    selectedAttempt ?? state.attempts[state.attempts.length - 1];
+  const resultMustBeReplaced = Boolean(visibleResult && state.bonusAttempts > 0);
+  const rouletteWinnerIndex = Math.max(0, rouletteTargetIndex);
+  const rouletteTargetOffset =
+    -rouletteWinnerIndex * (rouletteCardWidth + rouletteGap);
+  const rouletteAnimatedOffset =
+    roulettePhase === "selected" ? rouletteTargetOffset : rouletteOffset;
+  const rouletteTrackStyle = {
+    "--roulette-target-offset": `${rouletteTargetOffset}px`,
+    "--roulette-fast-offset": `${Math.round(rouletteTargetOffset * 0.72)}px`,
+    "--roulette-slow-offset": `${Math.round(rouletteTargetOffset * 0.88)}px`,
+    "--roulette-near-offset": `${Math.round(rouletteTargetOffset * 0.96)}px`,
+    "--roulette-final-approach-offset": `${Math.round(rouletteTargetOffset * 0.992)}px`,
+    "--roulette-creep-offset": `${Math.round(rouletteTargetOffset * 0.998)}px`,
+    "--roulette-spin-duration": `${rouletteDurationMs}ms`,
+    ...(roulettePhase === "landing" || roulettePhase === "selected"
+      ? { transform: `translateX(${rouletteAnimatedOffset}px)` }
+      : {}),
+  } as CSSProperties;
   const dates = useMemo(
     () =>
       Array.from(new Set(slots.map((slot) => slot.date))).map((date) => ({
@@ -433,16 +539,167 @@ export function PublicStepClient({
     return steps[currentStepNumber - 1]?.label ?? "Voucher Hunt";
   }
 
-  async function startHunting() {
-    setError("");
-    if (!state.selectedSlotId) {
-      setError("Choose an available date and time first.");
+  function toRoulettePreview(attempt: RoulettePreview): RoulettePreview {
+    return {
+      benefitType: attempt.benefitType,
+      benefitValue: attempt.benefitValue,
+      displayLabel: attempt.displayLabel,
+      probabilityWeight: attempt.probabilityWeight,
+      remainingQuantity: attempt.remainingQuantity,
+    };
+  }
+
+  function rouletteSequence(
+    previews: RoulettePreview[],
+    winner: RoulettePreview,
+  ): RouletteSequenceResult {
+    const pool = previews.length > 0 ? previews : [winner];
+    const weighted = pool.flatMap((item) =>
+      Array.from({
+        length: Math.max(
+          1,
+          Math.min(4, Math.round((item.probabilityWeight ?? 1) / 15)),
+        ),
+      }).map(() => item),
+    );
+    const loop = [...pool, ...weighted, ...pool.slice().reverse()];
+    const sequence: RoulettePreview[] = [];
+    const trailingCount = 4;
+    while (sequence.length < rouletteSpinCount - trailingCount - 1) {
+      sequence.push(loop[sequence.length % loop.length] ?? winner);
+    }
+
+    const finalApproachLength = Math.min(3, sequence.length);
+    for (let index = 1; index <= finalApproachLength; index += 1) {
+      sequence[sequence.length - index] = winner;
+    }
+
+    const winnerIndex = sequence.length;
+    const trailingPool =
+      pool.filter((item) => item.displayLabel !== winner.displayLabel).length > 0
+        ? pool.filter((item) => item.displayLabel !== winner.displayLabel)
+        : pool;
+    const trailingItems = Array.from(
+      { length: trailingCount },
+      (_, index) => trailingPool[index % trailingPool.length] ?? winner,
+    );
+
+    return {
+      items: [...sequence, winner, ...trailingItems],
+      winnerIndex,
+    };
+  }
+
+  function rouletteLoop(items: RoulettePreview[], count = rouletteSpinCount) {
+    if (items.length === 0) return [];
+    return Array.from({ length: count }, (_, index) => items[index % items.length]);
+  }
+
+  function placeholderRouletteItems() {
+    return rouletteLoop([
+      {
+        benefitType: "discount_percent",
+        benefitValue: "20",
+        displayLabel: "20% OFF",
+        probabilityWeight: 55,
+      },
+      {
+        benefitType: "free_item",
+        benefitValue: "dessert",
+        displayLabel: "Free Dessert",
+        probabilityWeight: 25,
+      },
+      {
+        benefitType: "discount_percent",
+        benefitValue: "50",
+        displayLabel: "50% OFF",
+        probabilityWeight: 15,
+      },
+      {
+        benefitType: "discount_percent",
+        benefitValue: "90",
+        displayLabel: "90% OFF",
+        probabilityWeight: 5,
+      },
+    ]);
+  }
+
+  async function playRoulette(
+    sequence: RouletteSequenceResult,
+    durationMs = rouletteSpinMs,
+  ) {
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const winner = sequence.items[sequence.winnerIndex];
+    if (!winner) return;
+    const targetOffset = -sequence.winnerIndex * (rouletteCardWidth + rouletteGap);
+    if (prefersReducedMotion) {
+      setRouletteOffset(targetOffset);
+      setRouletteWinner(winner);
+      setRoulettePhase("selected");
+      setRouletteMessage(`Selected: ${winner.displayLabel}`);
+      await sleep(rouletteSettleMs);
       return;
     }
-    if (!state.phone) {
-      setError(
-        "Enter your mobile number so we can enforce one final voucher per user.",
+
+    await animateRouletteToOffset(targetOffset, durationMs);
+    setRouletteWinner(winner);
+    setRouletteOffset(targetOffset);
+    setRoulettePhase("selected");
+    setRouletteMessage(`Selected: ${winner.displayLabel}`);
+    await sleep(rouletteSettleMs);
+  }
+
+  function animateRouletteToOffset(targetOffset: number, durationMs: number) {
+    if (rouletteAnimationRef.current) {
+      window.cancelAnimationFrame(rouletteAnimationRef.current);
+      rouletteAnimationRef.current = null;
+    }
+
+    setRouletteOffset(0);
+
+    return new Promise<void>((resolve) => {
+      const startedAt = performance.now();
+
+      const step = (now: number) => {
+        const elapsed = now - startedAt;
+        const progress = Math.min(1, elapsed / durationMs);
+        const eased = rouletteEase(progress);
+        const nextOffset = targetOffset * eased;
+
+        setRouletteOffset(Math.round(nextOffset * 100) / 100);
+
+        if (progress < 1) {
+          rouletteAnimationRef.current = window.requestAnimationFrame(step);
+          return;
+        }
+
+        rouletteAnimationRef.current = null;
+        setRouletteOffset(targetOffset);
+        resolve();
+      };
+
+      rouletteAnimationRef.current = window.requestAnimationFrame(step);
+    });
+  }
+
+  async function fetchRoulettePreviews() {
+    try {
+      const pools = await api<RoulettePreview[]>(
+        `/api/public/campaigns/${encodeURIComponent(campaign.slug)}/pools`,
       );
+      return pools.map(toRoulettePreview);
+    } catch {
+      return [];
+    }
+  }
+
+  // Step 1: phone sign-in. Identifies the user, then moves to the hunt screen.
+  async function signIn() {
+    setError("");
+    if (!state.phone) {
+      setError("Enter your mobile number to sign in and start hunting.");
       return;
     }
     setBusy(true);
@@ -451,7 +708,6 @@ export function PublicStepClient({
         method: "POST",
         body: JSON.stringify({
           campaignSlug: campaign.slug,
-          slotId: state.selectedSlotId,
           phone: state.phone,
           sessionId: state.sessionId,
           name: state.name || "Voucher Hunter",
@@ -462,49 +718,287 @@ export function PublicStepClient({
         (attempt) =>
           attempt.status === "Candidate" || attempt.status === "Held",
       );
-      const previouslySelected = activeAttempts.find(
-        (attempt) => attempt.id === state.selectedAttemptId,
-      );
-      const resumeAttempt =
-        previouslySelected ??
-        (started.remainingBaseAttempts === 0 ? activeAttempts[0] : undefined);
-      const resumeSlotId = resumeAttempt?.slotId ?? state.selectedSlotId;
-      const attempts = activeAttempts.filter(
-        (attempt) => attempt.slotId === resumeSlotId,
-      );
-
-      for (let index = 0; index < started.remainingBaseAttempts; index += 1) {
-        attempts.push(
-          await api<VoucherAttempt>("/api/public/hunt/attempt", {
-            method: "POST",
-            body: JSON.stringify({
-              campaignSlug: campaign.slug,
-              slotId: resumeSlotId,
-              phone: state.phone,
-              sessionId: state.sessionId,
-            }),
-          }),
-        );
-      }
-
-      const restoredSelection = attempts.find(
-        (attempt) => attempt.id === state.selectedAttemptId,
-      );
-      const restoredSlot = slots.find((slot) => slot.id === resumeSlotId);
+      const pendingAttempt =
+        activeAttempts.find((a) => a.id === state.selectedAttemptId) ??
+        activeAttempts[activeAttempts.length - 1];
       saveAndNavigate(
         {
           userId: started.user.id,
-          selectedDate: restoredSlot?.date ?? state.selectedDate,
-          selectedSlotId: resumeSlotId,
-          attempts,
-          selectedAttemptId: restoredSelection?.id ?? attempts[0]?.id ?? "",
+          attempts: pendingAttempt ? [pendingAttempt] : [],
+          selectedAttemptId: pendingAttempt?.id ?? "",
+          shareCount: started.sharesGrantedToday,
+          bonusAttempts: started.remainingBonusAttempts,
         },
-        restoredSelection ? routeFor("confirm") : routeFor("results"),
+        routeFor("hunt"),
       );
     } catch (caught) {
-      reportError(caught, "Unable to start voucher hunt.");
+      reportError(caught, "Unable to sign in.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function startHuntFromLanding() {
+    setError("");
+    if (!state.phone) {
+      setError("Enter your mobile number to start hunting.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const started = await api<HuntState>("/api/public/hunt/start", {
+        method: "POST",
+        body: JSON.stringify({
+          campaignSlug: campaign.slug,
+          phone: state.phone,
+          sessionId: state.sessionId,
+          name: state.name || "Voucher Hunter",
+          email: state.email,
+        }),
+      });
+      const activeAttempts = started.attempts.filter(
+        (attempt) =>
+          attempt.status === "Candidate" || attempt.status === "Held",
+      );
+      const pendingAttempt =
+        activeAttempts.find((a) => a.id === state.selectedAttemptId) ??
+        activeAttempts[activeAttempts.length - 1];
+      saveAndNavigate(
+        {
+          userId: started.user.id,
+          attempts: pendingAttempt ? [pendingAttempt] : [],
+          selectedAttemptId: pendingAttempt?.id ?? "",
+          selectedSlotId: "",
+          selectedDate: "",
+          issued: null,
+          shareCount: started.sharesGrantedToday,
+          bonusAttempts: started.remainingBonusAttempts,
+        },
+        pendingAttempt ? routeFor("results") : routeFor("roulette"),
+      );
+    } catch (caught) {
+      reportError(caught, "Unable to start your voucher hunt.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function spinToAttempt(
+    sourceType: "base" | "referral_bonus",
+    destination?: string,
+  extraState: Partial<FlowState> = {},
+) {
+  setBusy(true);
+  setPendingSpinCompletion(null);
+    setRoulettePhase("searching");
+    setRouletteTargetIndex(0);
+    setRouletteOffset(0);
+    setRouletteDurationMs(rouletteSpinMs);
+    setRouletteItems(placeholderRouletteItems());
+    setRouletteWinner(null);
+    setRouletteMessage("Spinning through every possible voucher...");
+    try {
+      await nextPaint();
+      const previews = await fetchRoulettePreviews();
+      if (previews.length > 0) {
+        setRouletteItems(rouletteLoop(previews));
+      }
+      const attempt = await api<VoucherAttempt>("/api/public/hunt/attempt", {
+        method: "POST",
+        body: JSON.stringify({
+          campaignSlug: campaign.slug,
+          phone: state.phone,
+          sessionId: state.sessionId,
+          sourceType,
+        }),
+      });
+      const winner = toRoulettePreview(attempt);
+      const sequence = rouletteSequence(previews, winner);
+      setRouletteItems(sequence.items);
+      setRouletteTargetIndex(sequence.winnerIndex);
+      const remainingSpinMs = rouletteSpinMs;
+      setRouletteDurationMs(remainingSpinMs);
+      setRoulettePhase("landing");
+      setRouletteMessage("Spinning for your voucher...");
+      await nextPaint();
+      await playRoulette(sequence, remainingSpinMs);
+      const nextState: Partial<FlowState> = {
+        attempts: [attempt],
+        selectedAttemptId: attempt.id,
+        selectedSlotId: "",
+        selectedDate: "",
+        issued: null,
+        ...extraState,
+      };
+      setPendingSpinCompletion({ destination, nextState });
+    } catch (caught) {
+      setBusy(false);
+      setRouletteItems([]);
+      setRouletteWinner(null);
+      setRouletteTargetIndex(0);
+      setRouletteOffset(0);
+      setRouletteDurationMs(rouletteSpinMs);
+      setRoulettePhase("idle");
+      setRouletteMessage("");
+      reportError(
+        caught,
+        sourceType === "referral_bonus"
+          ? "Unable to spin another voucher."
+          : "Unable to reveal your voucher.",
+      );
+    }
+  }
+
+  function confirmRouletteSelection() {
+    if (!pendingSpinCompletion) return;
+    const { destination, nextState } = pendingSpinCompletion;
+    setPendingSpinCompletion(null);
+    setRouletteItems([]);
+    setRouletteWinner(null);
+    setRouletteTargetIndex(0);
+    setRouletteOffset(0);
+    setRouletteDurationMs(rouletteSpinMs);
+    setRoulettePhase("idle");
+    setRouletteMessage("");
+    setBusy(false);
+    if (destination) {
+      saveAndNavigate(nextState, destination);
+    } else {
+      save(nextState);
+    }
+  }
+
+  async function loadHuntSnapshot() {
+    const params = new URLSearchParams({
+      campaignSlug: campaign.slug,
+      phone: state.phone,
+    });
+    return api<HuntState>(`/api/public/hunt/state?${params.toString()}`);
+  }
+
+  // Step 2: reveal one campaign-wide candidate. Extra reveals come from sharing.
+  async function revealVouchers() {
+    setError("");
+    if (!state.phone) {
+      setError("Sign in with your mobile number before spinning.");
+      return;
+    }
+    if (visibleResult) {
+      saveAndNavigate(
+        {
+          attempts: [visibleResult],
+          selectedAttemptId: visibleResult.id,
+        },
+        routeFor("results"),
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      const snapshot = await loadHuntSnapshot();
+      const attempts = snapshot.attempts.filter(
+        (attempt) =>
+          attempt.status === "Candidate" || attempt.status === "Held",
+      );
+      const pendingAttempt =
+        attempts.find((a) => a.id === state.selectedAttemptId) ??
+        attempts[attempts.length - 1];
+      if (pendingAttempt) {
+        saveAndNavigate(
+          {
+            attempts: [pendingAttempt],
+            selectedAttemptId: pendingAttempt.id,
+            shareCount: snapshot.sharesGrantedToday,
+            bonusAttempts: snapshot.remainingBonusAttempts,
+          },
+          routeFor("results"),
+        );
+        return;
+      }
+      saveAndNavigate({}, routeFor("roulette"));
+    } catch (caught) {
+      reportError(caught, "Unable to check your voucher hunt.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startRouletteSpin() {
+    setError("");
+    try {
+      const snapshot = await loadHuntSnapshot();
+      const attempts = snapshot.attempts.filter(
+        (attempt) =>
+          attempt.status === "Candidate" || attempt.status === "Held",
+      );
+      const pendingAttempt =
+        attempts.find((a) => a.id === state.selectedAttemptId) ??
+        attempts[attempts.length - 1];
+      if (pendingAttempt && snapshot.remainingBonusAttempts <= 0) {
+        saveAndNavigate(
+          {
+            attempts: [pendingAttempt],
+            selectedAttemptId: pendingAttempt.id,
+            shareCount: snapshot.sharesGrantedToday,
+            bonusAttempts: snapshot.remainingBonusAttempts,
+          },
+          routeFor("results"),
+        );
+        return;
+      }
+      const hasUsedBaseSpin = snapshot.attempts.some(
+        (attempt) => attempt.sourceType === "base",
+      );
+      if (hasUsedBaseSpin || snapshot.remainingBaseAttempts <= 0) {
+        if (snapshot.remainingBonusAttempts > 0) {
+          await spinToAttempt("referral_bonus", routeFor("results"), {
+            shareCount: snapshot.sharesGrantedToday,
+            bonusAttempts: Math.max(0, snapshot.remainingBonusAttempts - 1),
+          });
+          return;
+        }
+        setError(
+          "You already used your first spin. Share your link to earn another one.",
+        );
+        save({
+          shareCount: snapshot.sharesGrantedToday,
+          bonusAttempts: snapshot.remainingBonusAttempts,
+        });
+        return;
+      }
+      await spinToAttempt("base", routeFor("results"), {
+        shareCount: snapshot.sharesGrantedToday,
+        bonusAttempts: snapshot.remainingBonusAttempts,
+      });
+    } catch (caught) {
+      reportError(caught, "Unable to reveal vouchers.");
+    }
+  }
+
+  // Loads the date/time slots at which the chosen voucher's tier is offered.
+  async function fetchTierSlots() {
+    if (!state.selectedAttemptId || !state.phone) {
+      setTierSlots([]);
+      return;
+    }
+    try {
+      const params = new URLSearchParams({
+        campaignSlug: campaign.slug,
+        phone: state.phone,
+        attemptId: state.selectedAttemptId,
+      });
+      const res = await api<{ slots: PublicSlot[] }>(
+        `/api/public/hunt/slots?${params.toString()}`,
+      );
+      setTierSlots(res.slots);
+      if (
+        state.selectedSlotId &&
+        !res.slots.some((slot) => slot.id === state.selectedSlotId)
+      ) {
+        save({ selectedSlotId: "" });
+      }
+    } catch {
+      setTierSlots([]);
     }
   }
 
@@ -529,35 +1023,11 @@ export function PublicStepClient({
 
   async function huntAgain() {
     setError("");
-    setBusy(true);
-    try {
-      const attempt = await api<VoucherAttempt>("/api/public/hunt/attempt", {
-        method: "POST",
-        body: JSON.stringify({
-          campaignSlug: campaign.slug,
-          slotId: state.selectedSlotId,
-          phone: state.phone,
-          sessionId: state.sessionId,
-          sourceType: "referral_bonus",
-        }),
-      });
-      saveAndNavigate(
-        {
-          attempts: [...state.attempts, attempt],
-          selectedAttemptId: attempt.id,
-          bonusAttempts: Math.max(0, state.bonusAttempts - 1),
-        },
-        routeFor("results"),
-      );
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Unable to reveal a bonus voucher.",
-      );
-    } finally {
-      setBusy(false);
+    if (state.bonusAttempts <= 0) {
+      setError("Share your link to unlock another roulette spin.");
+      return;
     }
+    saveAndNavigate({}, routeFor("roulette"));
   }
 
   async function sendOtp() {
@@ -568,14 +1038,26 @@ export function PublicStepClient({
     setOtpBusy(true);
     setOtpMessage("");
     try {
-      const res = await api<{ sent: boolean; devCode?: string }>("/api/public/otp/request", {
-        method: "POST",
-        body: JSON.stringify({ campaignSlug: campaign.slug, phone: state.phone }),
-      });
+      const res = await api<{ sent: boolean; devCode?: string }>(
+        "/api/public/otp/request",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            campaignSlug: campaign.slug,
+            phone: state.phone,
+          }),
+        },
+      );
       setOtpSent(true);
-      setOtpMessage(res.devCode ? `Code sent. Demo code: ${res.devCode}` : "Verification code sent via SMS.");
+      setOtpMessage(
+        res.devCode
+          ? `Code sent. Demo code: ${res.devCode}`
+          : "Verification code sent via SMS.",
+      );
     } catch (caught) {
-      setOtpMessage(caught instanceof Error ? caught.message : "Unable to send code.");
+      setOtpMessage(
+        caught instanceof Error ? caught.message : "Unable to send code.",
+      );
     } finally {
       setOtpBusy(false);
     }
@@ -587,7 +1069,11 @@ export function PublicStepClient({
     try {
       await api("/api/public/otp/verify", {
         method: "POST",
-        body: JSON.stringify({ campaignSlug: campaign.slug, phone: state.phone, code: otpCode }),
+        body: JSON.stringify({
+          campaignSlug: campaign.slug,
+          phone: state.phone,
+          code: otpCode,
+        }),
       });
       setOtpVerified(true);
       setOtpMessage("Phone number verified.");
@@ -639,7 +1125,10 @@ export function PublicStepClient({
 
   function renderSoldOutNotice() {
     const alternatives = slots.filter(
-      (slot) => slot.status === "active" && slot.remainingCapacity > 0 && slot.id !== state.selectedSlotId,
+      (slot) =>
+        slot.status === "active" &&
+        slot.remainingCapacity > 0 &&
+        slot.id !== state.selectedSlotId,
     );
     return (
       <div className="soldout-notice" role="alert">
@@ -648,7 +1137,9 @@ export function PublicStepClient({
         </h3>
         {alternatives.length ? (
           <>
-            <p className="muted">Pick another available time to keep hunting:</p>
+            <p className="muted">
+              Pick another available time to keep hunting:
+            </p>
             <ul className="soldout-slot-list">
               {alternatives.slice(0, 6).map((slot) => (
                 <li key={slot.id}>
@@ -658,20 +1149,23 @@ export function PublicStepClient({
                     onClick={() => {
                       saveAndNavigate(
                         { selectedDate: slot.date, selectedSlotId: slot.id },
-                        routeFor("time"),
+                        routeFor("datetime"),
                       );
                       setSoldOut(false);
                       setError("");
                     }}
                   >
-                    {formatShortDate(slot.date)} · {formatTime(slot.startTime)} — {slot.remainingCapacity} left
+                    {formatShortDate(slot.date)} · {formatTime(slot.startTime)}{" "}
+                    — {slot.remainingCapacity} left
                   </button>
                 </li>
               ))}
             </ul>
           </>
         ) : (
-          <p className="muted">All slots are fully claimed right now. Please check back later.</p>
+          <p className="muted">
+            All slots are fully claimed right now. Please check back later.
+          </p>
         )}
       </div>
     );
@@ -683,12 +1177,22 @@ export function PublicStepClient({
       setError("Choose one voucher candidate first.");
       return;
     }
+    if (!state.selectedSlotId) {
+      setError("Choose an available date and time first.");
+      return;
+    }
+    if (resultMustBeReplaced) {
+      setError("Spin again to replace your previous voucher before confirming.");
+      return;
+    }
     if (!state.name || !state.phone) {
       setError("Name and mobile number are required.");
       return;
     }
     if (otpRequired && !otpVerified) {
-      setError("Verify your phone number with the code we sent before confirming.");
+      setError(
+        "Verify your phone number with the code we sent before confirming.",
+      );
       return;
     }
     setBusy(true);
@@ -698,6 +1202,7 @@ export function PublicStepClient({
         body: JSON.stringify({
           campaignSlug: campaign.slug,
           attemptId: state.selectedAttemptId,
+          slotId: state.selectedSlotId,
           phone: state.phone,
           sessionId: state.sessionId,
           name: state.name,
@@ -711,9 +1216,7 @@ export function PublicStepClient({
       saveAndNavigate({ issued }, routeFor("confirmation"));
     } catch (caught) {
       const message =
-        caught instanceof Error
-          ? caught.message
-          : "Unable to confirm voucher.";
+        caught instanceof Error ? caught.message : "Unable to confirm voucher.";
       if (/phone verification is required/i.test(message)) {
         setOtpRequired(true);
         setOtpVerified(false);
@@ -749,14 +1252,17 @@ export function PublicStepClient({
           <div className="step-app-bar">
             {step === "results" ||
             step === "confirmation" ||
-            step === "vouchers" ? (
+            step === "vouchers" ||
+            step === "roulette" ? (
               <span className="step-back-link" aria-hidden="true" />
             ) : (
               <Link
                 aria-label="Back"
                 className="step-back-link"
                 href={
-                  step === "voucher" ? routeFor("vouchers") : previousRoute(step)
+                  step === "voucher"
+                    ? routeFor("vouchers")
+                    : previousRoute(step)
                 }
                 prefetch={false}
               >
@@ -768,19 +1274,85 @@ export function PublicStepClient({
           </div>
         </section>
         <section
-          className={`mobile-screen-card ${step === "vouchers" ? "voucher-wallet-screen" : ""}`}
+          className={`mobile-screen-card ${
+            step === "vouchers" ? "voucher-wallet-screen" : ""
+          } ${step === "roulette" ? "roulette-screen" : ""}`}
         >
           {soldOut ? renderSoldOutNotice() : null}
           {renderStep()}
         </section>
-        {busy && step === "hunt" ? (
+        {step === "roulette" && roulettePhase === "selected" ? (
+          <div className="roulette-confetti-overlay" aria-hidden="true">
+            <span className="roulette-confetti-wrap">
+              <span className="roulette-confetti confetti-primary" />
+              <span className="roulette-confetti confetti-secondary" />
+              <span className="roulette-confetti confetti-sparkles" />
+            </span>
+          </div>
+        ) : null}
+        {false && busy && (step === "hunt" || rouletteMessage) ? (
           <div
             aria-labelledby="hunt-loading-title"
             aria-modal="true"
-            className="hunt-loading-backdrop"
+            className={`hunt-loading-backdrop ${rouletteItems.length ? "roulette-backdrop" : ""}`}
             role="dialog"
           >
-            <div className="hunt-loading-modal">
+            <div
+              className={`hunt-loading-modal ${rouletteItems.length ? "roulette-modal" : ""}`}
+            >
+              {rouletteItems.length ? (
+                <>
+                  <div className="roulette-stage" aria-hidden="true">
+                    <span className="roulette-pointer" />
+                    <div
+                      className={`roulette-track ${
+                        roulettePhase === "selected"
+                          ? "settled"
+                          : roulettePhase === "landing"
+                            ? "landing"
+                            : "searching"
+                      }`}
+                      style={rouletteTrackStyle}
+                    >
+                      {rouletteItems.map((item, index) => {
+                        const presentation = getVoucherPresentation(item);
+                        return (
+                          <article
+                            className={`card candidate roulette-ticket voucher-${presentation.rarity} ${
+                              roulettePhase === "selected" &&
+                              index === rouletteTargetIndex
+                                ? "selected"
+                                : ""
+                            }`}
+                            key={`${item.displayLabel}-${index}`}
+                          >
+                            <VoucherCard
+                              benefit={item}
+                              detail={voucherDetail(item)}
+                            />
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <h2 id="hunt-loading-title">
+                    {rouletteWinner ? "Voucher selected!" : "Spinning now..."}
+                  </h2>
+                  <p>{rouletteMessage || "Every reward is in the mix."}</p>
+                  {pendingSpinCompletion ? (
+                    <div className="roulette-confirm-actions">
+                      <button
+                        className="button full"
+                        onClick={confirmRouletteSelection}
+                        type="button"
+                      >
+                        Confirm Voucher
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
               <div className="hunt-loading-emblem" aria-hidden="true">
                 <span className="hunt-loading-ring" />
                 <FiShoppingBag />
@@ -792,6 +1364,8 @@ export function PublicStepClient({
                 <span />
                 <span />
               </div>
+                </>
+              )}
             </div>
           </div>
         ) : null}
@@ -804,165 +1378,77 @@ export function PublicStepClient({
       return (
         <>
           <CampaignTabs campaigns={campaigns} currentSlug={campaign.slug} />
-          <h1 className="landing-title">
-            Choose your time and hunt for a voucher
-          </h1>
+          <h1 className="landing-title">Sign in and hunt for a voucher</h1>
           <p className="landing-copy">
-            Reserve a date and time, then get 3 chances to hunt for amazing
-            vouchers!
+            Sign in with your mobile number, spin the voucher roulette, then
+            pick your date &amp; time.
           </p>
           <div className="landing-hero-art" aria-hidden="true" />
           <div className="landing-rule-card">
             <RuleRow
               icon={<FiShield aria-hidden="true" />}
-              text="See remaining vouchers before you play"
+              text="Sign in with your phone number"
             />
             <RuleRow
               icon={<FiClock aria-hidden="true" />}
-              text="You get 3 chances to reveal vouchers"
+              text="One roulette spin reveals one voucher result"
             />
             <RuleRow
               icon={<FiShield aria-hidden="true" />}
-              text="Pick 1 final voucher per reservation"
+              text="Higher discounts unlock fewer time slots"
             />
           </div>
-          <Link
-            className="button full landing-primary-action"
-            href={routeFor("date")}
-            prefetch={false}
+          <label className="field landing-phone-field">
+            <span>Mobile Number</span>
+            <input
+              value={state.phone}
+              onChange={(event) => save({ phone: event.target.value })}
+              placeholder="09614073159"
+              inputMode="tel"
+            />
+          </label>
+          {error ? <p className="alert">{error}</p> : null}
+          <button
+            aria-busy={busy}
+            className="button full landing-primary-action hunt-start-button"
+            disabled={busy || !state.phone || !state.sessionId}
+            onClick={startHuntFromLanding}
+            type="button"
           >
-            Let&apos;s Hunt!
-          </Link>
+            {busy ? "Searching for vouchers..." : "Let's Hunt!"}
+          </button>
           <BottomNav activeTab="home" routeFor={routeFor} />
         </>
       );
     }
 
-    if (step === "date") {
+    if (step === "signin") {
       return (
         <>
-          <p className="date-helper">
-            Choose a date to see available time slots and voucher counts.
+          <GiftIllustration />
+          <h2 className="hunt-title">Sign in to start hunting</h2>
+          <p className="muted hunt-subtitle">
+            Enter your mobile number to save your hunt and referral rewards.
           </p>
-          <h2 className="date-list-title">
-            Available Dates & Remaining Vouchers
-          </h2>
-          <div className="date-list refined-date-list">
-            {dates.length > 0 ? (
-              dates.map((day) => (
-                <button
-                  className={`date-card refined-date-card ${day.date === state.selectedDate ? "active" : ""} ${day.remaining <= 0 ? "sold-out" : ""}`}
-                  disabled={day.remaining <= 0}
-                  key={day.date}
-                  onClick={() => selectDate(day.date)}
-                  type="button"
-                >
-                  <strong>{formatShortDate(day.date)}</strong>
-                  <span
-                    className={`badge ${day.remaining <= 5 ? "warning" : ""} ${day.remaining <= 0 ? "danger" : ""}`}
-                  >
-                    {day.remaining > 0
-                      ? `${day.remaining} vouchers left`
-                      : "Sold Out"}
-                  </span>
-                  <FiChevronRight aria-hidden="true" />
-                </button>
-              ))
-            ) : (
-              <div className="info-card date-empty-state">
-                <FiCalendar aria-hidden="true" />
-                <p>No campaign dates are available yet.</p>
-              </div>
-            )}
-          </div>
-          <p className="realtime-note">
-            <FiRefreshCw aria-hidden="true" />
-            Voucher counts update in real-time.
-          </p>
-          <div className="mobile-actions">
-            <Link className="button secondary full" href={routeFor("landing")} prefetch={false}>
-              Back
-            </Link>
-            <Link
-              aria-disabled={dates.length === 0}
-              className={`button full ${dates.length === 0 ? "disabled-link" : ""}`}
-              href={dates.length > 0 ? routeFor("time") : routeFor("date")}
-              prefetch={false}
-            >
-              Continue
-            </Link>
-          </div>
-        </>
-      );
-    }
-
-    if (step === "time") {
-      return (
-        <>
-          <p className="date-helper">
-            Choose an available slot. Remaining vouchers are visible before the
-            challenge.
-          </p>
-          <div className="selected-strip">
-            <strong>
-              {state.selectedDate
-                ? formatDate(state.selectedDate)
-                : "No date selected"}
-            </strong>
-            <Link className="button tertiary" href={routeFor("date")} prefetch={false}>
-              Change
-            </Link>
-          </div>
-          <div className="slot-list">
-            {daySlots.map((slot) => {
-              const soldOut =
-                slot.remainingCapacity <= 0 ||
-                slot.status !== "active" ||
-                slot.remainingPoolQuantity <= 0;
-              return (
-                <button
-                  className={`slot-row ${slot.id === state.selectedSlotId ? "active" : ""} ${soldOut ? "sold-out" : ""}`}
-                  disabled={soldOut}
-                  key={slot.id}
-                  onClick={() => {
-                    const changingSlot = state.selectedSlotId !== slot.id;
-                    save({
-                      selectedSlotId: slot.id,
-                      ...(changingSlot
-                        ? {
-                            attempts: [],
-                            selectedAttemptId: "",
-                            issued: null,
-                          }
-                        : {}),
-                    });
-                  }}
-                  type="button"
-                >
-                  <strong>{formatTime(slot.startTime)}</strong>
-                  <span
-                    className={`badge ${slot.remainingCapacity <= 3 ? "warning" : ""} ${soldOut ? "danger" : ""}`}
-                  >
-                    {soldOut
-                      ? "Sold Out"
-                      : `${slot.remainingCapacity} slots left`}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="mobile-actions">
-            <Link className="button secondary full" href={routeFor("date")} prefetch={false}>
-              Back
-            </Link>
-            <Link
-              className={`button full ${state.selectedSlotId ? "" : "disabled-link"}`}
-              href={state.selectedSlotId ? routeFor("hunt") : routeFor("time")}
-              prefetch={false}
-            >
-              Continue
-            </Link>
-          </div>
+          <label className="field" style={{ marginTop: 14 }}>
+            <span>Mobile Number</span>
+            <input
+              value={state.phone}
+              onChange={(event) => save({ phone: event.target.value })}
+              placeholder="+639171234567"
+              inputMode="tel"
+            />
+          </label>
+          {error ? <p className="alert">{error}</p> : null}
+          <button
+            aria-busy={busy}
+            className="button full mobile-bottom-action"
+            disabled={busy || !state.phone}
+            onClick={signIn}
+            type="button"
+          >
+            Continue
+          </button>
         </>
       );
     }
@@ -973,26 +1459,10 @@ export function PublicStepClient({
           <GiftIllustration />
           <h2 className="hunt-title">Ready to Hunt!</h2>
           <p className="muted hunt-subtitle">
-            You have <strong>{campaign.baseAttempts}</strong> chances to hunt
-            for vouchers.
+            Spin once to reveal your voucher. If you want another result, share
+            your link to earn an extra spin.
           </p>
           <div className="summary-list">
-            <SummaryRow
-              icon={<FiCalendar aria-hidden="true" />}
-              label="Date"
-              value={
-                selectedSlot ? formatDate(selectedSlot.date) : "Select a date"
-              }
-            />
-            <SummaryRow
-              icon={<FiClock aria-hidden="true" />}
-              label="Time"
-              value={
-                selectedSlot
-                  ? `${formatTime(selectedSlot.startTime)} to ${formatTime(selectedSlot.endTime)}`
-                  : "Select a time"
-              }
-            />
             <SummaryRow
               icon={<FiTag aria-hidden="true" />}
               label="Category"
@@ -1002,152 +1472,352 @@ export function PublicStepClient({
             />
             <SummaryRow
               icon={<FiShoppingBag aria-hidden="true" />}
-              label="Available Vouchers"
-              value={
-                selectedSlot
-                  ? `${selectedSlot.remainingCapacity} slots left`
-                  : "Select a slot"
-              }
+              label="Extra Spins"
+              value={`Earn up to ${campaign.referralDailyLimit} today by sharing`}
             />
           </div>
-          <label className="field" style={{ marginTop: 14 }}>
-            <span>Mobile Number</span>
-            <input
-              value={state.phone}
-              onChange={(event) => save({ phone: event.target.value })}
-              placeholder="+639171234567"
-            />
-          </label>
           {error ? <p className="alert">{error}</p> : null}
           <button
             aria-busy={busy}
             className="button full mobile-bottom-action hunt-start-button"
             disabled={busy || !state.phone}
-            onClick={startHunting}
+            onClick={revealVouchers}
             type="button"
           >
-            Start Hunting
+            Start Roulette
           </button>
         </>
+      );
+    }
+
+    if (step === "roulette") {
+      const displayItems =
+        rouletteItems.length > 0 ? rouletteItems : placeholderRouletteItems();
+      if (roulettePhase === "idle" && !rouletteItems.length && !error) {
+        return (
+          <div className="roulette-page-content">
+            <div className="hunt-loading-emblem" aria-hidden="true">
+              <span className="hunt-loading-ring" />
+              <FiShoppingBag />
+            </div>
+            <h2 className="hunt-title">Checking your hunt...</h2>
+            <p className="muted hunt-subtitle">
+              We&apos;re checking if you already have a voucher result.
+            </p>
+          </div>
+        );
+      }
+      return (
+        <div className="roulette-page-content">
+          <p className="muted hunt-subtitle">
+            Every possible voucher is in the reel. Watch the arrow land on your
+            result.
+          </p>
+          <div className="roulette-stage roulette-page-stage" aria-hidden="true">
+            <span className="roulette-pointer" />
+            <div className="roulette-reel-clip">
+              <div
+                className={`roulette-track ${
+                  roulettePhase === "selected"
+                    ? "settled"
+                    : roulettePhase === "landing"
+                      ? "landing"
+                      : "searching"
+                }`}
+                style={rouletteTrackStyle}
+              >
+                {displayItems.map((item, index) => {
+                  const presentation = getVoucherPresentation(item);
+                  return (
+                    <article
+                      className={`card candidate roulette-ticket voucher-${presentation.rarity} ${
+                        roulettePhase === "selected" &&
+                        index === rouletteTargetIndex
+                          ? "selected"
+                          : ""
+                      }`}
+                      key={`${item.displayLabel}-${index}`}
+                    >
+                      <VoucherCard
+                        benefit={item}
+                        detail={voucherDetail(item)}
+                      />
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div className="roulette-result-copy">
+            <h2 className="hunt-title">
+              {rouletteWinner ? "Voucher selected!" : "Spinning now..."}
+            </h2>
+            <p className="muted hunt-subtitle">
+              {rouletteMessage || "Starting the roulette..."}
+            </p>
+            {error ? <p className="alert">{error}</p> : null}
+          </div>
+          {pendingSpinCompletion ? (
+            <div className="roulette-confirm-actions roulette-page-actions">
+              <button
+                className="button full"
+                onClick={confirmRouletteSelection}
+                type="button"
+              >
+                Confirm Voucher
+              </button>
+            </div>
+          ) : null}
+        </div>
       );
     }
 
     if (step === "results") {
       return (
         <>
-          <h1 className="mobile-h1">Your Hunt Results</h1>
-          <p className="muted">Pick 1 voucher you like best.</p>
-          {state.attempts.length === 0 ? (
+          <h1 className="mobile-h1">Your Voucher Result</h1>
+          <p className="muted">
+            This is your current roulette result. Continue with it, or share
+            your link to earn another spin.
+          </p>
+          {!visibleResult ? (
             <div className="info-card">
-              <p>No voucher candidates yet.</p>
-              <Link className="button full" href={routeFor("hunt")} prefetch={false}>
+              <p>No voucher result yet.</p>
+              <Link
+                className="button full"
+                href={routeFor("hunt")}
+                prefetch={false}
+              >
                 Start Hunt
               </Link>
             </div>
           ) : (
-            <div className="candidate-grid">
-              {state.attempts.map((attempt) => {
-                const isSelected = state.selectedAttemptId === attempt.id;
-                const presentation = getVoucherPresentation(attempt);
-                return (
+            <div className="single-result-stack">
+              <article
+                className={`card candidate single-result-ticket voucher-${getVoucherPresentation(visibleResult).rarity}`}
+              >
+                <VoucherCard
+                  benefit={visibleResult}
+                  detail={voucherDetail(visibleResult)}
+                />
+                <small>Min. spend applies</small>
+              </article>
+              <div className="result-actions">
+                {state.bonusAttempts > 0 ? (
                   <button
-                    className={`card candidate candidate-button voucher-${presentation.rarity} ${
-                      isSelected ? "selected" : ""
-                    }`}
-                    key={attempt.id}
-                    onClick={() => save({ selectedAttemptId: attempt.id })}
+                    className="button secondary full"
+                    disabled={busy}
+                    onClick={huntAgain}
                     type="button"
                   >
-                    <VoucherCard
-                      benefit={attempt}
-                      detail={
-                        attempt.benefitType === "free_item"
-                          ? "Any dessert"
-                          : "On selected items"
-                      }
-                      selected={isSelected}
-                      selectionControl
-                    />
-                    <small>Min. spend applies</small>
+                    Spin again ({state.bonusAttempts} available)
                   </button>
-                );
-              })}
+                ) : (
+                  <button
+                    className="button secondary full"
+                    onClick={shareReferralLink}
+                    type="button"
+                  >
+                    Share to unlock another spin
+                  </button>
+                )}
+                <p className="muted result-share-note">
+                  Extra spins earned today: {state.shareCount} /{" "}
+                  {campaign.referralDailyLimit}
+                </p>
+                {resultMustBeReplaced ? (
+                  <p className="alert result-replace-note" role="status">
+                    Extra spin unlocked. Spin again to replace this result
+                    before continuing.
+                  </p>
+                ) : null}
+              </div>
             </div>
           )}
           <Link
-            className={`button full mobile-bottom-action ${state.selectedAttemptId ? "" : "disabled-link"}`}
+            aria-disabled={!visibleResult || resultMustBeReplaced}
+            className={`button full mobile-bottom-action ${
+              visibleResult && !resultMustBeReplaced ? "" : "disabled-link"
+            }`}
             href={
-              state.selectedAttemptId ? routeFor("share") : routeFor("results")
+              visibleResult && !resultMustBeReplaced
+                ? routeFor("datetime")
+                : routeFor("results")
             }
+            onClick={() => {
+              if (
+                visibleResult &&
+                !resultMustBeReplaced &&
+                !state.selectedAttemptId
+              ) {
+                save({ selectedAttemptId: visibleResult.id });
+              }
+            }}
             prefetch={false}
           >
-            Continue
+            Pick date &amp; time
           </Link>
+          {shareNotice ? (
+            <div
+              className={`snackbar ${shareNoticeExiting ? "snackbar-exit" : ""}`}
+              role="status"
+              aria-live="polite"
+            >
+              <FiCheckCircle aria-hidden="true" />
+              {shareNotice}
+            </div>
+          ) : null}
         </>
       );
     }
 
-    if (step === "share") {
-      if (!state.userId) {
+    if (step === "datetime") {
+      if (!state.userId || !state.selectedAttemptId) {
         return (
           <div className="info-card">
-            <p>Start a voucher hunt first to get your share link.</p>
-            <Link className="button full" href={routeFor("hunt")} prefetch={false}>
-              Start Hunt
+            <p>Reveal and pick a voucher first.</p>
+            <Link
+              className="button full"
+              href={routeFor("hunt")}
+              prefetch={false}
+            >
+              Back to Hunt
             </Link>
           </div>
         );
       }
+      const datetimeDates = Array.from(
+        new Set(tierSlots.map((slot) => slot.date)),
+      );
       return (
         <>
-          <div className="share-visual">
-            <Image
-              alt="Share with a friend to earn an extra chance"
-              height={83}
-              priority
-              src="/assets/share-extra-chance.png"
-              width={92}
-            />
-          </div>
-          <h2>Share with friends and get 1 extra chance</h2>
-          <p className="muted">
-            Share your link. When a friend opens it, you get 1 extra hunt
-            chance.
+          {selectedAttempt ? (
+            <div className="selected-strip">
+              <strong>{selectedAttempt.displayLabel}</strong>
+              <Link
+                className="button tertiary"
+                href={routeFor("results")}
+                prefetch={false}
+              >
+                Change voucher
+              </Link>
+            </div>
+          ) : null}
+          <p className="date-helper">
+            Choose when to use your{" "}
+            <strong>{selectedAttempt?.displayLabel}</strong> voucher.
+            {selectedAttempt &&
+            getVoucherPresentation(selectedAttempt).rarity !== "standard"
+              ? ""
+              : ""}
           </p>
-          <div className="info-card share-count">
-            <p className="muted">Extra chances earned today</p>
+
+          {tierSlots.length === 0 ? (
+            <div className="info-card date-empty-state">
+              <FiCalendar aria-hidden="true" />
+              <p>No time slots are available for this voucher right now.</p>
+            </div>
+          ) : (
+            datetimeDates.map((date) => (
+              <div key={date} className="datetime-day">
+                <h3 className="date-list-title">{formatDate(date)}</h3>
+                <div className="slot-list">
+                  {tierSlots
+                    .filter((slot) => slot.date === date)
+                    .map((slot) => {
+                      const slotSoldOut =
+                        slot.remainingCapacity <= 0 || slot.status !== "active";
+                      return (
+                        <button
+                          className={`slot-row ${slot.id === state.selectedSlotId ? "active" : ""} ${slotSoldOut ? "sold-out" : ""}`}
+                          disabled={slotSoldOut}
+                          key={slot.id}
+                          onClick={() =>
+                            save({
+                              selectedSlotId: slot.id,
+                              selectedDate: slot.date,
+                            })
+                          }
+                          type="button"
+                        >
+                          <strong>
+                            {formatTime(slot.startTime)} –{" "}
+                            {formatTime(slot.endTime)}
+                          </strong>
+                          <span
+                            className={`badge ${slot.remainingCapacity <= 3 ? "warning" : ""} ${slotSoldOut ? "danger" : ""}`}
+                          >
+                            {slotSoldOut
+                              ? "Sold Out"
+                              : `${slot.remainingCapacity} left`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            ))
+          )}
+
+          <div className="info-card share-card">
+            <p className="muted">Want more choices?</p>
             <strong>
-              {state.shareCount} / {campaign.referralDailyLimit}
+              Extra chances earned today: {state.shareCount} /{" "}
+              {campaign.referralDailyLimit}
             </strong>
-            <p className="muted">
-              Up to {campaign.referralDailyLimit} extra chances per day.
+            {state.bonusAttempts > 0 ? (
+              <button
+                className="button full"
+                disabled={busy}
+                onClick={huntAgain}
+                type="button"
+              >
+                Spin again ({state.bonusAttempts} available)
+              </button>
+            ) : (
+              <button
+                className="button secondary full"
+                onClick={shareReferralLink}
+                type="button"
+              >
+                Share to unlock another spin
+              </button>
+            )}
+            <p className="muted" style={{ fontSize: "0.8rem" }}>
+              Share your link. When a friend opens it, you earn one extra
+              roulette spin.
+            </p>
+            {resultMustBeReplaced ? (
+              <p className="alert result-replace-note" role="status">
+                Extra spin unlocked. Spin again to replace this voucher before
+                confirming.
+              </p>
+            ) : null}
+            <p
+              className="muted"
+              style={{ display: "none", fontSize: "0.8rem" }}
+            >
+              Share your link — when a friend opens it, an extra voucher appears
+              back on your results.
             </p>
           </div>
-          {state.bonusAttempts > 0 ? (
-            <button
-              className="button full"
-              disabled={busy}
-              onClick={huntAgain}
-              type="button"
-            >
-              Reveal Bonus Voucher ({state.bonusAttempts} available)
-            </button>
-          ) : (
-            <button
-              className="button full"
-              onClick={shareReferralLink}
-              type="button"
-            >
-              Share Now
-            </button>
-          )}
+
           {error ? <p className="alert">{error}</p> : null}
           <Link
-            className="button secondary full mobile-button-gap"
-            href={routeFor("confirm")}
+            aria-disabled={!state.selectedSlotId || resultMustBeReplaced}
+            className={`button full mobile-bottom-action ${
+              state.selectedSlotId && !resultMustBeReplaced
+                ? ""
+                : "disabled-link"
+            }`}
+            href={
+              state.selectedSlotId && !resultMustBeReplaced
+                ? routeFor("confirm")
+                : routeFor("datetime")
+            }
             prefetch={false}
           >
-            Skip for Now
+            Continue
           </Link>
           {shareNotice ? (
             <div
@@ -1236,7 +1906,9 @@ export function PublicStepClient({
           </div>
           {otpRequired ? (
             <div className="otp-block">
-              <span className="otp-block-label">Phone verification required</span>
+              <span className="otp-block-label">
+                Phone verification required
+              </span>
               {otpVerified ? (
                 <p className="otp-verified">
                   <FiCheckCircle aria-hidden="true" /> Phone number verified
@@ -1249,7 +1921,9 @@ export function PublicStepClient({
                     onClick={sendOtp}
                     type="button"
                   >
-                    {otpSent ? "Resend Verification Code" : "Send Verification Code"}
+                    {otpSent
+                      ? "Resend Verification Code"
+                      : "Send Verification Code"}
                   </button>
                   <div className="otp-verify-row">
                     <input
@@ -1279,7 +1953,9 @@ export function PublicStepClient({
                   </div>
                 </>
               )}
-              {otpMessage ? <p className="muted otp-message">{otpMessage}</p> : null}
+              {otpMessage ? (
+                <p className="muted otp-message">{otpMessage}</p>
+              ) : null}
             </div>
           ) : null}
           {error ? <p className="alert">{error}</p> : null}
@@ -1347,9 +2023,7 @@ export function PublicStepClient({
       return viewedVoucher ? (
         <div className="confirmation-content voucher-detail-content">
           <h2>{viewedVoucher.voucher.displayLabel}</h2>
-          <p className="muted">
-            Show this voucher and QR code at the outlet.
-          </p>
+          <p className="muted">Show this voucher and QR code at the outlet.</p>
           <article
             className={`card candidate issued-voucher voucher-${getVoucherPresentation(viewedVoucher.voucher).rarity}`}
           >
@@ -1400,7 +2074,11 @@ export function PublicStepClient({
       ) : (
         <div className="info-card">
           <p>This voucher is no longer saved on this device.</p>
-          <Link className="button full" href={routeFor("vouchers")} prefetch={false}>
+          <Link
+            className="button full"
+            href={routeFor("vouchers")}
+            prefetch={false}
+          >
             Back to My Vouchers
           </Link>
         </div>
@@ -1474,7 +2152,11 @@ export function PublicStepClient({
         ) : (
           <div className="info-card">
             <p>No confirmed voucher found on this device.</p>
-            <Link className="button full" href={routeFor("landing")} prefetch={false}>
+            <Link
+              className="button full"
+              href={routeFor("landing")}
+              prefetch={false}
+            >
               Start Again
             </Link>
           </div>
@@ -1487,12 +2169,14 @@ export function PublicStepClient({
     const currentSlot = slots.find(
       (slot) => slot.id === state.selectedSlotId && slot.date === date,
     );
-    const nextSlot = currentSlot ?? slots.find(
-      (slot) =>
-        slot.date === date &&
-        slot.status === "active" &&
-        slot.remainingCapacity > 0,
-    );
+    const nextSlot =
+      currentSlot ??
+      slots.find(
+        (slot) =>
+          slot.date === date &&
+          slot.status === "active" &&
+          slot.remainingCapacity > 0,
+      );
     const changingSlot = nextSlot?.id !== state.selectedSlotId;
     save({
       selectedDate: date,
