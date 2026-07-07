@@ -162,6 +162,90 @@ export type ReferralReward = {
   createdAt: string;
 };
 
+export type RewardWalletStatus = "Active" | "Suspended";
+export type RewardLedgerType = "credit_earned" | "voucher_converted" | "adjustment";
+export type RewardVoucherStatus = "Active" | "Redeemed" | "Expired" | "Cancelled";
+export type RewardTransactionStatus = "Accepted" | "Adjusted" | "Cancelled";
+export type RewardSettlementStatus = "Pending" | "Processed" | "Completed" | "Adjusted";
+
+export type RewardWallet = {
+  id: string;
+  phone: string;
+  maskedPhone: string;
+  name?: string;
+  email?: string;
+  walletToken: string;
+  balanceCentavos: number;
+  lifetimeEarnedCentavos: number;
+  lifetimeConvertedCentavos: number;
+  status: RewardWalletStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RewardLedgerEntry = {
+  id: string;
+  walletId: string;
+  type: RewardLedgerType;
+  deltaCentavos: number;
+  balanceAfterCentavos: number;
+  sourceType: string;
+  sourceId?: string;
+  businessId?: string;
+  staffName?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type RewardPurchase = {
+  id: string;
+  walletId: string;
+  businessId: string;
+  purchaseAmountCentavos: number;
+  rewardAmountCentavos: number;
+  staffName: string;
+  status: RewardTransactionStatus;
+  fraudFlag?: string;
+  createdAt: string;
+};
+
+export type RewardVoucher = {
+  id: string;
+  walletId: string;
+  voucherCode: string;
+  qrToken: string;
+  amountCentavos: number;
+  remainingCentavos: number;
+  status: RewardVoucherStatus;
+  issuedAt: string;
+  expiresAt?: string;
+  redeemedAt?: string;
+  createdAt: string;
+};
+
+export type RewardVoucherRedemption = {
+  id: string;
+  voucherId: string;
+  walletId: string;
+  businessId: string;
+  amountCentavos: number;
+  staffName: string;
+  settlementStatus: RewardSettlementStatus;
+  settlementId?: string;
+  createdAt: string;
+};
+
+export type RewardSettlement = {
+  id: string;
+  businessId: string;
+  period: string;
+  totalAmountCentavos: number;
+  status: RewardSettlementStatus;
+  gcashReference?: string;
+  createdAt: string;
+  processedAt?: string;
+};
+
 export type AppDb = {
   businesses: Business[];
   campaigns: Campaign[];

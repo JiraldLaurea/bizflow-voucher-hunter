@@ -9,6 +9,7 @@ import {
   FiGift,
   FiGrid,
   FiLogOut,
+  FiRepeat,
   FiSettings,
 } from "react-icons/fi";
 
@@ -17,6 +18,7 @@ const nav = [
   { label: "Campaigns", href: "/dashboard/campaigns", icon: <FiFlag aria-hidden="true" /> },
   { label: "Slots", href: "/dashboard/slots", icon: <FiClock aria-hidden="true" /> },
   { label: "Vouchers", href: "/dashboard/vouchers", icon: <FiGift aria-hidden="true" /> },
+  { label: "Rewards Network", href: "/dashboard/rewards", icon: <FiRepeat aria-hidden="true" /> },
   { label: "Staff Validation", href: "/dashboard/staff", icon: <FiCheckSquare aria-hidden="true" /> },
   { label: "Settings", href: "/dashboard/settings", icon: <FiSettings aria-hidden="true" /> },
 ];

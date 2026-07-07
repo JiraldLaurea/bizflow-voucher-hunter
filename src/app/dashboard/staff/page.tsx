@@ -18,6 +18,7 @@ import {
 import type { IScannerControls } from "@zxing/browser";
 import { api } from "@/lib/api-client";
 import type { Campaign, CampaignSlot, EndUser, Voucher } from "@/types/voucher";
+import { RewardsStaffTools } from "../_components/RewardsStaffTools";
 
 type Validation = {
   voucher: Voucher;
@@ -460,6 +461,7 @@ export default function StaffPage() {
             </div>
           )}
         </section>
+        <RewardsStaffTools />
       </div>
       {validationToast ? (
         <div

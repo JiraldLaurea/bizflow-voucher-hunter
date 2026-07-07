@@ -9,8 +9,11 @@ import type { Campaign } from "@/types/voucher";
 type Exec = Client | Transaction;
 
 const OTP_TTL_MS = 5 * 60_000;
+const CUSTOMER_SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
 const isoNow = () => new Date().toISOString();
 const otpId = () => `otp_${crypto.randomBytes(6).toString("hex")}`;
+const customerSessionId = () => `cs_${crypto.randomBytes(8).toString("hex")}`;
+const customerSessionToken = () => `cust_${crypto.randomBytes(24).toString("base64url")}`;
 
 function hashCode(campaignId: string, phone: string, code: string) {
   const salt = process.env.OTP_SALT ?? process.env.ADMIN_ACCESS_TOKEN ?? "bizflow-otp";
@@ -59,8 +62,12 @@ export async function requestOtp(input: {
   };
 }
 
-/** Verifies a submitted code against the latest unconsumed challenge. */
-export async function verifyOtp(input: { campaignSlug: string; phone: string; code: string }): Promise<{ verified: boolean }> {
+/** Verifies a submitted code and mints a customer session for protected public actions. */
+export async function verifyOtp(input: {
+  campaignSlug: string;
+  phone: string;
+  code: string;
+}): Promise<{ verified: boolean; customerSessionToken: string; expiresAt: string }> {
   const db = await getDb();
   const campaign = await activeCampaign(db, input.campaignSlug);
   const phone = requireValidPhone(input.phone);
@@ -77,8 +84,37 @@ export async function verifyOtp(input: { campaignSlug: string; phone: string; co
   if (row.code_hash !== hashCode(campaign.id, phone, input.code)) {
     throw new AppError("E-OTP-MISMATCH", "Incorrect verification code", 400);
   }
+  const sessionToken = customerSessionToken();
+  const sessionExpiresAt = new Date(Date.now() + CUSTOMER_SESSION_TTL_MS).toISOString();
   await run(db, "UPDATE otp_challenges SET verified = 1 WHERE id = ?", [row.id]);
-  return { verified: true };
+  await run(
+    db,
+    `INSERT INTO customer_sessions (id, campaign_id, phone, session_token, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [customerSessionId(), campaign.id, phone, sessionToken, sessionExpiresAt, isoNow()]
+  );
+  return { verified: true, customerSessionToken: sessionToken, expiresAt: sessionExpiresAt };
+}
+
+export async function assertCustomerSession(input: {
+  campaignSlug: string;
+  phone: string;
+  customerSessionToken: string;
+}) {
+  const db = await getDb();
+  const campaign = await activeCampaign(db, input.campaignSlug);
+  const phone = requireValidPhone(input.phone);
+  const row = await one(
+    db,
+    `SELECT id FROM customer_sessions
+     WHERE campaign_id = ? AND phone = ? AND session_token = ? AND expires_at >= ?
+     ORDER BY created_at DESC LIMIT 1`,
+    [campaign.id, phone, input.customerSessionToken, isoNow()]
+  );
+  if (!row) {
+    throw new AppError("E-CUSTOMER-SESSION", "Phone verification is required before accessing this wallet", 401);
+  }
+  return { campaign, phone };
 }
 
 /**

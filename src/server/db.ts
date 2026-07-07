@@ -196,12 +196,110 @@ CREATE TABLE IF NOT EXISTS otp_challenges (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_otp_campaign_phone ON otp_challenges (campaign_id, phone);
+CREATE TABLE IF NOT EXISTS customer_sessions (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  session_token TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_customer_sessions_phone ON customer_sessions (campaign_id, phone, expires_at);
 CREATE TABLE IF NOT EXISTS rate_events (
   id TEXT PRIMARY KEY,
   bucket_key TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rate_bucket ON rate_events (bucket_key, created_at);
+CREATE TABLE IF NOT EXISTS reward_wallets (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL UNIQUE,
+  name TEXT,
+  email TEXT,
+  wallet_token TEXT NOT NULL UNIQUE,
+  wallet_secret TEXT NOT NULL UNIQUE,
+  balance_centavos INTEGER NOT NULL DEFAULT 0 CHECK (balance_centavos >= 0),
+  lifetime_earned_centavos INTEGER NOT NULL DEFAULT 0 CHECK (lifetime_earned_centavos >= 0),
+  lifetime_converted_centavos INTEGER NOT NULL DEFAULT 0 CHECK (lifetime_converted_centavos >= 0),
+  status TEXT NOT NULL DEFAULT 'Active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reward_purchases (
+  id TEXT PRIMARY KEY,
+  wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  purchase_amount_centavos INTEGER NOT NULL CHECK (purchase_amount_centavos > 0),
+  reward_amount_centavos INTEGER NOT NULL CHECK (reward_amount_centavos > 0),
+  staff_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  fraud_flag TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reward_purchases_wallet ON reward_purchases (wallet_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_reward_purchases_business ON reward_purchases (business_id, created_at);
+CREATE TABLE IF NOT EXISTS reward_ledger_entries (
+  id TEXT PRIMARY KEY,
+  wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
+  type TEXT NOT NULL,
+  delta_centavos INTEGER NOT NULL,
+  balance_after_centavos INTEGER NOT NULL CHECK (balance_after_centavos >= 0),
+  source_type TEXT NOT NULL,
+  source_id TEXT,
+  business_id TEXT,
+  staff_name TEXT,
+  metadata TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reward_ledger_wallet ON reward_ledger_entries (wallet_id, created_at);
+CREATE TABLE IF NOT EXISTS reward_vouchers (
+  id TEXT PRIMARY KEY,
+  wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
+  voucher_code TEXT NOT NULL UNIQUE,
+  qr_token TEXT NOT NULL UNIQUE,
+  amount_centavos INTEGER NOT NULL CHECK (amount_centavos > 0),
+  remaining_centavos INTEGER NOT NULL CHECK (remaining_centavos >= 0),
+  status TEXT NOT NULL,
+  issued_at TEXT NOT NULL,
+  expires_at TEXT,
+  redeemed_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reward_vouchers_wallet ON reward_vouchers (wallet_id, created_at);
+CREATE TABLE IF NOT EXISTS reward_voucher_redemptions (
+  id TEXT PRIMARY KEY,
+  voucher_id TEXT NOT NULL REFERENCES reward_vouchers(id),
+  wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  amount_centavos INTEGER NOT NULL CHECK (amount_centavos > 0),
+  staff_name TEXT NOT NULL,
+  settlement_status TEXT NOT NULL,
+  settlement_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reward_redemptions_business ON reward_voucher_redemptions (business_id, created_at);
+CREATE TABLE IF NOT EXISTS reward_settlements (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  period TEXT NOT NULL,
+  total_amount_centavos INTEGER NOT NULL CHECK (total_amount_centavos >= 0),
+  status TEXT NOT NULL,
+  gcash_reference TEXT,
+  created_at TEXT NOT NULL,
+  processed_at TEXT,
+  UNIQUE (business_id, period)
+);
+CREATE TABLE IF NOT EXISTS reward_audit_logs (
+  id TEXT PRIMARY KEY,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  metadata TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reward_audit_entity ON reward_audit_logs (entity_type, entity_id, created_at);
 `;
 
 let client: Client | null = null;
@@ -230,7 +328,15 @@ function ensureReady(): Promise<void> {
 // Every data table, ordered so deletes respect (soft) references. Used by the
 // migration reset and by resetDb.
 const DATA_TABLES = [
+  "reward_audit_logs",
+  "reward_settlements",
+  "reward_voucher_redemptions",
+  "reward_vouchers",
+  "reward_ledger_entries",
+  "reward_purchases",
+  "reward_wallets",
   "rate_events",
+  "customer_sessions",
   "otp_challenges",
   "analytics_events",
   "referral_rewards",
@@ -249,7 +355,8 @@ const DATA_TABLES = [
 
 // Bump when the seed or table shapes change so deployed databases refresh.
 // v2 = campaign-level pools + pool_slots tier→slot mapping. v3 = campaign titles.
-const SCHEMA_VERSION = "3";
+// v4 = rewards network wallet/settlement tables.
+const SCHEMA_VERSION = "4";
 
 async function init() {
   const c = rawClient();
@@ -273,6 +380,7 @@ async function init() {
   }
 
   await c.executeMultiple(SCHEMA);
+  await ensureRewardsSchema(c);
 
   if (migrating) {
     // Full reset so seed changes (e.g. campaign titles) reach already-seeded
@@ -285,6 +393,25 @@ async function init() {
 
   // Same version: self-heal an empty or partially-seeded database.
   if (!(await hasCompleteSeed(c))) await seed(c);
+}
+
+async function hasColumn(c: Client, table: string, column: string) {
+  const result = await c.execute(`PRAGMA table_info(${table})`);
+  return result.rows.some((row) => String((row as Row).name) === column);
+}
+
+async function ensureRewardsSchema(c: Client) {
+  const walletSecretExists = await hasColumn(c, "reward_wallets", "wallet_secret");
+  if (!walletSecretExists) {
+    await c.execute("ALTER TABLE reward_wallets ADD COLUMN wallet_secret TEXT");
+  }
+
+  await c.execute(
+    `UPDATE reward_wallets
+     SET wallet_secret = 'rwsecret_' || lower(hex(randomblob(18)))
+     WHERE wallet_secret IS NULL OR wallet_secret = ''`
+  );
+  await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_wallets_secret ON reward_wallets (wallet_secret)");
 }
 
 /** Returns the ready libSQL client (schema created + seeded on first use). */
