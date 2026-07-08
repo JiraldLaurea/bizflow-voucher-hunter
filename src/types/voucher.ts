@@ -165,7 +165,7 @@ export type ReferralReward = {
 export type RewardWalletStatus = "Active" | "Suspended";
 export type RewardLedgerType = "credit_earned" | "voucher_converted" | "adjustment";
 export type RewardVoucherStatus = "Active" | "Redeemed" | "Expired" | "Cancelled";
-export type RewardTransactionStatus = "Accepted" | "Adjusted" | "Cancelled";
+export type RewardTransactionStatus = "Accepted" | "Held" | "Rejected" | "Adjusted" | "Cancelled";
 export type RewardSettlementStatus = "Pending" | "Processed" | "Completed" | "Adjusted";
 
 export type RewardWallet = {
@@ -205,7 +205,11 @@ export type RewardPurchase = {
   rewardAmountCentavos: number;
   staffName: string;
   status: RewardTransactionStatus;
+  idempotencyKey?: string;
   fraudFlag?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
   createdAt: string;
 };
 

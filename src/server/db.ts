@@ -232,8 +232,12 @@ CREATE TABLE IF NOT EXISTS reward_purchases (
   purchase_amount_centavos INTEGER NOT NULL CHECK (purchase_amount_centavos > 0),
   reward_amount_centavos INTEGER NOT NULL CHECK (reward_amount_centavos > 0),
   staff_name TEXT NOT NULL,
+  idempotency_key TEXT,
   status TEXT NOT NULL,
   fraud_flag TEXT,
+  reviewed_by TEXT,
+  reviewed_at TEXT,
+  review_note TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reward_purchases_wallet ON reward_purchases (wallet_id, created_at);
@@ -275,6 +279,9 @@ CREATE TABLE IF NOT EXISTS reward_voucher_redemptions (
   staff_name TEXT NOT NULL,
   settlement_status TEXT NOT NULL,
   settlement_id TEXT,
+  settlement_verified_by TEXT,
+  settlement_verified_at TEXT,
+  adjustment_note TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reward_redemptions_business ON reward_voucher_redemptions (business_id, created_at);
@@ -297,6 +304,8 @@ CREATE TABLE IF NOT EXISTS reward_audit_logs (
   entity_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
   metadata TEXT,
+  previous_hash TEXT,
+  event_hash TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reward_audit_entity ON reward_audit_logs (entity_type, entity_id, created_at);
@@ -406,12 +415,31 @@ async function ensureRewardsSchema(c: Client) {
     await c.execute("ALTER TABLE reward_wallets ADD COLUMN wallet_secret TEXT");
   }
 
+  const rewardColumnAdds: Array<[string, string, string]> = [
+    ["reward_purchases", "idempotency_key", "TEXT"],
+    ["reward_purchases", "reviewed_by", "TEXT"],
+    ["reward_purchases", "reviewed_at", "TEXT"],
+    ["reward_purchases", "review_note", "TEXT"],
+    ["reward_voucher_redemptions", "settlement_verified_by", "TEXT"],
+    ["reward_voucher_redemptions", "settlement_verified_at", "TEXT"],
+    ["reward_voucher_redemptions", "adjustment_note", "TEXT"],
+    ["reward_audit_logs", "previous_hash", "TEXT"],
+    ["reward_audit_logs", "event_hash", "TEXT"],
+  ];
+
+  for (const [table, column, definition] of rewardColumnAdds) {
+    if (!(await hasColumn(c, table, column))) {
+      await c.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
+
   await c.execute(
     `UPDATE reward_wallets
      SET wallet_secret = 'rwsecret_' || lower(hex(randomblob(18)))
      WHERE wallet_secret IS NULL OR wallet_secret = ''`
   );
   await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_wallets_secret ON reward_wallets (wallet_secret)");
+  await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_purchases_idempotency ON reward_purchases (business_id, idempotency_key) WHERE idempotency_key IS NOT NULL");
 }
 
 /** Returns the ready libSQL client (schema created + seeded on first use). */

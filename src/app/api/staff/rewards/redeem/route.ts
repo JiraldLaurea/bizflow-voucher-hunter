@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireAdmin } from "@/server/auth";
+import { assertBusinessAccess, requireAdmin } from "@/server/auth";
 import { fail, ok } from "@/server/errors";
 import { redeemRewardVoucher } from "@/server/rewards-network";
 
@@ -12,8 +12,10 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    await requireAdmin(request);
-    return ok(await redeemRewardVoucher(schema.parse(await request.json())));
+    const session = await requireAdmin(request);
+    const input = schema.parse(await request.json());
+    assertBusinessAccess(session, input.businessId);
+    return ok(await redeemRewardVoucher(input));
   } catch (error) {
     return fail(error);
   }

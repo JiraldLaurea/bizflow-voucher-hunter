@@ -51,9 +51,16 @@ export async function POST(request: Request) {
     }
 
     const name = process.env.ADMIN_NAME?.trim() || "BizFlow Admin";
+    const role = (process.env.ADMIN_ROLE?.trim() || "super_admin") as "super_admin" | "admin" | "staff";
+    const businessIds = (process.env.ADMIN_BUSINESS_IDS?.trim() || "*")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
     const token = await createAdminSession({
       email: expectedEmail.toLowerCase(),
       name,
+      role,
+      businessIds: businessIds.length ? businessIds : ["*"],
     });
     const response = ok({ email: expectedEmail.toLowerCase(), name });
     response.cookies.set(ADMIN_SESSION_COOKIE, token, {

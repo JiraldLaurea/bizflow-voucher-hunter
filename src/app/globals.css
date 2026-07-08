@@ -1722,6 +1722,28 @@ h2 {
   font-weight: 800;
 }
 
+.rewards-audit-export {
+  width: auto;
+  min-height: 32px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+}
+
+.reward-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.compact-button {
+  width: auto;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  font-size: 0.76rem;
+}
+
 .rewards-dashboard-grid {
   margin-top: 14px;
 }

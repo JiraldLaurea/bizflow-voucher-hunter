@@ -98,7 +98,11 @@ function mapPurchase(row: Row): RewardPurchase {
     rewardAmountCentavos: row.reward_amount_centavos,
     staffName: row.staff_name,
     status: row.status,
+    idempotencyKey: row.idempotency_key ?? undefined,
     fraudFlag: row.fraud_flag ?? undefined,
+    reviewedBy: row.reviewed_by ?? undefined,
+    reviewedAt: row.reviewed_at ?? undefined,
+    reviewNote: row.review_note ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -144,10 +148,24 @@ async function audit(
     metadata?: Record<string, unknown>;
   },
 ) {
+  const createdAt = isoNow();
+  const previous = await one(db, "SELECT event_hash FROM reward_audit_logs WHERE event_hash IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1");
+  const metadata = input.metadata ? JSON.stringify(input.metadata) : null;
+  const hashPayload = JSON.stringify({
+    previousHash: previous?.event_hash ?? null,
+    actorType: input.actorType,
+    actorId: input.actorId ?? null,
+    action: input.action,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    metadata,
+    createdAt,
+  });
+  const eventHash = crypto.createHash("sha256").update(hashPayload).digest("hex");
   await run(
     db,
-    `INSERT INTO reward_audit_logs (id, actor_type, actor_id, action, entity_type, entity_id, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO reward_audit_logs (id, actor_type, actor_id, action, entity_type, entity_id, metadata, previous_hash, event_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id("raud"),
       input.actorType,
@@ -155,8 +173,10 @@ async function audit(
       input.action,
       input.entityType,
       input.entityId,
-      input.metadata ? JSON.stringify(input.metadata) : null,
-      isoNow(),
+      metadata,
+      previous?.event_hash ?? null,
+      eventHash,
+      createdAt,
     ],
   );
 }
@@ -272,8 +292,31 @@ export async function creditRewardFromPurchase(input: {
   businessId: string;
   purchaseAmount: string | number;
   staffName: string;
+  idempotencyKey: string;
 }) {
   return withTx(async (tx) => {
+    const idempotencyKey = input.idempotencyKey.trim();
+    if (idempotencyKey.length < 12 || idempotencyKey.length > 120) {
+      throw new AppError("E-IDEMPOTENCY-KEY", "A valid idempotency key is required for purchase scans", 400);
+    }
+    const existingRow = await one(tx, "SELECT * FROM reward_purchases WHERE business_id = ? AND idempotency_key = ?", [
+      input.businessId,
+      idempotencyKey,
+    ]);
+    if (existingRow) {
+      const existing = mapPurchase(existingRow);
+      const wallet = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [existing.walletId]));
+      return {
+        wallet,
+        purchase: existing,
+        rewardAmount: centavosToMoney(existing.rewardAmountCentavos),
+        balance: centavosToMoney(wallet.balanceCentavos),
+        fraudFlag: existing.fraudFlag,
+        heldForReview: existing.status === "Held",
+        idempotentReplay: true,
+      };
+    }
+
     const wallet = await walletByToken(tx, input.walletToken);
     await getBusinessOrThrow(tx, input.businessId);
     const staffName = input.staffName.trim();
@@ -302,44 +345,30 @@ export async function creditRewardFromPurchase(input: {
     await run(
       tx,
       `INSERT INTO reward_purchases
-       (id, wallet_id, business_id, purchase_amount_centavos, reward_amount_centavos, staff_name, status, fraud_flag, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'Accepted', ?, ?)`,
-      [purchaseId, wallet.id, input.businessId, purchaseCentavos, rewardCentavos, staffName, flag ?? null, now],
+       (id, wallet_id, business_id, purchase_amount_centavos, reward_amount_centavos, staff_name, idempotency_key, status, fraud_flag, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [purchaseId, wallet.id, input.businessId, purchaseCentavos, rewardCentavos, staffName, idempotencyKey, flag ? "Held" : "Accepted", flag ?? null, now],
     );
-    await run(
-      tx,
-      `UPDATE reward_wallets
-       SET balance_centavos = balance_centavos + ?,
-           lifetime_earned_centavos = lifetime_earned_centavos + ?,
-           updated_at = ?
-       WHERE id = ?`,
-      [rewardCentavos, rewardCentavos, now, wallet.id],
-    );
-    const updated = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]));
-    await run(
-      tx,
-      `INSERT INTO reward_ledger_entries
-       (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, business_id, staff_name, metadata, created_at)
-       VALUES (?, ?, 'credit_earned', ?, ?, 'staff_scan_purchase', ?, ?, ?, ?, ?)`,
-      [
-        id("rled"),
-        wallet.id,
-        rewardCentavos,
-        updated.balanceCentavos,
+
+    let updated = wallet;
+    if (!flag) {
+      updated = await applyRewardCredit(tx, {
+        walletId: wallet.id,
+        businessId: input.businessId,
         purchaseId,
-        input.businessId,
+        purchaseCentavos,
+        rewardCentavos,
         staffName,
-        JSON.stringify({ purchaseCentavos, rewardRateBps: REWARD_RATE_BPS, fraudFlag: flag ?? null }),
-        now,
-      ],
-    );
+        metadata: { fraudFlag: null, idempotencyKey },
+      });
+    }
     await audit(tx, {
       actorType: "staff",
       actorId: staffName,
-      action: "reward_credit_issued",
+      action: flag ? "reward_credit_held_for_review" : "reward_credit_issued",
       entityType: "reward_purchase",
       entityId: purchaseId,
-      metadata: { walletId: wallet.id, businessId: input.businessId, purchaseCentavos, rewardCentavos, fraudFlag: flag },
+      metadata: { walletId: wallet.id, businessId: input.businessId, purchaseCentavos, rewardCentavos, fraudFlag: flag, idempotencyKey },
     });
 
     return {
@@ -348,8 +377,53 @@ export async function creditRewardFromPurchase(input: {
       rewardAmount: centavosToMoney(rewardCentavos),
       balance: centavosToMoney(updated.balanceCentavos),
       fraudFlag: flag,
+      heldForReview: Boolean(flag),
+      idempotentReplay: false,
     };
   });
+}
+
+async function applyRewardCredit(
+  tx: Exec,
+  input: {
+    walletId: string;
+    businessId: string;
+    purchaseId: string;
+    purchaseCentavos: number;
+    rewardCentavos: number;
+    staffName: string;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  const now = isoNow();
+  await run(
+    tx,
+    `UPDATE reward_wallets
+     SET balance_centavos = balance_centavos + ?,
+         lifetime_earned_centavos = lifetime_earned_centavos + ?,
+         updated_at = ?
+     WHERE id = ?`,
+    [input.rewardCentavos, input.rewardCentavos, now, input.walletId],
+  );
+  const updated = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [input.walletId]));
+  await run(
+    tx,
+    `INSERT INTO reward_ledger_entries
+     (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, business_id, staff_name, metadata, created_at)
+     VALUES (?, ?, 'credit_earned', ?, ?, 'staff_scan_purchase', ?, ?, ?, ?, ?)`,
+    [
+      id("rled"),
+      input.walletId,
+      input.rewardCentavos,
+      updated.balanceCentavos,
+      input.purchaseId,
+      input.businessId,
+      input.staffName,
+      JSON.stringify({ purchaseCentavos: input.purchaseCentavos, rewardRateBps: REWARD_RATE_BPS, ...(input.metadata ?? {}) }),
+      now,
+    ],
+  );
+  return updated;
 }
 
 export async function convertRewardCreditToVoucher(input: {
@@ -501,6 +575,173 @@ export async function redeemRewardVoucher(input: {
   });
 }
 
+export async function reviewHeldRewardPurchase(input: {
+  purchaseId: string;
+  decision: "approve" | "reject";
+  reviewer: string;
+  note?: string;
+}) {
+  return withTx(async (tx) => {
+    const row = await one(tx, "SELECT * FROM reward_purchases WHERE id = ?", [input.purchaseId]);
+    if (!row) throw new AppError("E-REWARD-PURCHASE-404", "Reward purchase was not found", 404);
+    const purchase = mapPurchase(row);
+    if (purchase.status !== "Held") throw new AppError("E-REWARD-PURCHASE-NOT-HELD", "Only held purchases can be reviewed", 409);
+    const reviewer = input.reviewer.trim() || "Rewards Reviewer";
+    const now = isoNow();
+
+    let wallet = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [purchase.walletId]));
+    if (input.decision === "approve") {
+      wallet = await applyRewardCredit(tx, {
+        walletId: purchase.walletId,
+        businessId: purchase.businessId,
+        purchaseId: purchase.id,
+        purchaseCentavos: purchase.purchaseAmountCentavos,
+        rewardCentavos: purchase.rewardAmountCentavos,
+        staffName: purchase.staffName,
+        metadata: { fraudFlag: purchase.fraudFlag ?? null, reviewedBy: reviewer },
+      });
+      await run(
+        tx,
+        "UPDATE reward_purchases SET status = 'Accepted', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
+        [reviewer, now, input.note ?? null, purchase.id],
+      );
+    } else {
+      await run(
+        tx,
+        "UPDATE reward_purchases SET status = 'Rejected', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
+        [reviewer, now, input.note ?? null, purchase.id],
+      );
+    }
+
+    await audit(tx, {
+      actorType: "staff",
+      actorId: reviewer,
+      action: input.decision === "approve" ? "held_reward_approved" : "held_reward_rejected",
+      entityType: "reward_purchase",
+      entityId: purchase.id,
+      metadata: { walletId: purchase.walletId, businessId: purchase.businessId, note: input.note ?? null },
+    });
+
+    return {
+      wallet,
+      purchase: mapPurchase(await one(tx, "SELECT * FROM reward_purchases WHERE id = ?", [purchase.id])),
+      balance: centavosToMoney(wallet.balanceCentavos),
+    };
+  });
+}
+
+export async function processRewardSettlements(input: { redemptionIds: string[]; reviewer: string }) {
+  return withTx(async (tx) => {
+    const ids = Array.from(new Set(input.redemptionIds.map((item) => item.trim()).filter(Boolean)));
+    if (ids.length === 0) throw new AppError("E-SETTLEMENT-EMPTY", "Choose at least one redemption to process", 400);
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = await all(
+      tx,
+      `SELECT * FROM reward_voucher_redemptions WHERE id IN (${placeholders}) AND settlement_status = 'Pending'`,
+      ids,
+    );
+    if (rows.length !== ids.length) throw new AppError("E-SETTLEMENT-INVALID", "Only pending redemptions can be processed", 409);
+
+    const reviewer = input.reviewer.trim() || "Settlement Reviewer";
+    const now = isoNow();
+    const period = now.slice(0, 7);
+    const byBusiness = new Map<string, Row[]>();
+    rows.forEach((row) => {
+      const list = byBusiness.get(row.business_id) ?? [];
+      list.push(row);
+      byBusiness.set(row.business_id, list);
+    });
+
+    const settlements: Array<{ settlementId: string; businessId: string; totalAmount: string; redemptionCount: number }> = [];
+    for (const [businessId, businessRows] of byBusiness) {
+      const settlementId = id("rset");
+      const total = businessRows.reduce((sum, row) => sum + Number(row.amount_centavos), 0);
+      await run(
+        tx,
+        `INSERT INTO reward_settlements (id, business_id, period, total_amount_centavos, status, created_at)
+         VALUES (?, ?, ?, ?, 'Processed', ?)`,
+        [settlementId, businessId, period, total, now],
+      );
+      const businessIds = businessRows.map((row) => row.id);
+      await run(
+        tx,
+        `UPDATE reward_voucher_redemptions
+         SET settlement_status = 'Processed', settlement_id = ?, settlement_verified_by = ?, settlement_verified_at = ?
+         WHERE id IN (${businessIds.map(() => "?").join(",")})`,
+        [settlementId, reviewer, now, ...businessIds],
+      );
+      await audit(tx, {
+        actorType: "staff",
+        actorId: reviewer,
+        action: "reward_settlement_processed",
+        entityType: "reward_settlement",
+        entityId: settlementId,
+        metadata: { businessId, redemptionIds: businessIds, totalAmountCentavos: total },
+      });
+      settlements.push({ settlementId, businessId, totalAmount: centavosToMoney(total), redemptionCount: businessRows.length });
+    }
+    return { settlements };
+  });
+}
+
+export async function completeRewardSettlement(input: { settlementId: string; gcashReference: string; reviewer: string }) {
+  return withTx(async (tx) => {
+    const settlement = await one(tx, "SELECT * FROM reward_settlements WHERE id = ?", [input.settlementId]);
+    if (!settlement) throw new AppError("E-SETTLEMENT-404", "Settlement was not found", 404);
+    if (settlement.status !== "Processed") throw new AppError("E-SETTLEMENT-STATUS", "Only processed settlements can be completed", 409);
+    const reference = input.gcashReference.trim();
+    if (reference.length < 3) throw new AppError("E-GCASH-REFERENCE", "GCash reference is required", 400);
+    const reviewer = input.reviewer.trim() || "Settlement Reviewer";
+    const now = isoNow();
+    await run(
+      tx,
+      "UPDATE reward_settlements SET status = 'Completed', gcash_reference = ?, processed_at = ? WHERE id = ?",
+      [reference, now, input.settlementId],
+    );
+    await run(
+      tx,
+      "UPDATE reward_voucher_redemptions SET settlement_status = 'Completed', settlement_verified_by = ?, settlement_verified_at = ? WHERE settlement_id = ?",
+      [reviewer, now, input.settlementId],
+    );
+    await audit(tx, {
+      actorType: "staff",
+      actorId: reviewer,
+      action: "reward_settlement_completed",
+      entityType: "reward_settlement",
+      entityId: input.settlementId,
+      metadata: { gcashReference: reference },
+    });
+    return { settlementId: input.settlementId, status: "Completed" as const };
+  });
+}
+
+export async function adjustRewardRedemption(input: { redemptionId: string; reviewer: string; note: string }) {
+  return withTx(async (tx) => {
+    const row = await one(tx, "SELECT * FROM reward_voucher_redemptions WHERE id = ?", [input.redemptionId]);
+    if (!row) throw new AppError("E-REDEMPTION-404", "Reward redemption was not found", 404);
+    const reviewer = input.reviewer.trim() || "Settlement Reviewer";
+    const note = input.note.trim();
+    if (note.length < 3) throw new AppError("E-ADJUSTMENT-NOTE", "Adjustment note is required", 400);
+    const now = isoNow();
+    await run(
+      tx,
+      `UPDATE reward_voucher_redemptions
+       SET settlement_status = 'Adjusted', settlement_verified_by = ?, settlement_verified_at = ?, adjustment_note = ?
+       WHERE id = ?`,
+      [reviewer, now, note, input.redemptionId],
+    );
+    await audit(tx, {
+      actorType: "staff",
+      actorId: reviewer,
+      action: "reward_redemption_adjusted",
+      entityType: "reward_voucher_redemption",
+      entityId: input.redemptionId,
+      metadata: { note },
+    });
+    return { redemptionId: input.redemptionId, status: "Adjusted" as const };
+  });
+}
+
 export async function rewardsNetworkOverview() {
   const db = await getDb();
   const totals = await one(
@@ -515,6 +756,10 @@ export async function rewardsNetworkOverview() {
   const pending = await one(
     db,
     "SELECT COALESCE(SUM(amount_centavos), 0) AS total, COUNT(*) AS count FROM reward_voucher_redemptions WHERE settlement_status = 'Pending'",
+  );
+  const held = await one(
+    db,
+    "SELECT COUNT(*) AS count FROM reward_purchases WHERE status = 'Held'",
   );
   const purchases = (
     await all(
@@ -560,6 +805,7 @@ export async function rewardsNetworkOverview() {
       lifetimeConverted: centavosToMoney(Number(totals.lifetime_converted)),
       pendingSettlement: centavosToMoney(Number(pending.total)),
       pendingSettlementCount: Number(pending.count),
+      heldReviewCount: Number(held.count),
     },
     purchases,
     redemptions,
@@ -594,6 +840,7 @@ export async function listRewardSettlementRows(input: { businessId?: string; sta
     )
   ).map((row) => ({
     redemptionId: row.id,
+    settlementId: row.settlement_id ?? undefined,
     date: row.created_at,
     customerReference: maskPhone(row.phone),
     voucherCode: row.voucher_code,
@@ -602,5 +849,40 @@ export async function listRewardSettlementRows(input: { businessId?: string; sta
     storeBranch: row.business_name,
     settlementAmount: centavosToMoney(row.amount_centavos),
     status: row.settlement_status,
+    verifiedBy: row.settlement_verified_by ?? undefined,
+    verifiedAt: row.settlement_verified_at ?? undefined,
+    adjustmentNote: row.adjustment_note ?? undefined,
   }));
+}
+
+export async function listRewardAuditRows() {
+  const db = await getDb();
+  return (
+    await all(
+      db,
+      `SELECT * FROM reward_audit_logs
+       ORDER BY created_at DESC, id DESC
+       LIMIT 500`,
+    )
+  ).map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    actorType: row.actor_type,
+    actorId: row.actor_id ?? "",
+    action: row.action,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    metadata: row.metadata ?? "",
+    previousHash: row.previous_hash ?? "",
+    eventHash: row.event_hash ?? "",
+  }));
+}
+
+export function rewardAuditRowsToCsv(rows: Awaited<ReturnType<typeof listRewardAuditRows>>) {
+  const headers = ["createdAt", "actorType", "actorId", "action", "entityType", "entityId", "metadata", "previousHash", "eventHash"];
+  const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  return [
+    headers.join(","),
+    ...rows.map((row) => headers.map((header) => escape(row[header as keyof typeof row])).join(",")),
+  ].join("\n");
 }

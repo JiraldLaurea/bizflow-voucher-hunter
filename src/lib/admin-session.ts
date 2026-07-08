@@ -4,6 +4,8 @@ export const ADMIN_SESSION_MAX_AGE = 60 * 60 * 8;
 export type AdminSession = {
   email: string;
   name: string;
+  role: "super_admin" | "admin" | "staff";
+  businessIds: string[];
   exp: number;
 };
 
@@ -49,9 +51,14 @@ function sessionSecret() {
 export async function createAdminSession(input: {
   email: string;
   name: string;
+  role?: AdminSession["role"];
+  businessIds?: string[];
 }) {
   const payload: AdminSession = {
-    ...input,
+    email: input.email,
+    name: input.name,
+    role: input.role ?? "super_admin",
+    businessIds: input.businessIds ?? ["*"],
     exp: Math.floor(Date.now() / 1000) + ADMIN_SESSION_MAX_AGE,
   };
   const encodedPayload = encodeBase64Url(JSON.stringify(payload));
@@ -83,6 +90,8 @@ export async function verifyAdminSession(
     if (
       !decoded.email ||
       !decoded.name ||
+      !decoded.role ||
+      !Array.isArray(decoded.businessIds) ||
       !decoded.exp ||
       decoded.exp <= Math.floor(Date.now() / 1000)
     ) {

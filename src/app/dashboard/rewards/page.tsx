@@ -1,4 +1,5 @@
 import { rewardsNetworkOverview } from "@/server/rewards-network";
+import { HeldPurchaseActions, SettlementRowActions } from "../_components/RewardsAdminActions";
 
 export default async function RewardsNetworkPage() {
   const overview = await rewardsNetworkOverview();
@@ -19,7 +20,9 @@ export default async function RewardsNetworkPage() {
         <span>Centavo ledger accounting</span>
         <span>Opaque QR tokens</span>
         <span>Staff/admin protected redemptions</span>
-        <span>Audit logs for money actions</span>
+        <a className="button secondary rewards-audit-export" href="/api/dashboard/rewards/audit/export">
+          Export audit CSV
+        </a>
       </section>
 
       <div className="admin-grid rewards-dashboard-grid">
@@ -30,6 +33,7 @@ export default async function RewardsNetworkPage() {
           ["Converted to Vouchers", overview.summary.lifetimeConverted],
           ["Pending Settlement", overview.summary.pendingSettlement],
           ["Pending Redemptions", overview.summary.pendingSettlementCount],
+          ["Held Reviews", overview.summary.heldReviewCount],
         ].map(([label, value]) => (
           <article className="card metric span-4" key={label}>
             <span className="muted">{label}</span>
@@ -54,12 +58,13 @@ export default async function RewardsNetworkPage() {
                 <th>5% Credit</th>
                 <th>Staff</th>
                 <th>Fraud Monitor</th>
+                <th>Review</th>
               </tr>
             </thead>
             <tbody>
               {overview.purchases.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>No reward credits yet.</td>
+                  <td colSpan={8}>No reward credits yet.</td>
                 </tr>
               ) : (
                 overview.purchases.map((purchase) => (
@@ -76,6 +81,9 @@ export default async function RewardsNetworkPage() {
                       ) : (
                         <span className="badge success">Clear</span>
                       )}
+                    </td>
+                    <td>
+                      {purchase.status === "Held" ? <HeldPurchaseActions purchaseId={purchase.id} /> : purchase.status}
                     </td>
                   </tr>
                 ))
@@ -100,12 +108,13 @@ export default async function RewardsNetworkPage() {
                 <th>Store / Branch</th>
                 <th>Settlement Amount</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {overview.redemptions.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>No reward voucher payments yet.</td>
+                  <td colSpan={7}>No reward voucher payments yet.</td>
                 </tr>
               ) : (
                 overview.redemptions.map((redemption) => (
@@ -116,6 +125,13 @@ export default async function RewardsNetworkPage() {
                     <td>{redemption.businessName}</td>
                     <td>{redemption.amount}</td>
                     <td><span className="badge warning">{redemption.settlementStatus}</span></td>
+                    <td>
+                      <SettlementRowActions
+                        redemptionId={redemption.id}
+                        settlementId={redemption.settlementId}
+                        status={redemption.settlementStatus}
+                      />
+                    </td>
                   </tr>
                 ))
               )}

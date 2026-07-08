@@ -10,6 +10,8 @@ type CreditResult = {
   rewardAmount: string;
   balance: string;
   fraudFlag?: string;
+  heldForReview?: boolean;
+  idempotentReplay?: boolean;
 };
 
 type ValidateRewardResult = {
@@ -30,6 +32,7 @@ export function RewardsStaffTools() {
   const [walletToken, setWalletToken] = useState("");
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [creditResult, setCreditResult] = useState<CreditResult | null>(null);
+  const [creditIdempotencyKey, setCreditIdempotencyKey] = useState(() => crypto.randomUUID());
   const [rewardCode, setRewardCode] = useState("");
   const [redeemAmount, setRedeemAmount] = useState("");
   const [rewardResult, setRewardResult] = useState<ValidateRewardResult | null>(null);
@@ -72,10 +75,19 @@ export function RewardsStaffTools() {
           businessId,
           purchaseAmount,
           staffName: staffName.trim(),
+          idempotencyKey: creditIdempotencyKey,
         }),
       });
       setCreditResult(result);
-      setToast({ tone: "success", message: `Reward credited: ${result.rewardAmount}` });
+      setCreditIdempotencyKey(crypto.randomUUID());
+      setToast({
+        tone: result.heldForReview ? "error" : "success",
+        message: result.heldForReview
+          ? `Reward held for review: ${result.fraudFlag?.replace(/_/g, " ") ?? "suspicious activity"}`
+          : result.idempotentReplay
+            ? `Duplicate request safely ignored. Existing credit: ${result.rewardAmount}`
+            : `Reward credited: ${result.rewardAmount}`,
+      });
     } catch (error) {
       showError(error, "Unable to credit reward.");
     } finally {
@@ -182,7 +194,9 @@ export function RewardsStaffTools() {
             <div className="rewards-result-box">
               <strong>{creditResult.rewardAmount} credited</strong>
               <span>Wallet balance: {creditResult.balance}</span>
+              {creditResult.heldForReview ? <span className="badge warning">Held for review</span> : null}
               {creditResult.fraudFlag ? <span className="badge warning">{creditResult.fraudFlag.replace(/_/g, " ")}</span> : null}
+              {creditResult.idempotentReplay ? <span className="badge success">Idempotent replay</span> : null}
             </div>
           ) : null}
         </div>

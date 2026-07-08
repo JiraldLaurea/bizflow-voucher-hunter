@@ -17,5 +17,20 @@ export async function requireAdmin(request: Request) {
   if (!expected || !provided || provided !== expected) {
     throw new AppError("E-ADMIN-UNAUTHORIZED", "Admin authorization is required", 401);
   }
-  return { email: "integration", name: "API Admin", exp: 0 };
+  return { email: "integration", name: "API Admin", role: "super_admin" as const, businessIds: ["*"], exp: 0 };
+}
+
+export function assertBusinessAccess(
+  session: Awaited<ReturnType<typeof requireAdmin>>,
+  businessId: string,
+) {
+  if (session.role === "super_admin" || session.businessIds.includes("*") || session.businessIds.includes(businessId)) {
+    return;
+  }
+  throw new AppError("E-STAFF-BUSINESS-SCOPE", "You are not allowed to perform rewards actions for this business", 403);
+}
+
+export function assertRewardsAdmin(session: Awaited<ReturnType<typeof requireAdmin>>) {
+  if (session.role === "super_admin" || session.role === "admin") return;
+  throw new AppError("E-REWARDS-ADMIN-SCOPE", "Rewards review and settlement actions require admin access", 403);
 }
