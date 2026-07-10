@@ -131,6 +131,11 @@ export type SmsLog = {
   providerMessageId?: string;
   createdAt: string;
   failureReason?: string;
+  // SMPP delivery-receipt (DLR) outcome, populated asynchronously by the SMSC.
+  deliveryStatus?: string;
+  deliveryError?: string;
+  deliveryReceipt?: string;
+  deliveredAt?: string;
 };
 
 export type RedemptionLog = {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getDb, one, resetDb } from "@/server/db";
+import { fitsSingleSmsPart } from "@/server/sms";
 import { resendVoucherSms, sendVoucherConfirmationSms } from "@/server/voucher-engine";
 import { huntAndSelect } from "../helpers";
 
@@ -32,6 +33,8 @@ describe("SMS confirmation", () => {
     expect(row.to_number).toBe("+639170009991");
     expect(row.body).toContain(voucher.voucherCode);
     expect(row.provider_message_id).toMatch(/^mock_/);
+    // Credit guard: a standard confirmation must stay within one SMS part.
+    expect(fitsSingleSmsPart(row.body)).toBe(true);
   });
 
   it("records an sms_sent analytics event only on success", async () => {

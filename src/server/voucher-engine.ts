@@ -587,7 +587,7 @@ export async function sendVoucherConfirmationSms(voucherId: string): Promise<Sms
   if (!voucherRow) throw new AppError("E-VOUCHER-404", "Voucher was not found", 404);
   const voucher = mapVoucher(voucherRow);
   const context = await loadSmsContext(db, voucher);
-  const message = smsBody(context.business, context.campaign, voucher, context.slot, context.user);
+  const message = smsBody(context.business, context.campaign, voucher, context.slot);
   return dispatchSms(db, {
     campaignId: context.campaign.id,
     userId: context.user.id,
@@ -603,7 +603,7 @@ export async function resendVoucherSms(input: { codeOrToken: string }): Promise<
   const db = await getDb();
   const voucher = await loadVoucherContext(db, input.codeOrToken);
   const context = await loadSmsContext(db, voucher);
-  const message = smsBody(context.business, context.campaign, voucher, context.slot, context.user);
+  const message = smsBody(context.business, context.campaign, voucher, context.slot);
   const result = await dispatchSms(db, {
     campaignId: context.campaign.id,
     userId: context.user.id,
@@ -662,15 +662,27 @@ async function dispatchSms(
   return result;
 }
 
+// Kept deliberately compact so a typical confirmation fits one SMS part (≤160
+// GSM chars) instead of several — full terms and the human-readable expiry time
+// live on the confirmation page. Long shop URLs may still spill to a second part.
 function smsBody(
   business: { name: string } | undefined,
   campaign: Campaign,
   voucher: { voucherCode: string; displayLabel: string; expiresAt: string },
-  slot: CampaignSlot,
-  user: EndUser
+  slot: CampaignSlot
 ) {
-  const where = campaign.mode === "restaurant" ? "Show this SMS at the restaurant." : `Shop here: ${campaign.shopUrl ?? "campaign shop"}.`;
-  return `[${business?.name ?? "BizFlow"}] Your voucher is confirmed. Code: ${voucher.voucherCode}. Benefit: ${voucher.displayLabel}. Date/Time: ${slot.date} ${slot.startTime}-${slot.endTime}. ${where} Valid until ${voucher.expiresAt}. Terms: ${campaign.terms}. ${user.name ? `Name: ${user.name}.` : ""}`;
+  const name = business?.name ?? "BizFlow";
+  const window = `${slot.date}, ${slot.startTime}-${slot.endTime}`;
+  const validUntil = voucher.expiresAt.slice(0, 10); // date only (YYYY-MM-DD)
+  const isRestaurant = campaign.mode === "restaurant";
+  // Colon label so the date/time reads as a labelled slot, not a run-on verb.
+  const windowLabel = isRestaurant ? `Visit: ${window}` : `Use: ${window}`;
+  const action = isRestaurant
+    ? "Show this SMS on arrival"
+    : campaign.shopUrl
+      ? `Shop: ${campaign.shopUrl}`
+      : "Apply code at checkout";
+  return `[${name}] Voucher confirmed! ${voucher.voucherCode} - ${voucher.displayLabel}. ${windowLabel}. ${action}. Valid til ${validUntil}.`;
 }
 
 async function releaseAttempt(db: Exec, attempt: VoucherAttempt) {

@@ -156,7 +156,11 @@ CREATE TABLE IF NOT EXISTS sms_logs (
   status TEXT NOT NULL,
   provider_message_id TEXT,
   created_at TEXT NOT NULL,
-  failure_reason TEXT
+  failure_reason TEXT,
+  delivery_status TEXT,
+  delivery_error TEXT,
+  delivery_receipt TEXT,
+  delivered_at TEXT
 );
 CREATE TABLE IF NOT EXISTS redemption_logs (
   id TEXT PRIMARY KEY,
@@ -390,6 +394,7 @@ async function init() {
 
   await c.executeMultiple(SCHEMA);
   await ensureRewardsSchema(c);
+  await ensureSmsSchema(c);
 
   if (migrating) {
     // Full reset so seed changes (e.g. campaign titles) reach already-seeded
@@ -440,6 +445,24 @@ async function ensureRewardsSchema(c: Client) {
   );
   await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_wallets_secret ON reward_wallets (wallet_secret)");
   await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_purchases_idempotency ON reward_purchases (business_id, idempotency_key) WHERE idempotency_key IS NOT NULL");
+}
+
+// Adds the SMPP delivery-receipt columns to already-deployed databases without a
+// destructive schema-version bump. Also indexes provider_message_id, which DLR
+// handling looks up on every inbound deliver_sm.
+async function ensureSmsSchema(c: Client) {
+  const smsColumnAdds: Array<[string, string, string]> = [
+    ["sms_logs", "delivery_status", "TEXT"],
+    ["sms_logs", "delivery_error", "TEXT"],
+    ["sms_logs", "delivery_receipt", "TEXT"],
+    ["sms_logs", "delivered_at", "TEXT"]
+  ];
+  for (const [table, column, definition] of smsColumnAdds) {
+    if (!(await hasColumn(c, table, column))) {
+      await c.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
+  await c.execute("CREATE INDEX IF NOT EXISTS idx_sms_logs_provider_message_id ON sms_logs (provider_message_id)");
 }
 
 /** Returns the ready libSQL client (schema created + seeded on first use). */
@@ -845,7 +868,11 @@ export const mapSmsLog = (r: Row): SmsLog => ({
   status: r.status,
   providerMessageId: r.provider_message_id ?? undefined,
   createdAt: r.created_at,
-  failureReason: r.failure_reason ?? undefined
+  failureReason: r.failure_reason ?? undefined,
+  deliveryStatus: r.delivery_status ?? undefined,
+  deliveryError: r.delivery_error ?? undefined,
+  deliveryReceipt: r.delivery_receipt ?? undefined,
+  deliveredAt: r.delivered_at ?? undefined
 });
 
 export const mapRedemptionLog = (r: Row): RedemptionLog => ({

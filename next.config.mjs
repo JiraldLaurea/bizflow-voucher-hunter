@@ -2,7 +2,7 @@
 const nextConfig = {
   experimental: {
     typedRoutes: false,
-    serverComponentsExternalPackages: ["@libsql/client", "libsql"]
+    serverComponentsExternalPackages: ["@libsql/client", "libsql", "smpp"]
   }
 };
 
