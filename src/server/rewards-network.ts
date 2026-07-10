@@ -226,6 +226,7 @@ export async function getOrCreateRewardWallet(input: {
   return withTx(async (tx) => {
     const normalized = session.phone;
     const now = isoNow();
+
     await run(
       tx,
       `INSERT OR IGNORE INTO reward_wallets
@@ -233,6 +234,7 @@ export async function getOrCreateRewardWallet(input: {
        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 'Active', ?, ?)`,
       [id("rwal"), normalized, input.name ?? null, input.email ?? null, token("rwallet"), token("rwsecret"), now, now],
     );
+
     await run(
       tx,
       `UPDATE reward_wallets
@@ -240,8 +242,14 @@ export async function getOrCreateRewardWallet(input: {
        WHERE phone = ?`,
       [input.name ?? null, input.email ?? null, now, normalized],
     );
+
     const wallet = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE phone = ?", [normalized]));
     const secretRow = await one(tx, "SELECT wallet_secret FROM reward_wallets WHERE id = ?", [wallet.id]);
+    const [ledger, vouchers] = await Promise.all([
+      all(tx, "SELECT * FROM reward_ledger_entries WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 12", [wallet.id]),
+      all(tx, "SELECT * FROM reward_vouchers WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 20", [wallet.id]),
+    ]);
+
     await audit(tx, {
       actorType: "customer",
       actorId: wallet.id,
@@ -249,12 +257,13 @@ export async function getOrCreateRewardWallet(input: {
       entityType: "reward_wallet",
       entityId: wallet.id,
     });
+
     return {
       wallet,
       walletSecret: String(secretRow.wallet_secret),
       balance: centavosToMoney(wallet.balanceCentavos),
-      ledger: [] as RewardLedgerEntry[],
-      vouchers: [] as RewardVoucher[],
+      ledger: ledger.map(mapLedger),
+      vouchers: vouchers.map(mapRewardVoucher),
     };
   });
 }
@@ -324,7 +333,11 @@ export async function creditRewardFromPurchase(input: {
 
     const purchaseCentavos = moneyToCentavos(input.purchaseAmount, "purchase amount");
     if (purchaseCentavos <= 0 || purchaseCentavos > MAX_PURCHASE_CENTAVOS) {
-      throw new AppError("E-MONEY-RANGE", "Purchase amount is outside the allowed range", 400);
+      throw new AppError(
+        "E-MONEY-RANGE",
+        `Purchase amount must be between ₱0.01 and ${centavosToMoney(MAX_PURCHASE_CENTAVOS)} per scan`,
+        400
+      );
     }
     const rewardCentavos = Math.floor((purchaseCentavos * REWARD_RATE_BPS) / 10_000);
     if (rewardCentavos <= 0) throw new AppError("E-REWARD-TOO-SMALL", "Purchase amount is too small to earn credit", 400);

@@ -20,6 +20,9 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiClock,
+  FiCopy,
+  FiEye,
+  FiEyeOff,
   FiHome,
   FiLogOut,
   FiMoreHorizontal,
@@ -273,8 +276,7 @@ function rouletteEase(progress: number) {
   const slowedProgress = (progress - 0.5) / 0.5;
   return (
     rouletteFastProgress +
-    (1 - rouletteFastProgress) *
-      (1 - Math.pow(1 - slowedProgress, 3.4))
+    (1 - rouletteFastProgress) * (1 - Math.pow(1 - slowedProgress, 3.4))
   );
 }
 
@@ -302,10 +304,7 @@ function initialState(_slots: PublicSlot[]): FlowState {
   };
 }
 
-function mergeAttempts(
-  current: VoucherAttempt[],
-  incoming: VoucherAttempt[],
-) {
+function mergeAttempts(current: VoucherAttempt[], incoming: VoucherAttempt[]) {
   const merged = new Map<string, VoucherAttempt>();
   [...current, ...incoming].forEach((attempt) => {
     merged.set(attempt.id, attempt);
@@ -329,7 +328,12 @@ export function PublicStepClient({
   const [shareNoticeExiting, setShareNoticeExiting] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [rewardQrDataUrl, setRewardQrDataUrl] = useState("");
-  const [rewardWallet, setRewardWallet] = useState<RewardWalletSnapshot | null>(null);
+  const [rewardWallet, setRewardWallet] = useState<RewardWalletSnapshot | null>(
+    null,
+  );
+  const [rewardTokenVisible, setRewardTokenVisible] = useState(false);
+  const [expandedRewardVoucherId, setExpandedRewardVoucherId] = useState("");
+  const [rewardVoucherQrDataUrl, setRewardVoucherQrDataUrl] = useState("");
   const [rewardConvertAmount, setRewardConvertAmount] = useState("");
   const [rewardBusy, setRewardBusy] = useState(false);
   const [soldOut, setSoldOut] = useState(false);
@@ -358,6 +362,9 @@ export function PublicStepClient({
     step === "voucher"
       ? claimedVouchers.find((item) => item.voucher.id === voucherId)
       : undefined;
+  const expandedRewardVoucher = rewardWallet?.vouchers.find(
+    (voucher) => voucher.id === expandedRewardVoucherId,
+  );
   const qrToken =
     step === "voucher"
       ? viewedVoucher?.voucher.qrToken
@@ -519,11 +526,17 @@ export function PublicStepClient({
   }, [qrToken]);
 
   useEffect(() => {
-    if (step !== "more" || !state.phone || !state.customerSessionToken || !flowHydrated) return;
+    if (
+      step !== "more" ||
+      !state.phone ||
+      !state.customerSessionToken ||
+      !flowHydrated
+    )
+      return;
     let active = true;
     setRewardBusy(true);
     api<RewardWalletSnapshot>("/api/public/rewards/wallet", {
-        method: "POST",
+      method: "POST",
       body: JSON.stringify({
         campaignSlug: campaign.slug,
         phone: state.phone,
@@ -539,7 +552,12 @@ export function PublicStepClient({
         }
       })
       .catch((err) => {
-        if (active) setError(err instanceof Error ? err.message : "Unable to load rewards wallet.");
+        if (active)
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load rewards wallet.",
+          );
       })
       .finally(() => {
         if (active) setRewardBusy(false);
@@ -547,10 +565,19 @@ export function PublicStepClient({
     return () => {
       active = false;
     };
-  }, [step, campaign.slug, state.phone, state.customerSessionToken, state.name, state.email, flowHydrated]);
+  }, [
+    step,
+    campaign.slug,
+    state.phone,
+    state.customerSessionToken,
+    state.name,
+    state.email,
+    flowHydrated,
+  ]);
 
   useEffect(() => {
     const token = rewardWallet?.wallet.walletToken;
+    setRewardTokenVisible(false);
     if (!token) {
       setRewardQrDataUrl("");
       return;
@@ -572,6 +599,88 @@ export function PublicStepClient({
       active = false;
     };
   }, [rewardWallet?.wallet.walletToken]);
+
+  useEffect(() => {
+    const token = expandedRewardVoucher?.qrToken;
+    if (!token) {
+      setRewardVoucherQrDataUrl("");
+      return;
+    }
+    let active = true;
+    QRCode.toDataURL(token, {
+      width: 288,
+      margin: 2,
+      errorCorrectionLevel: "M",
+      color: { dark: "#0b1d3a", light: "#ffffff" },
+    })
+      .then((dataUrl) => {
+        if (active) setRewardVoucherQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (active) setRewardVoucherQrDataUrl("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [expandedRewardVoucher?.qrToken]);
+
+  async function copyRewardWalletToken() {
+    const token = rewardWallet?.wallet.walletToken;
+    if (!token) {
+      setError("Wallet token is not available yet.");
+      return;
+    }
+
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(token);
+      } else {
+        const input = document.createElement("textarea");
+        input.value = token;
+        input.style.position = "fixed";
+        input.style.opacity = "0";
+        document.body.appendChild(input);
+        input.select();
+        const copied = document.execCommand("copy");
+        input.remove();
+        if (!copied) throw new Error("Unable to copy wallet token.");
+      }
+      setShareNoticeExiting(false);
+      setShareNotice("Wallet token copied.");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to copy wallet token.",
+      );
+    }
+  }
+
+  async function copyRewardVoucherValue(value: string, label: string) {
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const input = document.createElement("textarea");
+        input.value = value;
+        input.style.position = "fixed";
+        input.style.opacity = "0";
+        document.body.appendChild(input);
+        input.select();
+        const copied = document.execCommand("copy");
+        input.remove();
+        if (!copied) throw new Error(`Unable to copy ${label}.`);
+      }
+      setShareNoticeExiting(false);
+      setShareNotice(`${label} copied.`);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : `Unable to copy ${label}.`,
+      );
+    }
+  }
 
   function save(next: Partial<FlowState>) {
     setState((current) => {
@@ -626,7 +735,9 @@ export function PublicStepClient({
       setRewardConvertAmount("");
       setShareNotice("Reward credit converted into a voucher.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to convert reward credit.");
+      setError(
+        err instanceof Error ? err.message : "Unable to convert reward credit.",
+      );
     } finally {
       setRewardBusy(false);
     }
@@ -722,7 +833,8 @@ export function PublicStepClient({
 
     const winnerIndex = sequence.length;
     const trailingPool =
-      pool.filter((item) => item.displayLabel !== winner.displayLabel).length > 0
+      pool.filter((item) => item.displayLabel !== winner.displayLabel).length >
+      0
         ? pool.filter((item) => item.displayLabel !== winner.displayLabel)
         : pool;
     const trailingItems = Array.from(
@@ -738,7 +850,10 @@ export function PublicStepClient({
 
   function rouletteLoop(items: RoulettePreview[], count = rouletteSpinCount) {
     if (items.length === 0) return [];
-    return Array.from({ length: count }, (_, index) => items[index % items.length]);
+    return Array.from(
+      { length: count },
+      (_, index) => items[index % items.length],
+    );
   }
 
   function placeholderRouletteItems() {
@@ -779,7 +894,8 @@ export function PublicStepClient({
     ).matches;
     const winner = sequence.items[sequence.winnerIndex];
     if (!winner) return;
-    const targetOffset = -sequence.winnerIndex * (rouletteCardWidth + rouletteGap);
+    const targetOffset =
+      -sequence.winnerIndex * (rouletteCardWidth + rouletteGap);
     if (prefersReducedMotion) {
       setRouletteOffset(targetOffset);
       setRouletteWinner(winner);
@@ -896,10 +1012,10 @@ export function PublicStepClient({
   async function spinToAttempt(
     sourceType: "base" | "referral_bonus",
     destination?: string,
-  extraState: Partial<FlowState> = {},
-) {
-  setBusy(true);
-  setPendingSpinCompletion(null);
+    extraState: Partial<FlowState> = {},
+  ) {
+    setBusy(true);
+    setPendingSpinCompletion(null);
     setRoulettePhase("searching");
     setRouletteTargetIndex(0);
     setRouletteOffset(0);
@@ -1177,14 +1293,17 @@ export function PublicStepClient({
     setOtpBusy(true);
     setOtpMessage("");
     try {
-      const result = await api<{ customerSessionToken: string }>("/api/public/otp/verify", {
-        method: "POST",
-        body: JSON.stringify({
-          campaignSlug: campaign.slug,
-          phone: state.phone,
-          code: otpCode,
-        }),
-      });
+      const result = await api<{ customerSessionToken: string }>(
+        "/api/public/otp/verify",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            campaignSlug: campaign.slug,
+            phone: state.phone,
+            code: otpCode,
+          }),
+        },
+      );
       setOtpVerified(true);
       save({ customerSessionToken: result.customerSessionToken });
       setOtpMessage("Phone number verified.");
@@ -1462,17 +1581,17 @@ export function PublicStepClient({
                 </>
               ) : (
                 <>
-              <div className="hunt-loading-emblem" aria-hidden="true">
-                <span className="hunt-loading-ring" />
-                <FiShoppingBag />
-              </div>
-              <h2 id="hunt-loading-title">Preparing your vouchers…</h2>
-              <p>Restoring your hunt and checking voucher availability.</p>
-              <div className="hunt-loading-dots" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
+                  <div className="hunt-loading-emblem" aria-hidden="true">
+                    <span className="hunt-loading-ring" />
+                    <FiShoppingBag />
+                  </div>
+                  <h2 id="hunt-loading-title">Preparing your vouchers…</h2>
+                  <p>Restoring your hunt and checking voucher availability.</p>
+                  <div className="hunt-loading-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
                 </>
               )}
             </div>
@@ -1633,7 +1752,10 @@ export function PublicStepClient({
             Every possible voucher is in the reel. Watch the arrow land on your
             result.
           </p>
-          <div className="roulette-stage roulette-page-stage" aria-hidden="true">
+          <div
+            className="roulette-stage roulette-page-stage"
+            aria-hidden="true"
+          >
             <span className="roulette-pointer" />
             <div className="roulette-reel-clip">
               <div
@@ -1924,7 +2046,9 @@ export function PublicStepClient({
             className={`button full mobile-bottom-action ${
               state.selectedSlotId ? "" : "disabled-link"
             }`}
-            href={state.selectedSlotId ? routeFor("confirm") : routeFor("datetime")}
+            href={
+              state.selectedSlotId ? routeFor("confirm") : routeFor("datetime")
+            }
             prefetch={false}
           >
             Continue
@@ -2157,7 +2281,10 @@ export function PublicStepClient({
                 <div className="rewards-wallet-balance">
                   <span className="muted">Available reward credit</span>
                   <strong>{rewardWallet.balance}</strong>
-                  <small>Credits are not cash and can only convert to BizFlow partner vouchers.</small>
+                  <small>
+                    Credits are not cash and can only convert to BizFlow partner
+                    vouchers.
+                  </small>
                 </div>
                 <div className="reward-wallet-qr">
                   {rewardQrDataUrl ? (
@@ -2172,18 +2299,53 @@ export function PublicStepClient({
                     <span>Generating wallet QR…</span>
                   )}
                 </div>
+                <div className="reward-wallet-token">
+                  <button
+                    className="button secondary wallet-token-toggle"
+                    onClick={() => setRewardTokenVisible((visible) => !visible)}
+                    type="button"
+                  >
+                    {rewardTokenVisible ? (
+                      <FiEyeOff aria-hidden="true" />
+                    ) : (
+                      <FiEye aria-hidden="true" />
+                    )}
+                    {rewardTokenVisible
+                      ? "Hide wallet token"
+                      : "Show wallet token"}
+                  </button>
+                  {rewardTokenVisible && (
+                    <div className="wallet-token-value">
+                      <code>{rewardWallet.wallet.walletToken}</code>
+                      <button
+                        className="button secondary wallet-token-copy"
+                        onClick={copyRewardWalletToken}
+                        type="button"
+                      >
+                        <FiCopy aria-hidden="true" />
+                        Copy
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <label className="field rewards-convert-field">
                   <span>Convert credits to voucher</span>
                   <input
                     inputMode="decimal"
-                    onChange={(event) => setRewardConvertAmount(event.target.value)}
+                    onChange={(event) =>
+                      setRewardConvertAmount(event.target.value)
+                    }
                     placeholder="50.00"
                     value={rewardConvertAmount}
                   />
                 </label>
                 <button
                   className="button full"
-                  disabled={rewardBusy || !rewardWallet?.walletSecret || !rewardConvertAmount.trim()}
+                  disabled={
+                    rewardBusy ||
+                    !rewardWallet?.walletSecret ||
+                    !rewardConvertAmount.trim()
+                  }
                   onClick={convertRewardCredit}
                   type="button"
                 >
@@ -2192,27 +2354,96 @@ export function PublicStepClient({
                 {rewardWallet.vouchers.length > 0 ? (
                   <div className="reward-voucher-list">
                     <strong>Your reward vouchers</strong>
-                    {rewardWallet.vouchers.slice(0, 3).map((voucher) => (
-                      <div className="reward-voucher-row" key={voucher.id}>
-                        <span>{voucher.voucherCode}</span>
-                        <small>
-                          ₱{(voucher.remainingCentavos / 100).toFixed(2)} · {voucher.status}
-                        </small>
-                      </div>
-                    ))}
+                    {rewardWallet.vouchers.slice(0, 3).map((voucher) => {
+                      const expanded = expandedRewardVoucherId === voucher.id;
+                      return (
+                        <div className="reward-voucher-card" key={voucher.id}>
+                          <button
+                            className="reward-voucher-row"
+                            onClick={() =>
+                              setExpandedRewardVoucherId(expanded ? "" : voucher.id)
+                            }
+                            type="button"
+                          >
+                            <span>{voucher.voucherCode}</span>
+                            <small>
+                              ₱{(voucher.remainingCentavos / 100).toFixed(2)} ·{" "}
+                              {voucher.status}
+                            </small>
+                            <FiChevronRight
+                              aria-hidden="true"
+                              className={`reward-voucher-arrow ${expanded ? "expanded" : ""}`}
+                            />
+                          </button>
+                          {expanded ? (
+                            <div className="reward-voucher-detail">
+                              <div className="reward-voucher-qr">
+                                {rewardVoucherQrDataUrl ? (
+                                  <Image
+                                    alt={`QR code for reward voucher ${voucher.voucherCode}`}
+                                    height={148}
+                                    src={rewardVoucherQrDataUrl}
+                                    unoptimized
+                                    width={148}
+                                  />
+                                ) : (
+                                  <span>Generating reward QR…</span>
+                                )}
+                              </div>
+                              <div className="reward-voucher-actions">
+                                <button
+                                  className="button secondary"
+                                  onClick={() =>
+                                    copyRewardVoucherValue(
+                                      voucher.voucherCode,
+                                      "Reward voucher code",
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  <FiCopy aria-hidden="true" />
+                                  Copy Code
+                                </button>
+                                <button
+                                  className="button secondary"
+                                  onClick={() =>
+                                    copyRewardVoucherValue(
+                                      voucher.qrToken,
+                                      "Reward QR token",
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  <FiCopy aria-hidden="true" />
+                                  Copy QR Token
+                                </button>
+                              </div>
+                              <small className="muted">
+                                Partner staff can scan this QR or enter the voucher
+                                code in Rewards Network.
+                              </small>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : null}
               </>
             ) : !state.customerSessionToken ? (
               <div className="otp-block rewards-wallet-otp">
-                <span className="otp-block-label">Verify your phone to unlock your wallet</span>
+                <span className="otp-block-label">
+                  Verify your phone to unlock your wallet
+                </span>
                 <button
                   className="button secondary full"
                   disabled={otpBusy || !state.phone}
                   onClick={sendOtp}
                   type="button"
                 >
-                  {otpSent ? "Resend Verification Code" : "Send Verification Code"}
+                  {otpSent
+                    ? "Resend Verification Code"
+                    : "Send Verification Code"}
                 </button>
                 <div className="otp-verify-row">
                   <input
@@ -2223,7 +2454,9 @@ export function PublicStepClient({
                     inputMode="numeric"
                     maxLength={6}
                     pattern="[0-9]*"
-                    placeholder={otpSent ? "Enter 6-digit code" : "Send a code first"}
+                    placeholder={
+                      otpSent ? "Enter 6-digit code" : "Send a code first"
+                    }
                     value={otpCode}
                     onChange={(event) =>
                       setOtpCode(event.target.value.replace(/\D/g, ""))
@@ -2238,7 +2471,9 @@ export function PublicStepClient({
                     Verify
                   </button>
                 </div>
-                {otpMessage ? <p className="muted otp-message">{otpMessage}</p> : null}
+                {otpMessage ? (
+                  <p className="muted otp-message">{otpMessage}</p>
+                ) : null}
               </div>
             ) : (
               <p className="muted">

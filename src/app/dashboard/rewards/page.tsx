@@ -3,6 +3,12 @@ import { HeldPurchaseActions, SettlementRowActions } from "../_components/Reward
 
 export default async function RewardsNetworkPage() {
   const overview = await rewardsNetworkOverview();
+  const settlementBadgeClass = (status: string) =>
+    status === "Completed"
+      ? "badge success"
+      : status === "Adjusted"
+        ? "badge"
+        : "badge warning";
 
   return (
     <>
@@ -13,17 +19,10 @@ export default async function RewardsNetworkPage() {
             Customer QR wallets, 5% reward credits, voucher conversions, and partner settlement monitoring.
           </p>
         </div>
-      </header>
-
-      <section className="admin-rule-strip rewards-security-strip" aria-label="Rewards network controls">
-        <span>Server-calculated 5% rewards</span>
-        <span>Centavo ledger accounting</span>
-        <span>Opaque QR tokens</span>
-        <span>Staff/admin protected redemptions</span>
         <a className="button secondary rewards-audit-export" href="/api/dashboard/rewards/audit/export">
           Export audit CSV
         </a>
-      </section>
+      </header>
 
       <div className="admin-grid rewards-dashboard-grid">
         {[
@@ -124,7 +123,7 @@ export default async function RewardsNetworkPage() {
                     <td>{redemption.voucherCode}</td>
                     <td>{redemption.businessName}</td>
                     <td>{redemption.amount}</td>
-                    <td><span className="badge warning">{redemption.settlementStatus}</span></td>
+                    <td><span className={settlementBadgeClass(redemption.settlementStatus)}>{redemption.settlementStatus}</span></td>
                     <td>
                       <SettlementRowActions
                         redemptionId={redemption.id}

@@ -1,7 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { FiCheck, FiCreditCard, FiGift, FiRefreshCw, FiShield } from "react-icons/fi";
+import { FiCheck, FiCreditCard, FiGift, FiRefreshCw, FiShield, FiX } from "react-icons/fi";
 import { api } from "@/lib/api-client";
 import type { Business, RewardVoucher, RewardVoucherRedemption, RewardWallet } from "@/types/voucher";
 
@@ -26,17 +27,17 @@ type RedeemResult = {
 };
 
 export function RewardsStaffTools() {
+  const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [businessId, setBusinessId] = useState("");
   const [staffName, setStaffName] = useState("");
   const [walletToken, setWalletToken] = useState("");
   const [purchaseAmount, setPurchaseAmount] = useState("");
-  const [creditResult, setCreditResult] = useState<CreditResult | null>(null);
   const [creditIdempotencyKey, setCreditIdempotencyKey] = useState(() => crypto.randomUUID());
   const [rewardCode, setRewardCode] = useState("");
   const [redeemAmount, setRedeemAmount] = useState("");
   const [rewardResult, setRewardResult] = useState<ValidateRewardResult | null>(null);
-  const [toast, setToast] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [toast, setToast] = useState<{ tone: "success" | "error"; title: string; detail?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export function RewardsStaffTools() {
   }, [toast]);
 
   function showError(error: unknown, fallback: string) {
-    setToast({ tone: "error", message: error instanceof Error ? error.message : fallback });
+    setToast({ tone: "error", title: error instanceof Error ? error.message : fallback });
   }
 
   async function creditWallet() {
@@ -78,16 +79,27 @@ export function RewardsStaffTools() {
           idempotencyKey: creditIdempotencyKey,
         }),
       });
-      setCreditResult(result);
       setCreditIdempotencyKey(crypto.randomUUID());
-      setToast({
-        tone: result.heldForReview ? "error" : "success",
-        message: result.heldForReview
-          ? `Reward held for review: ${result.fraudFlag?.replace(/_/g, " ") ?? "suspicious activity"}`
-          : result.idempotentReplay
-            ? `Duplicate request safely ignored. Existing credit: ${result.rewardAmount}`
-            : `Reward credited: ${result.rewardAmount}`,
-      });
+      if (result.heldForReview) {
+        setToast({
+          tone: "error",
+          title: "Reward held for review",
+          detail: result.fraudFlag?.replace(/_/g, " ") ?? "Suspicious activity",
+        });
+      } else if (result.idempotentReplay) {
+        setToast({
+          tone: "success",
+          title: "Duplicate request safely ignored",
+          detail: `Existing credit: ${result.rewardAmount} · Wallet balance: ${result.balance}`,
+        });
+      } else {
+        setToast({
+          tone: "success",
+          title: `${result.rewardAmount} credited`,
+          detail: `Wallet balance: ${result.balance}`,
+        });
+      }
+      router.refresh();
     } catch (error) {
       showError(error, "Unable to credit reward.");
     } finally {
@@ -103,7 +115,7 @@ export function RewardsStaffTools() {
         body: JSON.stringify({ codeOrToken: rewardCode.trim() }),
       });
       setRewardResult(result);
-      setToast({ tone: "success", message: "Reward voucher loaded." });
+      setToast({ tone: "success", title: "Reward voucher loaded." });
     } catch (error) {
       setRewardResult(null);
       showError(error, "Unable to validate reward voucher.");
@@ -125,7 +137,12 @@ export function RewardsStaffTools() {
         }),
       });
       setRewardResult({ voucher: result.voucher, wallet: rewardResult!.wallet });
-      setToast({ tone: "success", message: `Reward voucher payment recorded for settlement: ${result.amount}` });
+      setToast({
+        tone: "success",
+        title: "Reward voucher payment recorded",
+        detail: `Settlement amount: ${result.amount}`,
+      });
+      router.refresh();
     } catch (error) {
       showError(error, "Unable to redeem reward voucher.");
     } finally {
@@ -156,7 +173,9 @@ export function RewardsStaffTools() {
 
       <div className="rewards-staff-grid">
         <div className="rewards-tool-card">
-          <h3><FiCreditCard aria-hidden="true" /> Add 5% Reward Credit</h3>
+          <div className="rewards-tool-card-header">
+            <h3><FiCreditCard aria-hidden="true" /> Add 5% Reward Credit</h3>
+          </div>
           <label className="field">
             <span>Partner Store</span>
             <select value={businessId} onChange={(event) => setBusinessId(event.target.value)}>
@@ -190,19 +209,12 @@ export function RewardsStaffTools() {
             {busy ? <FiRefreshCw aria-hidden="true" /> : <FiCheck aria-hidden="true" />}
             Credit Reward
           </button>
-          {creditResult ? (
-            <div className="rewards-result-box">
-              <strong>{creditResult.rewardAmount} credited</strong>
-              <span>Wallet balance: {creditResult.balance}</span>
-              {creditResult.heldForReview ? <span className="badge warning">Held for review</span> : null}
-              {creditResult.fraudFlag ? <span className="badge warning">{creditResult.fraudFlag.replace(/_/g, " ")}</span> : null}
-              {creditResult.idempotentReplay ? <span className="badge success">Idempotent replay</span> : null}
-            </div>
-          ) : null}
         </div>
 
         <div className="rewards-tool-card">
-          <h3><FiGift aria-hidden="true" /> Accept Reward Voucher</h3>
+          <div className="rewards-tool-card-header">
+            <h3><FiGift aria-hidden="true" /> Accept Reward Voucher</h3>
+          </div>
           <label className="field">
             <span>Reward Voucher Code or QR Token</span>
             <input
@@ -233,6 +245,10 @@ export function RewardsStaffTools() {
               placeholder="0.00"
             />
           </label>
+          <label className="field">
+            <span>Staff Name</span>
+            <input value={staffName} onChange={(event) => setStaffName(event.target.value)} placeholder="Your name" />
+          </label>
           <button className="button full" disabled={!canRedeemReward || busy} onClick={redeemReward} type="button">
             Record Voucher Payment
           </button>
@@ -240,8 +256,19 @@ export function RewardsStaffTools() {
       </div>
 
       {toast ? (
-        <div className={`rewards-inline-toast ${toast.tone}`}>
-          {toast.message}
+        <div className="rewards-snackbar" role="status" aria-live="polite">
+          <span className="rewards-snackbar-copy">
+            <strong>{toast.title}</strong>
+            {toast.detail ? <small>{toast.detail}</small> : null}
+          </span>
+          <button
+            aria-label="Dismiss notification"
+            className="rewards-snackbar-close"
+            onClick={() => setToast(null)}
+            type="button"
+          >
+            <FiX aria-hidden="true" />
+          </button>
         </div>
       ) : null}
     </section>
