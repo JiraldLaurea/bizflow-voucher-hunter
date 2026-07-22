@@ -8,7 +8,10 @@ import {
   startHunt,
 } from "@/server/voucher-engine";
 import { GET as visitReferral } from "@/app/api/public/referral/visit/route";
-import { GET as claimReferral } from "@/app/api/public/referral/claim/route";
+import {
+  GET as claimReferral,
+  POST as claimReferralFallback,
+} from "@/app/api/public/referral/claim/route";
 import { POST as deprecatedOpenReferral } from "@/app/api/public/referral/open/route";
 
 const bonusDraw = (phone: string) =>
@@ -83,7 +86,7 @@ describe("referral share module", () => {
     );
     expect(claimResponse.status).toBe(307);
     expect(claimResponse.headers.get("location")).toBe(
-      "http://localhost/campaign/july-dinner",
+      "/campaign/july-dinner",
     );
     expect(
       await getReferralSnapshot({
@@ -95,6 +98,50 @@ describe("referral share module", () => {
       remainingBonusAttempts: 1,
     });
     expect((await bonusDraw(referrer.phone)).sourceType).toBe("referral_bonus");
+  });
+
+  it("keeps the browser handoff on the public origin behind a reverse proxy", async () => {
+    const referrer = await startReferrer();
+    const response = await visitReferral(
+      new NextRequest(
+        `http://localhost:3000/api/public/referral/visit?campaign=july-dinner&ref=${referrer.id}`,
+        {
+          headers: {
+            "x-forwarded-host": "voucher-hunt.ngrok-free.app",
+            "x-forwarded-proto": "https",
+          },
+        },
+      ),
+    );
+    const html = await response.text();
+    expect(html).toContain(
+      `/api/public/referral/claim?campaign=july-dinner&ref=${referrer.id}`,
+    );
+    expect(html).not.toContain("localhost:3000/api/public/referral/claim");
+  });
+
+  it("grants through the campaign-page fallback when the redirect handoff fails", async () => {
+    const referrer = await startReferrer();
+    const response = await claimReferralFallback(
+      new NextRequest("https://voucher-hunt.ngrok-free.app/api/public/referral/claim", {
+        method: "POST",
+        headers: {
+          cookie: "bizflow_visitor_session=visitor-fallback-session",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ campaign: "july-dinner", ref: referrer.id }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(
+      await getReferralSnapshot({
+        campaignSlug: "july-dinner",
+        ref: referrer.id,
+      }),
+    ).toMatchObject({
+      sharesGrantedToday: 1,
+      remainingBonusAttempts: 1,
+    });
   });
 
   it("does not grant from the deprecated page-load open endpoint", async () => {

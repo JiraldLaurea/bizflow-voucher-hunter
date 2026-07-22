@@ -1,26 +1,6 @@
-import { notFound } from "next/navigation";
-import { getPublicCampaign } from "@/server/voucher-engine";
-import { PublicStepClient } from "../_components/PublicStepClient";
+import { redirect } from "next/navigation";
 
-export default async function MorePage({
-  params,
-}: {
-  params: { slug: string };
-}) {
-  try {
-    const data = await getPublicCampaign(params.slug);
-    if (!data.business) notFound();
-
-    return (
-      <PublicStepClient
-        step="more"
-        campaign={data.campaign}
-        businessName={data.business.name}
-        businessLogo={data.business.logoText}
-        slots={data.slots}
-      />
-    );
-  } catch {
-    notFound();
-  }
+// Account/More is a single global page now; redirect the old campaign-scoped one.
+export default function CampaignMorePage() {
+  redirect("/more");
 }

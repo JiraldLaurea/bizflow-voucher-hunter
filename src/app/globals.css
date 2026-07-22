@@ -425,6 +425,63 @@ h2 {
   box-shadow: none;
 }
 
+.dev-voucher-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed #b8a9ff;
+  border-radius: 12px;
+  background: #f7f4ff;
+}
+
+.dev-voucher-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--navy);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.dev-voucher-picker-heading small {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #e9e2ff;
+  color: var(--purple);
+  font-size: 0.66rem;
+  font-weight: 500;
+}
+
+.dev-voucher-picker .field {
+  gap: 5px;
+  margin: 0;
+}
+
+.dev-voucher-picker .field span,
+.dev-voucher-picker p {
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.dev-voucher-picker p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.dev-tool-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: #ded3ff;
+}
+
+.dev-voucher-picker .dev-tool-message {
+  color: var(--purple);
+  font-weight: 600;
+}
+
 .hunt-loading-backdrop {
   position: absolute;
   inset: 0;
@@ -496,6 +553,31 @@ h2 {
   }
 }
 
+/* Inline spinner for buttons that stay on-screen while their action runs.
+   .button is a flex row with no gap, so space it explicitly rather than
+   changing spacing for every existing icon button. */
+.button-spinner {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-right: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: hunt-spinner-rotate 700ms linear infinite;
+}
+
+.button.secondary .button-spinner {
+  border-color: rgba(92, 61, 255, 0.25);
+  border-top-color: var(--purple);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-spinner {
+    animation-duration: 2s;
+  }
+}
+
 .hunt-loading-dots {
   display: flex;
   justify-content: center;
@@ -542,17 +624,74 @@ h2 {
   display: flex;
   align-items: center;
   overflow: hidden;
-  padding: 42px 0 24px;
+  padding: 42px 0 36px;
+  /* Sized as an explicit ellipse rather than a circle with a percentage stop:
+     a circle large enough to look right horizontally is still opaque when it
+     reaches the top/bottom edges, so `overflow: hidden` cut it off and left a
+     visible band of colour. An ellipse keyed to the box always fades out
+     inside it, at any stage height. */
   background:
-    radial-gradient(circle at 50% 46%, rgba(92, 61, 255, 0.18), transparent 58%),
-    linear-gradient(180deg, rgba(246, 243, 255, 0.96), rgba(255, 255, 255, 0));
-  border-block: 1px solid rgba(92, 61, 255, 0.08);
+    radial-gradient(ellipse 62% 42% at 50% 46%, rgba(92, 61, 255, 0.18), transparent),
+    linear-gradient(
+      180deg,
+      rgba(246, 243, 255, 0.98) 0%,
+      rgba(248, 246, 255, 0.98) 68%,
+      rgba(246, 243, 255, 0.94) 100%
+    );
+  border-top: 1px solid rgba(92, 61, 255, 0.18);
+  border-bottom: 1px solid rgba(92, 61, 255, 0.18);
+}
+
+/* While the reel free-spins the whole stage is a tap target that stops it. */
+.roulette-stage.is-stoppable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.roulette-stage.is-stoppable:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: -2px;
+}
+
+.roulette-tap-hint {
+  position: absolute;
+  z-index: 6;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  box-shadow: 0 6px 14px rgba(92, 61, 255, 0.3);
+  animation: roulette-tap-hint-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes roulette-tap-hint-pulse {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 0.92;
+  }
+  50% {
+    transform: translateX(-50%) scale(1.06);
+    opacity: 1;
+  }
 }
 
 .roulette-reel-clip {
   position: relative;
   z-index: 1;
   width: 100%;
+  /* The reel must stay clipped horizontally, but its voucher shadows need
+     vertical breathing room. Extra internal space keeps the shadow inside the
+     clipping box; matching negative margins preserve the reel's alignment. */
+  margin-block: -16px -30px;
+  padding-block: 16px 30px;
   overflow: hidden;
 }
 
@@ -568,19 +707,40 @@ h2 {
   border-top: 18px solid var(--purple);
   filter: drop-shadow(0 7px 9px rgba(92, 61, 255, 0.34));
   transform: translateX(-50%);
+  animation: roulette-pointer-bob 1s ease-in-out infinite;
+}
+
+/* Ambient pulsing glow behind the reel to make the spin feel alive. */
+.roulette-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  /* Ellipse for the same reason as the stage background above — a circle was
+     being clipped at the top and bottom edges. */
+  background: radial-gradient(ellipse 58% 40% at 50% 44%, rgba(124, 70, 255, 0.28), transparent);
+  opacity: 0.7;
+  animation: roulette-glow-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .roulette-track {
   display: flex;
   gap: var(--roulette-gap);
   width: max-content;
-  padding-inline: calc(50% - (var(--roulette-card-width) / 2) + 2px);
+  /* Exactly centres card 0 under the pointer, which is what the JS offsets
+     (-index * (cardWidth + gap)) assume. A "+ 2px" fudge here used to push the
+     whole reel off-centre and made the side slivers asymmetric. */
+  padding-inline: calc(50% - (var(--roulette-card-width) / 2));
   transform: translateX(0);
   will-change: transform;
 }
 
+/* The free spin is driven in JS (see the searching effect in PublicStepClient)
+   so tap-to-stop can continue from the live position. A CSS keyframe loop here
+   would reset to the first card every cycle. */
 .roulette-track.searching {
-  animation: roulette-reel-search 520ms linear infinite;
+  animation: none;
 }
 
 .roulette-track.landing {
@@ -611,12 +771,30 @@ h2 {
 }
 
 .roulette-track.settled .roulette-ticket.selected {
-  animation: roulette-winner-pop 680ms ease-out both;
+  position: relative;
+  animation:
+    roulette-winner-pop 720ms cubic-bezier(0.22, 1.35, 0.4, 1) both,
+    roulette-winner-glow 1.9s ease-in-out 720ms infinite;
   filter: none;
   box-shadow:
-    0 18px 34px var(--voucher-shadow, rgba(92, 61, 255, 0.2)) !important,
-    0 0 0 5px rgba(124, 70, 255, 0.1),
-    0 0 42px rgba(124, 70, 255, 0.2) !important;
+    0 20px 40px var(--voucher-shadow, rgba(92, 61, 255, 0.22)) !important,
+    0 0 0 5px rgba(124, 70, 255, 0.12),
+    0 0 54px rgba(124, 70, 255, 0.34) !important;
+}
+
+/* Light sweep across the winning ticket (animates the gradient, not the box,
+   so the ticket's edge notches are never clipped). */
+.roulette-track.settled .roulette-ticket.selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.55) 50%, transparent 58%);
+  background-size: 260% 100%;
+  background-position: 135% 0;
+  animation: roulette-shine 950ms ease-out 360ms both;
+  pointer-events: none;
 }
 
 .roulette-ticket .rarity-badge {
@@ -718,10 +896,36 @@ h2 {
   position: relative;
   display: grid;
   gap: 12px;
-  min-height: 100%;
-  align-content: start;
-  padding-bottom: 20px;
+  /* Fill the card (a flex column — see .mobile-screen-card.roulette-screen). */
+  flex: 1;
+  min-height: 0;
   overflow-x: clip;
+}
+
+/* Reel variant: three zones — a flexible lead, the reel, and a flexible below
+   region. The two 1fr zones are equal, so the reel sits dead-centre in the card
+   and stays put while the copy/confirm button in the below zone grow or shrink.
+   `minmax(0, 1fr)` lets the zones yield on short screens so nothing clips. */
+.roulette-page-content--reel {
+  grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.roulette-page-content--reel .roulette-lead {
+  align-self: end;
+}
+
+.roulette-below {
+  align-self: start;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+/* Loading variant: just centre the emblem/title/subtitle group. */
+.roulette-page-content--loading {
+  align-content: center;
+  justify-items: center;
 }
 
 .roulette-page-stage {
@@ -775,6 +979,165 @@ h2 {
   margin-top: 16px;
 }
 
+/* Loading placeholder while client-only flow state hydrates from storage. */
+.content-skeleton {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+.skeleton-block {
+  display: block;
+  border-radius: 14px;
+  background: linear-gradient(100deg, #eef1f7 30%, #f8fafd 50%, #eef1f7 70%);
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+.skeleton-card {
+  height: 156px;
+}
+.skeleton-bar {
+  height: 46px;
+  border-radius: 10px;
+}
+.skeleton-text {
+  height: 12px;
+  border-radius: 999px;
+}
+
+/* Full Date & Time placeholder. It mirrors the final hierarchy and row heights
+   so loading the tier-filtered inventory does not shift the page around. */
+.datetime-skeleton {
+  display: grid;
+  gap: 0;
+}
+.datetime-skeleton-selected {
+  /* Matches the 46px tertiary action plus the strip's 12px vertical padding. */
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: #fff;
+}
+.skeleton-selected-label {
+  width: 92px;
+  height: 15px;
+}
+.skeleton-selected-action {
+  width: 112px;
+  height: 46px;
+  border-radius: 9px;
+}
+.datetime-skeleton-helper {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-height: 61px;
+  padding: 0 0 18px;
+}
+.datetime-skeleton-helper .skeleton-text {
+  width: 68%;
+}
+.datetime-skeleton-helper .skeleton-helper-short {
+  width: 44%;
+}
+.datetime-skeleton-day {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.skeleton-day-title {
+  width: 118px;
+  height: 10px;
+  margin: 10px 0 0;
+}
+.datetime-skeleton-slot {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.datetime-skeleton-slot-copy {
+  width: min(68%, 210px);
+  display: grid;
+  gap: 7px;
+}
+.skeleton-slot-time {
+  width: 82%;
+  height: 14px;
+}
+.skeleton-slot-note {
+  width: 58%;
+  height: 9px;
+}
+.skeleton-slot-check {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 50%;
+}
+.datetime-skeleton-share {
+  display: grid;
+  justify-items: center;
+  align-items: center;
+  grid-template-rows: 30px 18px 46px 43px;
+  gap: 10px;
+  min-height: 201px;
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px dashed #d8d0fa;
+  border-radius: 12px;
+  background: #faf9ff;
+}
+.datetime-skeleton-share .skeleton-bar {
+  width: 100%;
+  height: 46px;
+}
+.skeleton-share-title {
+  width: 138px;
+  height: 13px;
+}
+.skeleton-share-count {
+  width: 210px;
+}
+.skeleton-share-note {
+  width: 100%;
+  height: 9px;
+}
+.datetime-skeleton-share-note {
+  width: 76%;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+.datetime-skeleton-share-note .skeleton-share-note-short {
+  width: 70%;
+}
+.datetime-skeleton-continue {
+  margin-top: 18px;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block {
+    animation: none;
+  }
+}
+
 .single-result-ticket {
   min-height: 172px !important;
 }
@@ -784,9 +1147,17 @@ h2 {
   gap: 8px;
 }
 
+.result-share-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .result-share-note {
   margin: 0;
   font-size: 0.82rem;
+  font-weight: 650;
   text-align: center;
 }
 
@@ -795,27 +1166,88 @@ h2 {
   text-align: center;
 }
 
-@keyframes roulette-reel-search {
-  from {
-    transform: translateX(0);
+@keyframes roulette-winner-pop {
+  0% {
+    transform: scale(0.94) rotate(-1.5deg);
   }
-  to {
-    transform: translateX(
-      calc(-1 * (var(--roulette-card-width) + var(--roulette-gap)))
-    );
+  45% {
+    transform: scale(1.06) rotate(1.2deg);
+  }
+  70% {
+    transform: scale(0.99) rotate(-0.6deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
   }
 }
 
-@keyframes roulette-winner-pop {
-  0% {
-    transform: scale(0.985);
-  }
-  55% {
-    transform: scale(1.035);
-  }
+@keyframes roulette-winner-glow {
+  0%,
   100% {
+    box-shadow:
+      0 20px 40px var(--voucher-shadow, rgba(92, 61, 255, 0.22)),
+      0 0 0 5px rgba(124, 70, 255, 0.12),
+      0 0 44px rgba(124, 70, 255, 0.28);
+  }
+  50% {
+    box-shadow:
+      0 22px 46px var(--voucher-shadow, rgba(92, 61, 255, 0.28)),
+      0 0 0 6px rgba(124, 70, 255, 0.18),
+      0 0 72px rgba(124, 70, 255, 0.5);
+  }
+}
+
+@keyframes roulette-shine {
+  from {
+    background-position: 135% 0;
+    opacity: 0.95;
+  }
+  to {
+    background-position: -35% 0;
+    opacity: 0;
+  }
+}
+
+@keyframes roulette-pointer-bob {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(4px);
+  }
+}
+
+@keyframes roulette-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
     transform: scale(1);
   }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes roulette-title-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(6px);
+  }
+  60% {
+    transform: scale(1.06) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Celebratory result title. */
+.roulette-result-copy.is-winner .roulette-result-title {
+  color: var(--purple);
+  animation: roulette-title-pop 520ms cubic-bezier(0.22, 1.4, 0.4, 1) both;
 }
 
 @keyframes roulette-confetti-burst {
@@ -869,6 +1301,14 @@ h2 {
     animation: none;
     transform: translateX(var(--roulette-target-offset));
   }
+  .roulette-pointer,
+  .roulette-stage::before,
+  .roulette-tap-hint,
+  .roulette-track.settled .roulette-ticket.selected,
+  .roulette-track.settled .roulette-ticket.selected::after,
+  .roulette-result-copy.is-winner .roulette-result-title {
+    animation: none;
+  }
 }
 
 .work-area {
@@ -890,17 +1330,74 @@ h2 {
 .date-card,
 .slot-row {
   width: 100%;
-  min-height: 54px;
+  min-height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   padding: 12px 14px;
   text-align: left;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   background: #fff;
   cursor: pointer;
+}
+
+.slot-row-main {
+  display: grid;
+  gap: 3px;
+}
+
+.slot-row-time {
+  color: var(--navy);
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+/* Availability reads as quiet secondary text, not a heavy pill — the time is
+   the thing to scan. Colour only shifts to signal low stock / sold out. */
+.slot-row-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.slot-row-note.low {
+  color: #b45309;
+}
+
+.slot-row-note.gone {
+  color: #b91c1c;
+}
+
+/* Empty ring by default; fills in with a check when the slot is picked, so the
+   selection is unmistakable at a glance. */
+.slot-row-check {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  color: #fff;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.slot-row-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+.slot-row.active .slot-row-check {
+  background: var(--purple);
+  border-color: var(--purple);
+}
+
+.slot-row.sold-out .slot-row-check {
+  border-style: dashed;
 }
 
 .date-card.active,
@@ -940,6 +1437,19 @@ h2 {
   background: var(--red-soft);
 }
 
+.request-review-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.request-review-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
 .summary-list {
   display: grid;
   gap: 0;
@@ -959,6 +1469,18 @@ h2 {
 
 .summary-row:last-child {
   border-bottom: 0;
+}
+
+/* The value <p> carries a browser default bottom margin, which stacked on the
+   row's padding and left each row visibly bottom-heavy. Zero it so the 12px
+   padding reads evenly top and bottom, with a tidy label→value gap. */
+.summary-row strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.summary-row p {
+  margin: 0;
 }
 
 .candidate-grid {
@@ -1046,6 +1568,28 @@ h2 {
   padding-right: 36px;
 }
 
+/* Read-only value (e.g. the signed-in phone) — reads as fixed info, not an input. */
+.field-readonly-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--canvas);
+  color: var(--navy);
+  font-weight: 650;
+}
+.field-readonly-value small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .field-label-row {
   display: flex;
   align-items: center;
@@ -1072,6 +1616,11 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin: -4px 0 14px;
+}
+
+/* Only the upload button remains (no camera) — let it take the full row. */
+.qr-input-actions.single {
+  grid-template-columns: 1fr;
 }
 
 .button.qr-action {
@@ -1337,6 +1886,53 @@ h2 {
   background: #f8faff;
 }
 
+.dashboard-hydration-gate {
+  position: fixed;
+  z-index: 90;
+  inset: 0 0 0 240px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--navy);
+  background: var(--canvas);
+  cursor: progress;
+  text-align: center;
+}
+
+.dashboard-hydration-gate strong {
+  margin-top: 4px;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.dashboard-hydration-gate > span:last-child {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dashboard-hydration-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #ddd7ff;
+  border-top-color: var(--purple);
+  border-radius: 50%;
+  animation: hunt-spinner-rotate 700ms linear infinite;
+}
+
+@media (max-width: 720px) {
+  .dashboard-hydration-gate {
+    inset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-hydration-spinner {
+    animation: none;
+  }
+}
+
 .sidebar {
   position: sticky;
   top: 0;
@@ -1357,6 +1953,102 @@ h2 {
   font-weight: 900;
 }
 
+/* Per-page campaign scope selector, sits at the top-left of a page, above the
+   panels, so the current campaign is obvious before reading anything below. */
+.campaign-page-selector {
+  position: relative;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  min-width: 220px;
+  max-width: 300px;
+  margin-bottom: 18px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.05);
+  cursor: pointer;
+}
+
+.campaign-page-selector:hover {
+  border-color: #c7cede;
+}
+
+.campaign-page-selector-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--purple), var(--purple-2));
+  font-size: 0.9rem;
+}
+
+.campaign-page-selector-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Category colours, matched to the customer directory's mode tiles. */
+.campaign-page-selector-icon.mode-restaurant {
+  background: linear-gradient(135deg, #fb923c, #ea580c);
+}
+.campaign-page-selector-icon.mode-online_shop {
+  background: linear-gradient(135deg, #60a5fa, #2563eb);
+}
+.campaign-page-selector-icon.mode-beauty {
+  background: linear-gradient(135deg, #f472b6, #db2777);
+}
+.campaign-page-selector-icon.mode-pet {
+  background: linear-gradient(135deg, #2dd4bf, #0d9488);
+}
+.campaign-page-selector-icon.mode-retail {
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+}
+.campaign-page-selector-icon.mode-other {
+  background: linear-gradient(135deg, #94a3b8, #475569);
+}
+
+.campaign-page-selector-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.campaign-page-selector-copy small {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.campaign-page-selector-copy strong {
+  overflow: hidden;
+  color: var(--navy);
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.campaign-page-selector-chevron {
+  color: var(--muted);
+}
+
+.campaign-page-selector select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -1367,6 +2059,25 @@ h2 {
   color: #dbe6ff;
   font-size: 0.84rem;
   font-weight: 750;
+}
+
+.nav-item-label {
+  min-width: 0;
+  flex: 1;
+}
+
+.nav-item.pending {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.nav-item-spinner {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: hunt-spinner-rotate 700ms linear infinite;
 }
 
 .nav-item:hover {
@@ -1540,21 +2251,6 @@ h2 {
   line-height: 1.55;
 }
 
-.admin-login-heading .admin-login-account-hint {
-  display: inline-flex;
-  gap: 5px;
-  margin-top: 14px;
-  padding: 7px 9px;
-  border-radius: 8px;
-  color: #5b4db2;
-  background: var(--purple-soft);
-  font-size: 0.74rem;
-}
-
-.admin-login-account-hint strong {
-  font-weight: 850;
-}
-
 .admin-login-field {
   display: grid;
   gap: 7px;
@@ -1622,6 +2318,304 @@ h2 {
   text-align: center;
 }
 
+/* Dev-only convenience: one-click fill of the admin credentials. */
+.admin-login-devfill {
+  align-self: flex-start;
+  padding: 7px 12px;
+  border: 1px dashed var(--purple);
+  border-radius: 8px;
+  background: #f5f3ff;
+  color: var(--purple);
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-login-devfill-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-login-devfill:hover {
+  background: #ede9fe;
+}
+
+/* --- Global customer sign-in (/signin), inside the mobile frame --- */
+.customer-signin-screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 30px 20px 24px;
+  text-align: center;
+}
+.customer-signin-emblem {
+  width: 66px;
+  height: 66px;
+  /* `auto` top margin pairs with the footnote's `margin-top: auto` below: the
+     free space splits between them, so the sign-in block sits centred while the
+     footnote stays pinned to the bottom. Auto margins collapse to 0 when the
+     content outgrows the screen, so this can't push the top out of reach. */
+  margin: auto auto 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #efeaff;
+  font-size: 2rem;
+}
+.customer-signin-screen h1 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+  color: var(--navy);
+}
+.customer-signin-screen p.muted {
+  margin: 0 0 20px;
+  font-size: 0.86rem;
+}
+.customer-signin-screen form {
+  display: grid;
+  gap: 14px;
+  text-align: left;
+}
+.customer-signin-screen .button {
+  gap: 8px;
+}
+.customer-signin-footnote {
+  margin: auto 0 0;
+  padding-top: 18px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+/* --- Public campaign directory (home page, inside the mobile frame) --- */
+.directory-screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 18px 24px;
+}
+.directory-intro h1 {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+  color: var(--navy);
+}
+.directory-intro p.muted {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.directory-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  flex: 0 0 auto;
+}
+.directory-intro {
+  flex: 0 0 auto;
+}
+.directory-search svg {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  color: var(--muted);
+}
+.directory-search input {
+  flex: 1;
+  min-height: 46px;
+  border: 0;
+  background: transparent;
+  color: var(--navy);
+  font-size: 0.88rem;
+  outline: none;
+}
+.directory-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: -2px -18px 2px;
+  padding: 2px 18px;
+  /* The directory is a scrolling flex column; without this the filter row gets
+     squeezed to almost nothing on short screens (only the list should give up
+     space), which hid the pills entirely. */
+  flex: 0 0 auto;
+}
+.directory-filters::-webkit-scrollbar {
+  display: none;
+}
+.directory-filter {
+  flex: 0 0 auto;
+  padding: 8px 15px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.directory-filter.active {
+  background: linear-gradient(135deg, var(--purple), var(--purple-2));
+  border-color: transparent;
+  color: #fff;
+}
+.directory-list {
+  display: grid;
+  gap: 12px;
+}
+.directory-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(11, 29, 58, 0.05);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+.directory-card:active {
+  transform: scale(0.99);
+}
+.directory-card:hover {
+  box-shadow: 0 12px 26px rgba(92, 61, 255, 0.14);
+  border-color: rgba(92, 61, 255, 0.35);
+}
+.directory-card-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  margin-bottom: 8px;
+  overflow: hidden;
+  border-radius: 11px;
+  background: var(--canvas);
+}
+.directory-card-media img {
+  object-fit: cover;
+  transition: transform 240ms ease;
+}
+.directory-card:hover .directory-card-media img {
+  transform: scale(1.025);
+}
+.directory-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.directory-card-details {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.directory-card-top > .chip {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.directory-card .chip.mode-restaurant {
+  color: #c2410c;
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+.directory-card .chip.mode-online_shop {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.directory-card .chip.mode-beauty {
+  color: #be185d;
+  border-color: #fbcfe8;
+  background: #fdf2f8;
+}
+.directory-card .chip.mode-pet {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+.directory-card .chip.mode-retail {
+  color: #6d28d9;
+  border-color: #ddd6fe;
+  background: #f5f3ff;
+}
+.directory-card .chip.mode-other {
+  color: #475569;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+.directory-card-title {
+  margin: 2px 0 0;
+  font-size: 1.12rem;
+  color: var(--navy);
+}
+.directory-card-business {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.directory-card-location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--navy);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.directory-card-location svg {
+  width: 14px;
+  height: 14px;
+  color: var(--purple);
+}
+.directory-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--soft-line);
+}
+.directory-card-dates {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.directory-card-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--purple);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+.directory-card-cta svg {
+  width: 15px;
+  height: 15px;
+}
+.directory-empty {
+  padding: 44px 18px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
 @media (max-width: 760px) {
   .admin-login-page {
     padding: 14px;
@@ -1672,6 +2666,71 @@ h2 {
 .admin-main {
   padding: 18px;
   min-width: 0;
+}
+
+.dashboard-route-loading {
+  display: grid;
+  gap: 18px;
+}
+
+.dashboard-route-loading-heading {
+  display: grid;
+  gap: 9px;
+  padding: 8px 0 2px;
+}
+
+.dashboard-loading-line,
+.dashboard-loading-card,
+.dashboard-loading-panel {
+  display: block;
+  background: linear-gradient(100deg, #e9edf5 30%, #f8faff 50%, #e9edf5 70%);
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.dashboard-loading-line {
+  height: 14px;
+  border-radius: 999px;
+}
+
+.dashboard-loading-title {
+  width: min(360px, 58vw);
+  height: 30px;
+}
+
+.dashboard-loading-subtitle {
+  width: min(480px, 72vw);
+}
+
+.dashboard-loading-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dashboard-loading-card {
+  min-height: 112px;
+  border-radius: 14px;
+}
+
+.dashboard-loading-panel {
+  min-height: 300px;
+  border-radius: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item-spinner,
+  .dashboard-loading-line,
+  .dashboard-loading-card,
+  .dashboard-loading-panel {
+    animation: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard-loading-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .admin-main h1 {
@@ -1734,6 +2793,14 @@ h2 {
   font-size: 0.76rem;
 }
 
+/* Approve / Reject sit side by side rather than stacked in the table cell. */
+.status-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .rewards-dashboard-grid {
   margin-top: 14px;
 }
@@ -1789,6 +2856,58 @@ h2 {
 .rewards-tool-card .field select {
   min-height: 52px;
   border-radius: 12px;
+}
+
+.field-label-with-tooltip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.field-tooltip {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  color: #7a8aa6;
+  font-size: 0.76rem;
+  cursor: help;
+  outline: none;
+}
+
+.field-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  width: max-content;
+  max-width: min(240px, 62vw);
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #fff;
+  background: #14213b;
+  box-shadow: 0 8px 20px rgba(10, 25, 54, 0.2);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  white-space: normal;
+}
+
+.field-tooltip:hover::after,
+.field-tooltip:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.field-tooltip:focus-visible {
+  box-shadow: 0 0 0 2px #d9d0ff;
 }
 
 .rewards-tool-card .split-actions {
@@ -1975,6 +3094,10 @@ h2 {
   margin-bottom: 14px;
 }
 
+.change-request-table {
+  margin-top: 18px;
+}
+
 .admin-inline-form {
   display: grid;
   gap: 12px;
@@ -2041,6 +3164,11 @@ h2 {
   display: block;
   font-size: 1.55rem;
   margin: 2px 0;
+}
+
+/* Lighter metric values on the rewards overview. */
+.rewards-dashboard-grid .metric strong {
+  font-weight: 500;
 }
 
 .trend {
@@ -2159,6 +3287,7 @@ th {
 
 .mobile-screen-card {
   flex: 1;
+  min-height: 0;
   padding: 26px 18px 18px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -2167,6 +3296,11 @@ th {
 .mobile-screen-card.roulette-screen {
   padding-right: 0;
   padding-left: 0;
+  /* Flex column with a definite (flex-sized) height, so the content's auto
+     block margins centre it. Auto margins collapse to 0 when the content
+     outgrows the card, keeping the top scrollable rather than clipped. */
+  display: flex;
+  flex-direction: column;
 }
 
 .mobile-h1 {
@@ -2188,9 +3322,13 @@ th {
 
 .date-list-title {
   margin: 26px 0 14px;
-  color: var(--navy);
-  font-size: medium;
-  font-weight: 800;
+  /* A quiet day label rather than another bold heading competing with the
+     times below it. */
+  color: #6b7385;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .refined-date-list {
@@ -2681,7 +3819,9 @@ th {
   z-index: 20;
   left: 18px;
   right: 18px;
-  bottom: 18px;
+  /* Clear the bottom nav (~62px + safe-area) so the toast isn't hidden behind
+     the tab bar, which sits at the frame's bottom in these steps. */
+  bottom: calc(78px + env(safe-area-inset-bottom, 0px));
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -2733,6 +3873,36 @@ th {
   color: #bbf7d0;
 }
 
+.admin-snackbar > span {
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.admin-snackbar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.admin-snackbar-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.admin-snackbar .admin-snackbar-close svg {
+  width: 17px;
+  height: 17px;
+  color: currentColor;
+}
+
 .snackbar.snackbar-exit {
   animation: snackbar-out 600ms ease-in forwards;
 }
@@ -2781,8 +3951,8 @@ th {
 }
 
 .landing-app-frame {
-  width: min(100%, 390px);
-  min-height: min(812px, calc(100vh - 28px));
+  width: min(100%, 420px);
+  min-height: min(860px, calc(100vh - 28px));
   border-radius: 30px;
 }
 
@@ -2832,13 +4002,175 @@ th {
   padding: 2px 18px 14px;
 }
 
-.landing-tabs {
-  display: flex;
+.landing-app-frame .landing-app-bar {
+  margin-top: 20px;
+}
+
+.campaign-landing-card {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(11, 29, 58, 0.09);
+}
+
+.campaign-landing-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+.campaign-landing-media img {
+  object-fit: cover;
+}
+
+.campaign-landing-category {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 11px;
+  border: 1px solid #d8ceff;
+  border-radius: 999px;
+  color: var(--purple);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 14px rgba(11, 29, 58, 0.12);
+  font-size: 0.72rem;
+  font-weight: 700;
+  backdrop-filter: blur(6px);
+}
+
+.campaign-landing-category.mode-restaurant {
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+
+.campaign-landing-category.mode-online_shop {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.campaign-landing-category.mode-beauty {
+  color: #be185d;
+  border-color: #fbcfe8;
+}
+
+.campaign-landing-category.mode-pet {
+  color: #0f766e;
+  border-color: #99f6e4;
+}
+
+.campaign-landing-category.mode-retail {
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+.campaign-landing-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.campaign-landing-eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--purple);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.campaign-landing-body h1 {
+  margin: 0;
+  color: var(--navy);
+  font-size: 1.42rem;
+  line-height: 1.15;
+}
+
+.campaign-landing-business,
+.campaign-landing-offer {
+  margin: 0;
+}
+
+.campaign-landing-business {
+  margin-top: 3px;
+  color: #596780;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.campaign-landing-offer {
+  color: #596780;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.campaign-landing-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin: 26px -18px 26px;
-  padding: 0 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--soft-line);
+}
+
+.campaign-landing-meta span {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--navy);
+  font-size: 0.73rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.campaign-landing-meta svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin-top: 1px;
+  color: var(--purple);
+}
+
+.landing-action-intro {
+  margin-top: 22px;
+  text-align: center;
+}
+
+.landing-action-intro h2 {
+  margin: 0 0 6px;
+  color: var(--navy);
+  font-size: 1.45rem;
+}
+
+.landing-action-intro p {
+  max-width: 310px;
+  margin: 0 auto;
+  color: #667089;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.landing-tabs {
+  flex: 0 0 58px;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px -18px 18px;
+  padding: 8px 18px;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 18px;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .landing-tabs::-webkit-scrollbar {
@@ -2847,6 +4179,7 @@ th {
 
 .landing-tab {
   flex: 0 0 auto;
+  height: 42px;
   min-height: 42px;
   display: inline-flex;
   align-items: center;
@@ -2875,53 +4208,6 @@ th {
   box-shadow: 0 10px 20px rgba(11, 29, 58, 0.18);
 }
 
-.landing-title {
-  max-width: 310px;
-  margin: 0 0 10px;
-  color: var(--navy);
-  font-size: 2rem;
-  font-weight: 850;
-  line-height: 1.08;
-  letter-spacing: 0;
-}
-
-.landing-copy {
-  max-width: 310px;
-  margin: 0;
-  color: #667089;
-  font-size: 0.98rem;
-  font-weight: 520;
-  line-height: 1.48;
-}
-
-.landing-copy strong {
-  color: var(--navy);
-}
-
-.landing-hero-art {
-  height: 320px;
-  margin: 2px -18px -6px;
-  background-image: url("/images/campaign_landing.png");
-  background-repeat: no-repeat;
-  background-position: center 44%;
-  background-size: cover;
-  /* Feather the top/bottom edges so the artwork melts into the white page. */
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    #000 15%,
-    #000 80%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    #000 15%,
-    #000 80%,
-    transparent 100%
-  );
-}
-
 .landing-hero-image-wrap {
   position: relative;
   height: 211px;
@@ -2945,7 +4231,7 @@ th {
   z-index: 1;
   display: grid;
   gap: 0;
-  margin-top: -8px;
+  margin-top: 16px;
   padding: 12px 14px 10px;
   border: 1px solid #e9edf6;
   border-radius: 14px;
@@ -3013,14 +4299,16 @@ th {
 }
 
 .landing-bottom-nav {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   margin-top: auto;
-  margin-left: -18px;
-  margin-right: -18px;
-  padding: 17px 18px 2px;
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--line);
+  background: #fff;
 }
 
 .landing-bottom-nav a {
@@ -3051,6 +4339,13 @@ th {
 .more-tab-content .info-card h2 {
   margin: 0 0 6px;
   font-size: 1rem;
+}
+
+/* The browser default bottom margin on <p> (only the top is reset globally)
+   was stacking with the card's own padding, making the account card read as
+   lopsided — noticeably more space below the text than above it. */
+.more-tab-content .info-card p {
+  margin-bottom: 0;
 }
 
 .rewards-wallet-card {
@@ -3330,14 +4625,31 @@ th {
 
   .mobile-app-frame {
     width: 100%;
+    height: 100vh;
+    height: 100dvh;
     min-height: 100vh;
+    min-height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
     border: 0;
     border-radius: 0;
     box-shadow: none;
+    overflow: hidden;
   }
 
   .mobile-screen-card {
+    min-height: 0;
     padding-bottom: 28px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .landing-screen {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .phone-title {
@@ -3453,6 +4765,24 @@ th {
   display: flex;
   gap: 8px;
 }
+/* Standalone select (no .field wrapper), so give it the same chrome as one —
+   otherwise it falls back to the browser default (square, black border). */
+.field-select {
+  min-height: 46px;
+  padding: 11px 36px 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background-color: #fff;
+  color: var(--navy);
+  cursor: pointer;
+}
+
+.field-select:focus-visible {
+  outline: none;
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(92, 61, 255, 0.12);
+}
+
 .staff-reschedule-row .field-select {
   flex: 1;
 }
@@ -3488,15 +4818,362 @@ th {
 }
 .campaign-flag-toggles {
   display: grid;
-  gap: 4px;
+  gap: 8px;
   font-size: 0.82rem;
   white-space: nowrap;
 }
-.campaign-flag-toggles label {
+
+/* --- Campaign management: table polish --- */
+.admin-table tbody tr {
+  transition: background 0.12s ease;
+}
+.admin-table tbody tr:hover {
+  background: var(--canvas);
+}
+.admin-table td {
+  vertical-align: middle;
+}
+.cell-title {
+  font-weight: 750;
+  color: var(--navy);
+}
+.cell-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cell-nowrap {
+  white-space: nowrap;
+}
+
+.campaign-table-title {
+  min-width: 210px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.campaign-edit-image-button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid #cbd3e1;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--purple);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.campaign-edit-image-button:hover {
+  border-color: #bcb2ee;
+  background: var(--purple-soft);
+}
+.campaign-edit-image-button svg {
+  width: 13px;
+  height: 13px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--navy);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.table-empty {
+  padding: 26px 11px;
+  color: var(--muted);
+  text-align: center;
+}
+/* --- Toggle switch (campaign flags) --- */
+.switch-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--navy);
+}
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+}
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #cbd3e1;
+  transition: background 0.15s ease;
+}
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(11, 29, 58, 0.25);
+  transition: transform 0.15s ease;
+}
+.switch input:checked + .switch-track {
+  background: var(--purple);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(14px);
+}
+.switch input:disabled + .switch-track {
+  opacity: 0.55;
+}
+
+/* --- New-campaign form sections --- */
+.admin-form-subtitle {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+}
+.form-section {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.form-section-title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.campaign-image-field {
+  margin-bottom: 2px;
+}
+.campaign-image-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--canvas);
+}
+.campaign-image-preview img {
+  object-fit: cover;
+}
+.campaign-image-legacy-preview {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.9);
+}
+.campaign-image-legacy-preview svg {
+  width: 34px;
+  height: 34px;
+}
+.campaign-image-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  background: rgba(11, 29, 58, 0.84);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(11, 29, 58, 0.24);
+  cursor: pointer;
+}
+.campaign-image-remove:hover {
+  background: var(--navy);
+}
+.campaign-image-upload {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px dashed #bcb2ee;
+  border-radius: 12px;
+  background: #faf9ff;
+  color: var(--purple);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.campaign-image-upload:hover,
+.campaign-image-upload:focus-within {
+  border-color: var(--purple);
+  background: var(--purple-soft);
+}
+.campaign-image-upload > svg {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+}
+.field .campaign-image-upload > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  color: var(--navy);
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+.campaign-image-upload strong {
+  font-weight: 650;
+}
+.campaign-image-upload small,
+.campaign-image-help {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 450;
+  line-height: 1.35;
+}
+.campaign-image-upload small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-form-submit {
+  justify-self: start;
+  min-width: 200px;
+}
+
+/* --- Segmented control (existing vs new business) --- */
+.segmented {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+.segmented button {
+  border: 0;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.segmented button.active {
+  background: #fff;
+  color: var(--purple);
+  box-shadow: 0 1px 3px rgba(11, 29, 58, 0.12);
+}
+.segmented button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Modal dialog --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  background: rgba(11, 29, 58, 0.45);
+  overflow-y: auto;
+}
+.modal-dialog {
+  width: min(100%, 720px);
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(11, 29, 58, 0.28);
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-header strong {
+  font-size: 1.05rem;
+  color: var(--navy);
+}
+.modal-header p {
+  margin: 3px 0 0;
+  font-size: 0.8rem;
+}
+.modal-close {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.modal-close:hover {
+  background: var(--canvas);
+  color: var(--navy);
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--canvas);
+}
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+.modal-footer .alert {
+  margin: 0 auto 0 0;
 }
 
 /* --- Date & time step (post-selection, tier-filtered) --- */
@@ -3506,14 +5183,27 @@ th {
 .datetime-day .date-list-title {
   margin: 10px 0 6px;
 }
-.share-card {
+/* Given a tinted, dashed-accent panel so it reads as a distinct "bonus" callout
+   instead of blending into the white page as a near-invisible card. Overrides
+   the plain white .info-card it also carries. */
+.share-card.info-card {
   display: grid;
   gap: 10px;
   text-align: center;
-  margin-top: 6px;
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px dashed #c4b6ff;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(124, 70, 255, 0.1), transparent 70%),
+    linear-gradient(180deg, #f6f3ff, #fbfaff);
+}
+.share-card p.muted:first-child {
+  color: var(--purple);
+  font-weight: 700;
 }
 .share-card strong {
   font-size: 0.95rem;
+  color: var(--navy);
 }
 
 /* --- Benefit-tier slot picker (admin) --- */

@@ -1,27 +1,12 @@
-import { notFound } from "next/navigation";
-import { getPublicCampaign } from "@/server/voucher-engine";
-import { PublicStepClient } from "../../_components/PublicStepClient";
+import { redirect } from "next/navigation";
 
-export default async function VoucherDetailsPage({
+// Voucher details are a single global page now (a claimed voucher is read from
+// this device's wallet and needs no campaign context); redirect the old
+// campaign-scoped route so existing links keep working.
+export default function CampaignVoucherDetailsPage({
   params,
 }: {
-  params: { slug: string; voucherId: string };
+  params: { voucherId: string };
 }) {
-  try {
-    const data = await getPublicCampaign(params.slug);
-    if (!data.business) notFound();
-
-    return (
-      <PublicStepClient
-        step="voucher"
-        voucherId={params.voucherId}
-        campaign={data.campaign}
-        businessName={data.business.name}
-        businessLogo={data.business.logoText}
-        slots={data.slots}
-      />
-    );
-  } catch {
-    notFound();
-  }
+  redirect(`/vouchers/${params.voucherId}`);
 }

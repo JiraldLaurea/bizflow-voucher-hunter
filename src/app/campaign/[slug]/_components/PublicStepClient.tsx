@@ -5,41 +5,36 @@ import QRCode from "qrcode";
 import type { ComponentPropsWithoutRef, CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  FaPaw,
-  FaShoppingBag,
-  FaSpa,
-  FaStore,
-  FaTag,
-  FaUtensils,
-} from "react-icons/fa";
-import {
   FiAlertTriangle,
   FiBell,
   FiCalendar,
+  FiCheck,
   FiCheckCircle,
   FiChevronLeft,
-  FiChevronRight,
   FiClock,
-  FiCopy,
-  FiEye,
-  FiEyeOff,
-  FiHome,
-  FiLogOut,
-  FiMoreHorizontal,
-  FiRefreshCw,
+  FiMapPin,
   FiShield,
   FiShoppingBag,
   FiStar,
   FiTag,
 } from "react-icons/fi";
+import { CustomerBottomNav } from "@/app/_components/CustomerBottomNav";
 import { api } from "@/lib/api-client";
+import {
+  isValidPhoneNumber,
+  readStoredIdentity,
+  rememberIdentity,
+} from "@/lib/customer-identity";
+import { flowStorageKey, patchFlowState } from "@/lib/flow-storage";
+import { resolveCampaignImage } from "@/lib/campaign-image";
+import {
+  claimedVouchersStorageKey,
+  type ClaimedVoucher,
+} from "@/lib/voucher-display";
 import { getVoucherPresentation } from "@/lib/voucher-presentation";
 import type {
   Campaign,
   CampaignSlot,
-  RewardLedgerEntry,
-  RewardVoucher,
-  RewardWallet,
   Voucher,
   VoucherAttempt,
 } from "@/types/voucher";
@@ -53,22 +48,16 @@ type PublicStep =
   | "results"
   | "datetime"
   | "confirm"
-  | "confirmation"
-  | "voucher"
-  | "vouchers"
-  | "more";
+  | "confirmation";
 type IssuedPayload = { voucher: Voucher; slot: CampaignSlot };
-type ClaimedVoucher = IssuedPayload & {
-  campaignSlug: string;
-  campaignTitle: string;
-  businessName: string;
-};
 type HuntState = {
   user: { id: string };
   attempts: VoucherAttempt[];
   remainingBaseAttempts: number;
   remainingBonusAttempts: number;
   sharesGrantedToday: number;
+  /** Present when this phone already issued a final voucher for the campaign. */
+  voucher?: Voucher;
 };
 
 type FlowState = {
@@ -83,12 +72,14 @@ type FlowState = {
   guestCount: string;
   attempts: VoucherAttempt[];
   selectedAttemptId: string;
+  /** Server draw created for a reel that the visitor has not confirmed yet. */
+  rouletteInProgressAttemptId: string;
   issued: IssuedPayload | null;
   shareCount: number;
   bonusAttempts: number;
+  /** Local-development override used to exercise a specific voucher tier. */
+  devVoucherPoolId: string;
 };
-
-type TabCampaign = Pick<Campaign, "slug" | "title" | "mode">;
 
 type FullPageLinkProps = ComponentPropsWithoutRef<"a"> & {
   prefetch?: boolean;
@@ -101,6 +92,7 @@ type RoulettePreview = Pick<
   VoucherAttempt,
   "benefitType" | "benefitValue" | "displayLabel"
 > & {
+  poolId?: string;
   probabilityWeight?: number;
   remainingQuantity?: number;
 };
@@ -109,16 +101,25 @@ type PendingSpinCompletion = {
   destination?: string;
   nextState: Partial<FlowState>;
 };
+// The reel free-spins until the visitor taps it; this holds the already-drawn
+// result so the tap only has to play the deceleration onto it.
+type PendingSpinStop = {
+  sequence: RouletteSequenceResult;
+  destination?: string;
+  nextState: Partial<FlowState>;
+};
 type RouletteSequenceResult = {
   items: RoulettePreview[];
   winnerIndex: number;
 };
-type RewardWalletSnapshot = {
-  wallet: RewardWallet;
-  walletSecret: string;
-  balance: string;
-  ledger: RewardLedgerEntry[];
-  vouchers: RewardVoucher[];
+
+const CAMPAIGN_MODE_LABELS: Record<Campaign["mode"], string> = {
+  restaurant: "Restaurant",
+  online_shop: "Online Shop",
+  beauty: "Beauty",
+  pet: "Pet",
+  retail: "Retail",
+  other: "Other",
 };
 
 /**
@@ -136,8 +137,8 @@ type Props = {
   businessName: string;
   businessLogo: string;
   slots: PublicSlot[];
-  campaigns?: TabCampaign[];
-  voucherId?: string;
+  /** Remembered phone from the cookie, so the server can render signed-in copy. */
+  initialPhone?: string;
 };
 
 type VoucherCardProps = {
@@ -198,25 +199,52 @@ function VoucherCard({
 
 const steps: Array<{ id: PublicStep; label: string; href: string }> = [
   { id: "landing", label: "Campaign Landing", href: "" },
-  { id: "signin", label: "Sign In", href: "signin" },
   { id: "hunt", label: "Hunt", href: "hunt" },
   { id: "roulette", label: "Voucher Roulette", href: "roulette" },
   { id: "results", label: "Voucher Results", href: "results" },
   { id: "datetime", label: "Date & Time", href: "datetime" },
   { id: "confirm", label: "Confirm & Details", href: "confirm" },
   { id: "confirmation", label: "Confirmation", href: "confirmation" },
-  { id: "vouchers", label: "My Vouchers", href: "vouchers" },
-  { id: "more", label: "More", href: "more" },
 ];
 
-const claimedVouchersStorageKey = "bizflow-claimed-vouchers";
+// The claimed-voucher wallet is a standalone global page, not a step of this
+// flow — a claimed voucher is read from the device and needs no campaign.
+const vouchersRoute = "/vouchers";
+
 const visitorSessionCookie = "bizflow_visitor_session";
+const devVoucherChoiceEnabled = process.env.NODE_ENV !== "production";
+
 const rouletteCardWidth = 304;
 const rouletteGap = 12;
 const rouletteSpinCount = 42;
+// Distance from one card to the next — the reel's fundamental unit.
+const rouletteUnit = rouletteCardWidth + rouletteGap;
 const rouletteSpinMs = 10000;
+// Constant free-spin velocity, in px/ms (~4.5 cards a second).
+const rouletteSpinSpeed = 1.45;
+// How far the reel coasts after the tap, in cards, and the shape of that coast.
+// The stop duration is derived from these (see runRouletteStop) so the slow-down
+// begins at exactly the free-spin speed instead of lurching faster first.
+//
+// Exponent 2 is exactly constant deceleration — velocity decays linearly to zero,
+// the way a real reel loses speed to friction. Higher exponents front-load the
+// travel, which lands the reel visually early and leaves a long dead crawl that
+// reads as "it already stopped".
+const rouletteStopCards = 12;
+const rouletteStopEaseExp = 2;
 const rouletteSettleMs = 450;
-const rouletteFastProgress = 0.84;
+
+/**
+ * Fold a running offset back into a single reel cycle. The track renders its
+ * items twice, so a wrapped offset always has a full screen of cards to its
+ * right and the jump from the end of one cycle to the start of the next is
+ * invisible — that is what makes the spin loop seamlessly instead of snapping
+ * back to the first voucher.
+ */
+function wrapRouletteOffset(offset: number, cycle: number) {
+  if (cycle <= 0) return 0;
+  return -(((-offset % cycle) + cycle) % cycle);
+}
 
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -235,17 +263,30 @@ function formatShortDate(date: string) {
   }).format(new Date(`${date}T00:00:00+08:00`));
 }
 
+function formatCampaignRange(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00+08:00`);
+  const end = new Date(`${endDate}T00:00:00+08:00`);
+  const monthDay = new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+  });
+  const monthDayYear = new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${monthDay.format(start)} - ${monthDayYear.format(end)}`;
+  }
+  return `${monthDayYear.format(start)} - ${monthDayYear.format(end)}`;
+}
+
 function formatTime(time: string) {
   const [hours, minutes] = time.split(":").map(Number);
   const period = hours >= 12 ? "PM" : "AM";
   const twelveHour = hours % 12 === 0 ? 12 : hours % 12;
   return `${twelveHour}:${String(minutes).padStart(2, "0")} ${period}`;
-}
-
-function formatVoucherStatus(status: Voucher["status"]) {
-  if (status === "Issued") return "Confirmed";
-  if (status === "Redeemed") return "Used";
-  return status;
 }
 
 function voucherDetail(
@@ -268,21 +309,14 @@ function nextPaint() {
   });
 }
 
-function rouletteEase(progress: number) {
-  if (progress <= 0.5) {
-    return (progress / 0.5) * rouletteFastProgress;
-  }
-
-  const slowedProgress = (progress - 0.5) / 0.5;
-  return (
-    rouletteFastProgress +
-    (1 - rouletteFastProgress) * (1 - Math.pow(1 - slowedProgress, 3.4))
-  );
-}
-
-function isValidPhoneNumber(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  return digits.length >= 10 && digits.length <= 15;
+/**
+ * Deceleration used once the visitor taps to stop. Its gradient at progress 0 is
+ * rouletteStopEaseExp, which is what lets stopRoulette pick a duration where the
+ * coast starts at exactly the free-spin speed — matching velocities across the
+ * handoff so the reel never appears to speed up before slowing down.
+ */
+function rouletteStopEase(progress: number) {
+  return 1 - Math.pow(1 - progress, rouletteStopEaseExp);
 }
 
 function initialState(_slots: PublicSlot[]): FlowState {
@@ -298,9 +332,11 @@ function initialState(_slots: PublicSlot[]): FlowState {
     guestCount: "2",
     attempts: [],
     selectedAttemptId: "",
+    rouletteInProgressAttemptId: "",
     issued: null,
     shareCount: 0,
     bonusAttempts: 0,
+    devVoucherPoolId: "",
   };
 }
 
@@ -312,40 +348,127 @@ function mergeAttempts(current: VoucherAttempt[], incoming: VoucherAttempt[]) {
   return Array.from(merged.values());
 }
 
+function findResumeAttempt(
+  serverAttempts: VoucherAttempt[],
+  localAttempts: VoucherAttempt[],
+  selectedAttemptId: string,
+  inProgressAttemptId: string,
+) {
+  if (inProgressAttemptId) {
+    const marked = serverAttempts.find(
+      (attempt) => attempt.id === inProgressAttemptId,
+    );
+    if (marked) return marked;
+  }
+
+  const knownIds = new Set(localAttempts.map((attempt) => attempt.id));
+  const unknown = [...serverAttempts]
+    .reverse()
+    .find((attempt) => !knownIds.has(attempt.id));
+  return (
+    unknown ??
+    serverAttempts.find((attempt) => attempt.id === selectedAttemptId) ??
+    serverAttempts[serverAttempts.length - 1]
+  );
+}
+
+// Shimmer placeholder shown while client-only flow state (attempts, selected
+// voucher, issued voucher) loads from storage — avoids flashing an empty/"pick
+// a voucher first" state on first paint before hydration.
+function ContentSkeleton() {
+  return (
+    <div className="content-skeleton" aria-hidden="true">
+      <span className="skeleton-block skeleton-card" />
+      <span className="skeleton-block skeleton-bar" />
+    </div>
+  );
+}
+
+function DateTimeSkeleton({ slots }: { slots: PublicSlot[] }) {
+  // The selected tier is fetched separately, but the campaign's slot grouping
+  // is already available. Reusing that shape reserves a near-identical amount
+  // of vertical space while its tier-specific availability is loading.
+  const rowCounts = Array.from(
+    slots.reduce((counts, slot) => {
+      counts.set(slot.date, (counts.get(slot.date) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>()).values(),
+  );
+  const groups = rowCounts.length > 0 ? rowCounts : [3, 2, 1];
+
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Loading available dates and times"
+      className="datetime-skeleton"
+      role="status"
+    >
+      <div className="datetime-skeleton-selected" aria-hidden="true">
+        <span className="skeleton-block skeleton-text skeleton-selected-label" />
+        <span className="skeleton-block skeleton-text skeleton-selected-action" />
+      </div>
+      <div className="datetime-skeleton-helper" aria-hidden="true">
+        <span className="skeleton-block skeleton-text" />
+        <span className="skeleton-block skeleton-text skeleton-helper-short" />
+      </div>
+      {groups.map((rowCount, groupIndex) => (
+        <div className="datetime-skeleton-day" key={groupIndex} aria-hidden="true">
+          <span className="skeleton-block skeleton-text skeleton-day-title" />
+          {Array.from({ length: rowCount }, (_, rowIndex) => (
+            <div className="datetime-skeleton-slot" key={rowIndex}>
+              <span className="datetime-skeleton-slot-copy">
+                <span className="skeleton-block skeleton-text skeleton-slot-time" />
+                <span className="skeleton-block skeleton-text skeleton-slot-note" />
+              </span>
+              <span className="skeleton-block skeleton-slot-check" />
+            </div>
+          ))}
+        </div>
+      ))}
+      <div className="datetime-skeleton-share" aria-hidden="true">
+        <span className="skeleton-block skeleton-text skeleton-share-title" />
+        <span className="skeleton-block skeleton-text skeleton-share-count" />
+        <span className="skeleton-block skeleton-bar" />
+        <span className="datetime-skeleton-share-note">
+          <span className="skeleton-block skeleton-text skeleton-share-note" />
+          <span className="skeleton-block skeleton-text skeleton-share-note skeleton-share-note-short" />
+        </span>
+      </div>
+      <span className="skeleton-block skeleton-bar datetime-skeleton-continue" aria-hidden="true" />
+      <span className="visually-hidden">Loading available dates and times.</span>
+    </div>
+  );
+}
+
 export function PublicStepClient({
   step,
   campaign,
   businessName,
   slots,
-  campaigns = [],
-  voucherId,
+  initialPhone,
 }: Props) {
-  const storageKey = `bizflow-flow-${campaign.slug}`;
-  const [state, setState] = useState<FlowState>(() => initialState(slots));
+  const storageKey = flowStorageKey(campaign.slug);
+  const [state, setState] = useState<FlowState>(() => {
+    // Hydration must start from server-provided values only. The mount effect
+    // below restores browser-only localStorage state after React has attached.
+    const seed = initialPhone || "";
+    return {
+      ...initialState(slots),
+      phone: isValidPhoneNumber(seed) ? seed : "",
+    };
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [shareNotice, setShareNotice] = useState("");
   const [shareNoticeExiting, setShareNoticeExiting] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
-  const [rewardQrDataUrl, setRewardQrDataUrl] = useState("");
-  const [rewardWallet, setRewardWallet] = useState<RewardWalletSnapshot | null>(
-    null,
-  );
-  const [rewardTokenVisible, setRewardTokenVisible] = useState(false);
-  const [expandedRewardVoucherId, setExpandedRewardVoucherId] = useState("");
-  const [rewardVoucherQrDataUrl, setRewardVoucherQrDataUrl] = useState("");
-  const [rewardConvertAmount, setRewardConvertAmount] = useState("");
-  const [rewardBusy, setRewardBusy] = useState(false);
   const [soldOut, setSoldOut] = useState(false);
   const [tierSlots, setTierSlots] = useState<PublicSlot[]>([]);
-  const [otpRequired, setOtpRequired] = useState(campaign.requireOtp);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
-  const [otpCode, setOtpCode] = useState("");
-  const [otpBusy, setOtpBusy] = useState(false);
-  const [otpMessage, setOtpMessage] = useState("");
-  const [claimedVouchers, setClaimedVouchers] = useState<ClaimedVoucher[]>([]);
+  const [tierSlotsLoading, setTierSlotsLoading] = useState(
+    step === "datetime",
+  );
   const [flowHydrated, setFlowHydrated] = useState(false);
+  const [referralCheckComplete, setReferralCheckComplete] = useState(false);
   const [rouletteItems, setRouletteItems] = useState<RoulettePreview[]>([]);
   const [rouletteWinner, setRouletteWinner] = useState<RoulettePreview | null>(
     null,
@@ -357,22 +480,26 @@ export function PublicStepClient({
   const [rouletteDurationMs, setRouletteDurationMs] = useState(rouletteSpinMs);
   const [pendingSpinCompletion, setPendingSpinCompletion] =
     useState<PendingSpinCompletion | null>(null);
+  const [pendingSpinStop, setPendingSpinStop] =
+    useState<PendingSpinStop | null>(null);
+  // Confirm is a document navigation, so this stays true until the page swaps.
+  const [confirming, setConfirming] = useState(false);
   const rouletteAnimationRef = useRef<number | null>(null);
-  const viewedVoucher =
-    step === "voucher"
-      ? claimedVouchers.find((item) => item.voucher.id === voucherId)
-      : undefined;
-  const expandedRewardVoucher = rewardWallet?.vouchers.find(
-    (voucher) => voucher.id === expandedRewardVoucherId,
-  );
-  const qrToken =
-    step === "voucher"
-      ? viewedVoucher?.voucher.qrToken
-      : state.issued?.voucher.qrToken;
-
-  useEffect(() => {
-    if (campaign.requireOtp) setOtpRequired(true);
-  }, [campaign.requireOtp]);
+  // Mirrors rouletteOffset so the animation frames and the stop handler can read
+  // the live position without going through a stale render closure.
+  const rouletteOffsetRef = useRef(0);
+  // Set when the visitor taps before the draw has come back, so the stop can be
+  // honoured the moment it does.
+  const stopRequested = useRef(false);
+  // Guards against a double-tap starting two competing stop animations: the
+  // pendingSpinStop state read is a render-old value, so a second tap in the
+  // same frame would still see it set.
+  const stopRunning = useRef(false);
+  // Set once a spin has been confirmed, so the auto-start effect won't run again
+  // on this mount while the outgoing navigation is still in flight.
+  const spinFinished = useRef(false);
+  const autoSignInAttempted = useRef(false);
+  const qrToken = state.issued?.voucher.qrToken;
 
   useEffect(() => {
     return () => {
@@ -383,77 +510,161 @@ export function PublicStepClient({
   }, []);
 
   useEffect(() => {
-    setOtpSent(false);
-    setOtpVerified(false);
-    setOtpCode("");
-    setOtpMessage("");
-  }, [campaign.slug, state.phone]);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem(storageKey);
     const sessionKey = "bizflow-session";
     const sessionId =
       window.localStorage.getItem(sessionKey) ?? crypto.randomUUID();
     window.localStorage.setItem(sessionKey, sessionId);
     document.cookie = `${visitorSessionCookie}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=31536000; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
 
-    if (saved) {
-      setState({ ...initialState(slots), ...JSON.parse(saved), sessionId });
-    } else {
-      setState({ ...initialState(slots), sessionId });
+    // A corrupted saved flow must never block hydration (which would leave the
+    // page stuck on "Checking sign in..."), so parse defensively and fall back
+    // to a fresh flow. setFlowHydrated(true) always runs at the end.
+    let next: FlowState = { ...initialState(slots), sessionId };
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      if (saved)
+        next = {
+          ...next,
+          ...(JSON.parse(saved) as Partial<FlowState>),
+          sessionId,
+        };
+    } catch {
+      window.localStorage.removeItem(storageKey);
     }
+    // Carry a remembered number into any campaign whose state has no valid phone
+    // yet — covers both brand-new campaigns and stale/empty per-campaign state —
+    // so a returning visitor is not asked for their number again.
+    const identity = readStoredIdentity();
+    if (
+      identity?.phone &&
+      isValidPhoneNumber(identity.phone) &&
+      !isValidPhoneNumber(next.phone)
+    ) {
+      next.phone = identity.phone;
+      next.name = next.name || identity.name || "";
+      next.email = next.email || identity.email || "";
+    } else if (isValidPhoneNumber(next.phone)) {
+      // Already signed in on this campaign (possibly from before this feature):
+      // back-fill the shared identity so other campaigns can auto sign-in too.
+      rememberIdentity({
+        phone: next.phone,
+        name: next.name,
+        email: next.email,
+      });
+    } else if (initialPhone && isValidPhoneNumber(initialPhone)) {
+      // Cookie said signed-in but local storage had nothing: keep the server's
+      // hint so we don't flash back to the signed-out landing.
+      next.phone = initialPhone;
+    }
+    setState(next);
     setFlowHydrated(true);
-  }, [slots, storageKey, campaign.slug]);
+  }, [slots, storageKey, campaign.slug, initialPhone]);
 
+  // The server-side /visit -> /claim handoff normally records the referral
+  // before this page loads. If a reverse proxy or cookie race interrupted that
+  // handoff, /claim preserves the ref query and this browser-only fallback
+  // retries after the visitor cookie has been established above.
   useEffect(() => {
-    if (!flowHydrated) return;
-    const signedIn = Boolean(state.userId && isValidPhoneNumber(state.phone));
-    if (step !== "signin" && !signedIn) {
-      navigate(routeFor("signin"));
+    if (!flowHydrated || referralCheckComplete) return;
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (step !== "landing" || !ref) {
+      setReferralCheckComplete(true);
       return;
     }
-    if (step === "signin" && signedIn) {
+
+    let active = true;
+    void api("/api/public/referral/claim", {
+      method: "POST",
+      body: JSON.stringify({ campaign: campaign.slug, ref }),
+    })
+      .then(() => {
+        if (!active) return;
+        params.delete("ref");
+        const query = params.toString();
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+        );
+      })
+      .catch(() => {
+        // Keep the ref in the URL. If sign-in is still required, its return URL
+        // preserves the query and the claim can be retried after verification.
+      })
+      .finally(() => {
+        if (active) setReferralCheckComplete(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [campaign.slug, flowHydrated, referralCheckComplete, step]);
+
+  useEffect(() => {
+    if (!flowHydrated || !referralCheckComplete) return;
+    const hasPhone = isValidPhoneNumber(state.phone);
+    // No remembered number: send to the single global sign-in, returning here after.
+    if (!hasPhone) {
+      const returnPath = `${window.location.pathname}${window.location.search}`;
+      navigate(
+        `/signin?next=${encodeURIComponent(returnPath)}`,
+      );
+      return;
+    }
+    // Signed in (has a number) but no account for this campaign yet on a deeper
+    // step: bounce to the landing where auto sign-in establishes it.
+    if (step !== "landing" && !state.userId) {
       navigate(routeFor("landing"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flowHydrated, step, state.phone, state.userId]);
+  }, [flowHydrated, referralCheckComplete, step, state.phone, state.userId]);
 
+  // Returning visitor with a remembered number but no account for this campaign
+  // yet: sign in automatically (on the landing) so switching campaigns doesn't re-ask.
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(claimedVouchersStorageKey);
-      setClaimedVouchers(saved ? JSON.parse(saved) : []);
-    } catch {
-      setClaimedVouchers([]);
-    }
-  }, []);
+    if (
+      !flowHydrated ||
+      !referralCheckComplete ||
+      autoSignInAttempted.current
+    )
+      return;
+    if (step !== "landing" || state.userId || !isValidPhoneNumber(state.phone))
+      return;
+    autoSignInAttempted.current = true;
+    void signIn({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowHydrated, referralCheckComplete, step, state.phone, state.userId]);
 
+  // Persist a newly issued voucher into the device-wide wallet that the global
+  // /vouchers pages read. This flow no longer renders that wallet, so it is a
+  // plain read-modify-write rather than component state.
   useEffect(() => {
     const issued = state.issued;
     if (!issued) return;
-
-    setClaimedVouchers((current) => {
-      if (current.some((item) => item.voucher.id === issued.voucher.id)) {
-        return current;
-      }
-
-      const updated: ClaimedVoucher[] = [
-        {
-          ...issued,
-          campaignSlug: campaign.slug,
-          campaignTitle: campaign.title,
-          businessName,
-        },
-        ...current,
-      ];
+    try {
+      const saved = window.localStorage.getItem(claimedVouchersStorageKey);
+      const current: ClaimedVoucher[] = saved ? JSON.parse(saved) : [];
+      if (current.some((item) => item.voucher.id === issued.voucher.id)) return;
       window.localStorage.setItem(
         claimedVouchersStorageKey,
-        JSON.stringify(updated),
+        JSON.stringify([
+          {
+            ...issued,
+            campaignSlug: campaign.slug,
+            campaignTitle: campaign.title,
+            businessName,
+          },
+          ...current,
+        ]),
       );
-      return updated;
-    });
+    } catch {
+      /* ignore storage errors */
+    }
   }, [businessName, campaign.slug, campaign.title, state.issued]);
 
   useEffect(() => {
+    if (!flowHydrated) return;
     if (step !== "datetime" && step !== "results") return;
     refreshShareState();
     if (step === "datetime") fetchTierSlots();
@@ -469,7 +680,7 @@ export function PublicStepClient({
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, state.userId, state.selectedAttemptId]);
+  }, [flowHydrated, step, state.userId, state.selectedAttemptId]);
 
   useEffect(() => {
     if (!shareNotice) return;
@@ -491,6 +702,9 @@ export function PublicStepClient({
     if (step !== "roulette" || !state.sessionId || roulettePhase !== "idle") {
       return;
     }
+    // One spin per visit to this screen. Without this a completed spin that
+    // returns the phase to "idle" would immediately start another one.
+    if (spinFinished.current) return;
     if (!state.phone) {
       setError("Sign in with your mobile number before spinning.");
       return;
@@ -498,6 +712,28 @@ export function PublicStepClient({
     void startRouletteSpin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, state.sessionId, state.phone, roulettePhase]);
+
+  // Free-spin the reel at a constant speed for as long as it is searching. It
+  // only ever stops because the visitor taps it (see stopRoulette), so this runs
+  // indefinitely rather than for a fixed number of turns.
+  useEffect(() => {
+    if (roulettePhase !== "searching") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let frame = 0;
+    let previous = performance.now();
+    const tick = (now: number) => {
+      const delta = now - previous;
+      previous = now;
+      applyRouletteOffset(
+        rouletteOffsetRef.current - delta * rouletteSpinSpeed,
+      );
+      frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roulettePhase]);
 
   useEffect(() => {
     const token = qrToken;
@@ -525,169 +761,25 @@ export function PublicStepClient({
     };
   }, [qrToken]);
 
-  useEffect(() => {
-    if (
-      step !== "more" ||
-      !state.phone ||
-      !state.customerSessionToken ||
-      !flowHydrated
-    )
-      return;
-    let active = true;
-    setRewardBusy(true);
-    api<RewardWalletSnapshot>("/api/public/rewards/wallet", {
-      method: "POST",
-      body: JSON.stringify({
-        campaignSlug: campaign.slug,
-        phone: state.phone,
-        customerSessionToken: state.customerSessionToken,
-        name: state.name.trim() || undefined,
-        email: state.email || undefined,
-      }),
-    })
-      .then((snapshot) => {
-        if (active) {
-          setRewardWallet(snapshot);
-          setError("");
-        }
-      })
-      .catch((err) => {
-        if (active)
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to load rewards wallet.",
-          );
-      })
-      .finally(() => {
-        if (active) setRewardBusy(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    step,
-    campaign.slug,
-    state.phone,
-    state.customerSessionToken,
-    state.name,
-    state.email,
-    flowHydrated,
-  ]);
-
-  useEffect(() => {
-    const token = rewardWallet?.wallet.walletToken;
-    setRewardTokenVisible(false);
-    if (!token) {
-      setRewardQrDataUrl("");
-      return;
-    }
-    let active = true;
-    QRCode.toDataURL(token, {
-      width: 288,
-      margin: 2,
-      errorCorrectionLevel: "M",
-      color: { dark: "#0b1d3a", light: "#ffffff" },
-    })
-      .then((dataUrl) => {
-        if (active) setRewardQrDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (active) setRewardQrDataUrl("");
-      });
-    return () => {
-      active = false;
-    };
-  }, [rewardWallet?.wallet.walletToken]);
-
-  useEffect(() => {
-    const token = expandedRewardVoucher?.qrToken;
-    if (!token) {
-      setRewardVoucherQrDataUrl("");
-      return;
-    }
-    let active = true;
-    QRCode.toDataURL(token, {
-      width: 288,
-      margin: 2,
-      errorCorrectionLevel: "M",
-      color: { dark: "#0b1d3a", light: "#ffffff" },
-    })
-      .then((dataUrl) => {
-        if (active) setRewardVoucherQrDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (active) setRewardVoucherQrDataUrl("");
-      });
-    return () => {
-      active = false;
-    };
-  }, [expandedRewardVoucher?.qrToken]);
-
-  async function copyRewardWalletToken() {
-    const token = rewardWallet?.wallet.walletToken;
-    if (!token) {
-      setError("Wallet token is not available yet.");
-      return;
-    }
-
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(token);
-      } else {
-        const input = document.createElement("textarea");
-        input.value = token;
-        input.style.position = "fixed";
-        input.style.opacity = "0";
-        document.body.appendChild(input);
-        input.select();
-        const copied = document.execCommand("copy");
-        input.remove();
-        if (!copied) throw new Error("Unable to copy wallet token.");
-      }
-      setShareNoticeExiting(false);
-      setShareNotice("Wallet token copied.");
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Unable to copy wallet token.",
-      );
-    }
-  }
-
-  async function copyRewardVoucherValue(value: string, label: string) {
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(value);
-      } else {
-        const input = document.createElement("textarea");
-        input.value = value;
-        input.style.position = "fixed";
-        input.style.opacity = "0";
-        document.body.appendChild(input);
-        input.select();
-        const copied = document.execCommand("copy");
-        input.remove();
-        if (!copied) throw new Error(`Unable to copy ${label}.`);
-      }
-      setShareNoticeExiting(false);
-      setShareNotice(`${label} copied.`);
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : `Unable to copy ${label}.`,
-      );
-    }
-  }
-
   function save(next: Partial<FlowState>) {
     setState((current) => {
       const updated = { ...current, ...next };
       window.localStorage.setItem(storageKey, JSON.stringify(updated));
       return updated;
     });
+  }
+
+  function markRouletteInProgress(attemptId: string) {
+    // Persist synchronously. A visitor can tap Home on the first animation
+    // frame, before React processes a queued state update or the draw request
+    // returns, and the next visit still needs to know that the reel was active.
+    patchFlowState(campaign.slug, {
+      rouletteInProgressAttemptId: attemptId,
+    });
+    setState((current) => ({
+      ...current,
+      rouletteInProgressAttemptId: attemptId,
+    }));
   }
 
   function saveAndNavigate(next: Partial<FlowState>, path: string) {
@@ -700,49 +792,6 @@ export function PublicStepClient({
     window.location.assign(path);
   }
 
-  function signOut() {
-    const nextState = {
-      ...initialState(slots),
-      sessionId: state.sessionId || crypto.randomUUID(),
-    };
-    window.localStorage.setItem(storageKey, JSON.stringify(nextState));
-    setState(nextState);
-    navigate(routeFor("signin"));
-  }
-
-  async function convertRewardCredit() {
-    if (!rewardConvertAmount.trim()) {
-      setError("Enter an amount to convert.");
-      return;
-    }
-    setRewardBusy(true);
-    setError("");
-    try {
-      await api("/api/public/rewards/convert", {
-        method: "POST",
-        body: JSON.stringify({
-          campaignSlug: campaign.slug,
-          phone: state.phone,
-          customerSessionToken: state.customerSessionToken,
-          walletSecret: rewardWallet?.walletSecret,
-          amount: rewardConvertAmount,
-        }),
-      });
-      const snapshot = await api<RewardWalletSnapshot>(
-        `/api/public/rewards/wallet?campaignSlug=${encodeURIComponent(campaign.slug)}&phone=${encodeURIComponent(state.phone)}&customerSessionToken=${encodeURIComponent(state.customerSessionToken)}&walletSecret=${encodeURIComponent(rewardWallet?.walletSecret ?? "")}`,
-      );
-      setRewardWallet(snapshot);
-      setRewardConvertAmount("");
-      setShareNotice("Reward credit converted into a voucher.");
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to convert reward credit.",
-      );
-    } finally {
-      setRewardBusy(false);
-    }
-  }
-
   const currentStepNumber = steps.findIndex((item) => item.id === step) + 1;
   const selectedSlot = slots.find((slot) => slot.id === state.selectedSlotId);
   const selectedAttempt = state.attempts.find(
@@ -750,11 +799,20 @@ export function PublicStepClient({
   );
   const visibleResult =
     selectedAttempt ?? state.attempts[state.attempts.length - 1];
+  // The reel is tappable for the whole free spin — including the brief window
+  // before the draw returns, where a tap is queued rather than ignored. Keeping
+  // this independent of pendingSpinStop is what lets the copy stay constant.
+  const isSpinning = roulettePhase === "searching";
   const rouletteWinnerIndex = Math.max(0, rouletteTargetIndex);
-  const rouletteTargetOffset =
-    -rouletteWinnerIndex * (rouletteCardWidth + rouletteGap);
+  const rouletteTargetOffset = -rouletteWinnerIndex * rouletteUnit;
+  // One full pass over the reel. The track renders its items twice, so folding
+  // the running offset into this cycle keeps the loop seamless.
+  const rouletteCycle =
+    (rouletteItems.length || rouletteSpinCount) * rouletteUnit;
   const rouletteAnimatedOffset =
-    roulettePhase === "selected" ? rouletteTargetOffset : rouletteOffset;
+    roulettePhase === "selected"
+      ? rouletteTargetOffset
+      : wrapRouletteOffset(rouletteOffset, rouletteCycle);
   const rouletteTrackStyle = {
     "--roulette-target-offset": `${rouletteTargetOffset}px`,
     "--roulette-fast-offset": `${Math.round(rouletteTargetOffset * 0.72)}px`,
@@ -763,10 +821,40 @@ export function PublicStepClient({
     "--roulette-final-approach-offset": `${Math.round(rouletteTargetOffset * 0.992)}px`,
     "--roulette-creep-offset": `${Math.round(rouletteTargetOffset * 0.998)}px`,
     "--roulette-spin-duration": `${rouletteDurationMs}ms`,
-    ...(roulettePhase === "landing" || roulettePhase === "selected"
-      ? { transform: `translateX(${rouletteAnimatedOffset}px)` }
-      : {}),
+    // Every phase is JS-driven now, so the tap-to-stop can pick up exactly where
+    // the free spin left off instead of jumping back to the first card.
+    transform: `translateX(${rouletteAnimatedOffset}px)`,
   } as CSSProperties;
+  const rouletteDisplayItems = useMemo(
+    () =>
+      rouletteItems.length > 0 ? rouletteItems : placeholderRouletteItems(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rouletteItems],
+  );
+  // The reel is rebuilt only when its contents or phase change — never on the
+  // per-frame offset updates that drive the spin, which would otherwise
+  // reconcile every card 60 times a second.
+  const rouletteCards = useMemo(
+    () =>
+      // Rendered twice so wrapping the offset by one cycle is invisible.
+      [...rouletteDisplayItems, ...rouletteDisplayItems].map((item, index) => {
+        const presentation = getVoucherPresentation(item);
+        return (
+          <article
+            className={`card candidate roulette-ticket voucher-${presentation.rarity} ${
+              roulettePhase === "selected" && index === rouletteTargetIndex
+                ? "selected"
+                : ""
+            }`}
+            key={`${item.displayLabel}-${index}`}
+          >
+            <VoucherCard benefit={item} detail={voucherDetail(item)} />
+          </article>
+        );
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rouletteDisplayItems, roulettePhase, rouletteTargetIndex],
+  );
   const dates = useMemo(
     () =>
       Array.from(new Set(slots.map((slot) => slot.date))).map((date) => ({
@@ -786,18 +874,26 @@ export function PublicStepClient({
       : `/campaign/${campaign.slug}`;
   }
 
+  function landingRouteWithReferral() {
+    const landing = routeFor("landing");
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    return ref
+      ? `${landing}?${new URLSearchParams({ ref }).toString()}`
+      : landing;
+  }
+
   function previousRoute(current: PublicStep) {
     const index = steps.findIndex((item) => item.id === current);
     return routeFor(steps[Math.max(0, index - 1)].id);
   }
 
   function pageTitle() {
-    if (step === "voucher") return "Voucher Details";
     return steps[currentStepNumber - 1]?.label ?? "Voucher Hunt";
   }
 
   function toRoulettePreview(attempt: RoulettePreview): RoulettePreview {
     return {
+      poolId: attempt.poolId,
       benefitType: attempt.benefitType,
       benefitValue: attempt.benefitValue,
       displayLabel: attempt.displayLabel,
@@ -885,52 +981,35 @@ export function PublicStepClient({
     ]);
   }
 
-  async function playRoulette(
-    sequence: RouletteSequenceResult,
-    durationMs = rouletteSpinMs,
-  ) {
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-    const winner = sequence.items[sequence.winnerIndex];
-    if (!winner) return;
-    const targetOffset =
-      -sequence.winnerIndex * (rouletteCardWidth + rouletteGap);
-    if (prefersReducedMotion) {
-      setRouletteOffset(targetOffset);
-      setRouletteWinner(winner);
-      setRoulettePhase("selected");
-      setRouletteMessage(`Selected: ${winner.displayLabel}`);
-      await sleep(rouletteSettleMs);
-      return;
-    }
-
-    await animateRouletteToOffset(targetOffset, durationMs);
-    setRouletteWinner(winner);
-    setRouletteOffset(targetOffset);
-    setRoulettePhase("selected");
-    setRouletteMessage(`Selected: ${winner.displayLabel}`);
-    await sleep(rouletteSettleMs);
+  // Single writer for the reel position: keeps the ref (read by animation frames)
+  // and the state (read by the render) in step.
+  function applyRouletteOffset(value: number) {
+    rouletteOffsetRef.current = value;
+    setRouletteOffset(Math.round(value * 100) / 100);
   }
 
-  function animateRouletteToOffset(targetOffset: number, durationMs: number) {
+  function cancelRouletteAnimation() {
     if (rouletteAnimationRef.current) {
       window.cancelAnimationFrame(rouletteAnimationRef.current);
       rouletteAnimationRef.current = null;
     }
+  }
 
-    setRouletteOffset(0);
+  function animateRouletteBetween(
+    fromOffset: number,
+    toOffset: number,
+    durationMs: number,
+    ease: (progress: number) => number,
+  ) {
+    cancelRouletteAnimation();
+    const distance = toOffset - fromOffset;
 
     return new Promise<void>((resolve) => {
       const startedAt = performance.now();
 
       const step = (now: number) => {
-        const elapsed = now - startedAt;
-        const progress = Math.min(1, elapsed / durationMs);
-        const eased = rouletteEase(progress);
-        const nextOffset = targetOffset * eased;
-
-        setRouletteOffset(Math.round(nextOffset * 100) / 100);
+        const progress = Math.min(1, (now - startedAt) / durationMs);
+        applyRouletteOffset(fromOffset + distance * ease(progress));
 
         if (progress < 1) {
           rouletteAnimationRef.current = window.requestAnimationFrame(step);
@@ -938,7 +1017,7 @@ export function PublicStepClient({
         }
 
         rouletteAnimationRef.current = null;
-        setRouletteOffset(targetOffset);
+        applyRouletteOffset(toOffset);
         resolve();
       };
 
@@ -958,10 +1037,13 @@ export function PublicStepClient({
   }
 
   // Step 1: phone sign-in. Identifies the user, then moves to the hunt screen.
-  async function signIn() {
+  // `silent` is used by cross-campaign auto sign-in, where a failure (e.g. the
+  // number already claimed a voucher here) must not surface a scary error.
+  async function signIn(options?: { silent?: boolean }) {
     setError("");
     if (!isValidPhoneNumber(state.phone)) {
-      setError("Enter a valid mobile number to sign in and start hunting.");
+      if (!options?.silent)
+        setError("Enter a valid mobile number to sign in and start hunting.");
       return;
     }
     setBusy(true);
@@ -976,6 +1058,18 @@ export function PublicStepClient({
           email: state.email,
         }),
       });
+      // Remember the number across campaigns so we can auto sign-in next time.
+      rememberIdentity({
+        phone: state.phone,
+        name: state.name,
+        email: state.email,
+      });
+      // Already holds a voucher for this campaign: they can sign in but not hunt
+      // again — send them to their wallet instead of the hunt screen.
+      if (started.voucher) {
+        saveAndNavigate({ userId: started.user.id }, vouchersRoute);
+        return;
+      }
       const activeAttempts = started.attempts.filter(
         (attempt) =>
           attempt.status === "Candidate" || attempt.status === "Held",
@@ -991,78 +1085,131 @@ export function PublicStepClient({
           shareCount: started.sharesGrantedToday,
           bonusAttempts: started.remainingBonusAttempts,
         },
-        routeFor("landing"),
+        landingRouteWithReferral(),
       );
     } catch (caught) {
-      reportError(caught, "Unable to sign in.");
+      if (!options?.silent) reportError(caught, "Unable to sign in.");
     } finally {
       setBusy(false);
     }
   }
 
+  // Where a returning visitor left off in this campaign, so "Let's Hunt" resumes
+  // instead of restarting. null = no further progress (reveal/spin as normal).
+  function resumeRoute(): string | null {
+    if (state.issued) return routeFor("confirmation");
+    if (state.selectedSlotId) return routeFor("confirm");
+    if (state.rouletteInProgressAttemptId) return routeFor("roulette");
+    // A drawn voucher (even one highlighted) means the visitor is still choosing
+    // on the results screen — they only reach date/time after "Pick date & time".
+    const hasActiveAttempt = state.attempts.some(
+      (attempt) => attempt.status === "Candidate" || attempt.status === "Held",
+    );
+    if (hasActiveAttempt) return routeFor("results");
+    return null;
+  }
+
   async function startHuntFromLanding() {
     setError("");
-    if (!state.userId || !isValidPhoneNumber(state.phone)) {
-      navigate(routeFor("signin"));
+    if (!isValidPhoneNumber(state.phone)) return; // inline sign-in form is showing
+    // Have a number but no account for this campaign yet (auto sign-in still
+    // pending): establish it now; signIn navigates onward on success.
+    if (!state.userId) {
+      await signIn();
       return;
     }
+    const resume = resumeRoute();
+    if (resume) {
+      navigate(resume);
+      return;
+    }
+    // No slot/voucher yet: resume an existing candidate (results) or spin a new one.
     await revealVouchers();
   }
 
+  /**
+   * Runs the reel for one draw. `existingAttempt` re-presents a draw the server
+   * already holds instead of taking a new one — used when the visitor left the
+   * page mid-spin, so the reveal still costs them a tap rather than being handed
+   * over by the refresh.
+   */
   async function spinToAttempt(
     sourceType: "base" | "referral_bonus",
     destination?: string,
     extraState: Partial<FlowState> = {},
+    existingAttempt?: VoucherAttempt,
   ) {
+    markRouletteInProgress(existingAttempt?.id ?? "pending");
     setBusy(true);
     setPendingSpinCompletion(null);
+    setPendingSpinStop(null);
+    stopRequested.current = false;
+    stopRunning.current = false;
     setRoulettePhase("searching");
     setRouletteTargetIndex(0);
-    setRouletteOffset(0);
+    applyRouletteOffset(0);
     setRouletteDurationMs(rouletteSpinMs);
     setRouletteItems(placeholderRouletteItems());
     setRouletteWinner(null);
-    setRouletteMessage("Spinning through every possible voucher...");
+    // One message for the whole spin — it must not change when the draw lands
+    // mid-spin, which read as a glitch.
+    setRouletteMessage("Tap the reel when you're ready to stop it.");
     try {
       await nextPaint();
       const previews = await fetchRoulettePreviews();
       if (previews.length > 0) {
         setRouletteItems(rouletteLoop(previews));
       }
-      const attempt = await api<VoucherAttempt>("/api/public/hunt/attempt", {
-        method: "POST",
-        body: JSON.stringify({
-          campaignSlug: campaign.slug,
-          phone: state.phone,
-          sessionId: state.sessionId,
-          sourceType,
-        }),
-      });
+      const attempt =
+        existingAttempt ??
+        (await api<VoucherAttempt>("/api/public/hunt/attempt", {
+          method: "POST",
+          body: JSON.stringify({
+            campaignSlug: campaign.slug,
+            phone: state.phone,
+            sessionId: state.sessionId,
+            sourceType,
+            ...(devVoucherChoiceEnabled && state.devVoucherPoolId
+              ? { devPoolId: state.devVoucherPoolId }
+              : {}),
+          }),
+        }));
+      // The server has consumed the spin, but the customer has not revealed it
+      // until the reel stops and they confirm. Persist only the attempt ID so a
+      // trip to Home (or a refresh) resumes the same moving reel.
+      markRouletteInProgress(attempt.id);
       const winner = toRoulettePreview(attempt);
       const sequence = rouletteSequence(previews, winner);
       setRouletteItems(sequence.items);
-      setRouletteTargetIndex(sequence.winnerIndex);
-      const remainingSpinMs = rouletteSpinMs;
-      setRouletteDurationMs(remainingSpinMs);
-      setRoulettePhase("landing");
-      setRouletteMessage("Spinning for your voucher...");
-      await nextPaint();
-      await playRoulette(sequence, remainingSpinMs);
+      // Where the winner actually lands is decided on tap, in stopRoulette.
       const nextState: Partial<FlowState> = {
         attempts: mergeAttempts(state.attempts, [attempt]),
         selectedAttemptId: attempt.id,
+        rouletteInProgressAttemptId: "",
         selectedSlotId: "",
         selectedDate: "",
         issued: null,
         ...extraState,
       };
-      setPendingSpinCompletion({ destination, nextState });
-    } catch (caught) {
+      // The draw is settled, but the reel keeps free-spinning and the copy stays
+      // put: it only slows down when the visitor taps it. If they already tapped
+      // while the draw was in flight, honour that now.
+      const stop: PendingSpinStop = { sequence, destination, nextState };
       setBusy(false);
+      if (stopRequested.current) {
+        stopRequested.current = false;
+        void runRouletteStop(stop);
+        return;
+      }
+      setPendingSpinStop(stop);
+    } catch (caught) {
+      markRouletteInProgress("");
+      setBusy(false);
+      setPendingSpinStop(null);
       setRouletteItems([]);
       setRouletteWinner(null);
       setRouletteTargetIndex(0);
-      setRouletteOffset(0);
+      applyRouletteOffset(0);
       setRouletteDurationMs(rouletteSpinMs);
       setRoulettePhase("idle");
       setRouletteMessage("");
@@ -1075,23 +1222,110 @@ export function PublicStepClient({
     }
   }
 
+  /**
+   * Visitor tapped the reel. If the draw has already landed we coast to a stop
+   * now; if it is still in flight we remember the tap and spinToAttempt honours
+   * it on arrival. Either way the on-screen copy never has to change to explain
+   * whether the reel is "ready" yet.
+   */
+  function stopRoulette() {
+    if (roulettePhase !== "searching" || stopRunning.current) return;
+    if (!pendingSpinStop) {
+      stopRequested.current = true;
+      return;
+    }
+    const stop = pendingSpinStop;
+    setPendingSpinStop(null);
+    void runRouletteStop(stop);
+  }
+
+  // Coast the reel to a stop on the already-drawn result.
+  async function runRouletteStop({
+    sequence,
+    destination,
+    nextState,
+  }: PendingSpinStop) {
+    const winner = sequence.items[sequence.winnerIndex];
+    if (!winner) return;
+    stopRunning.current = true;
+
+    setBusy(true);
+    // Leaving "searching" tears down the free-spin loop above.
+    setRoulettePhase("landing");
+    // No sub-message here: the "Slowing down..." heading already says it.
+    setRouletteMessage("");
+
+    const items = sequence.items;
+    const count = items.length;
+    const cycle = count * rouletteUnit;
+
+    // The winner only occurs once per cycle, so chasing it would give a stop
+    // distance anywhere from 0 to a full cycle — either a jarring stop or a
+    // 15-second crawl. Instead, coast a fixed, natural distance and move the
+    // winner to whichever card lands under the pointer. That card is ~8 ahead,
+    // well off-screen, so the swap is never visible.
+    const from = wrapRouletteOffset(rouletteOffsetRef.current, cycle);
+    const landingIndex = Math.round(
+      (-from + rouletteStopCards * rouletteUnit) / rouletteUnit,
+    );
+    const wrappedIndex = ((landingIndex % count) + count) % count;
+    const landedItems = items.slice();
+    landedItems[wrappedIndex] = winner;
+    setRouletteItems(landedItems);
+    setRouletteTargetIndex(wrappedIndex);
+
+    const targetOffset = -wrappedIndex * rouletteUnit;
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      applyRouletteOffset(targetOffset);
+    } else {
+      cancelRouletteAnimation();
+      const to = -landingIndex * rouletteUnit;
+      const distance = from - to;
+      // Duration that makes the ease-out's opening speed equal the free-spin
+      // speed: |x'(0)| = distance * exp / duration, solved for duration.
+      const durationMs = (distance * rouletteStopEaseExp) / rouletteSpinSpeed;
+      setRouletteDurationMs(Math.round(durationMs));
+      await animateRouletteBetween(from, to, durationMs, rouletteStopEase);
+      applyRouletteOffset(targetOffset);
+    }
+
+    setRouletteWinner(winner);
+    setRoulettePhase("selected");
+    // "Selected" reads as though the visitor picked it — the reel landed on it.
+    setRouletteMessage(`You won ${winner.displayLabel}`);
+    await sleep(rouletteSettleMs);
+    setPendingSpinCompletion({ destination, nextState });
+  }
+
   function confirmRouletteSelection() {
-    if (!pendingSpinCompletion) return;
+    if (!pendingSpinCompletion || confirming) return;
     const { destination, nextState } = pendingSpinCompletion;
+    // This spin is done; the auto-start effect must not begin another one.
+    spinFinished.current = true;
+    setPendingSpinStop(null);
+
+    if (destination) {
+      // Document navigation. Leave the reel showing its result and keep the
+      // button in a loading state — tearing the reel down here would flash the
+      // "Checking your hunt..." screen and, via phase "idle", kick off a whole
+      // new spin behind the outgoing page.
+      setConfirming(true);
+      saveAndNavigate(nextState, destination);
+      return;
+    }
+
+    // Staying put: reset the reel so a later spin starts clean.
     setPendingSpinCompletion(null);
     setRouletteItems([]);
     setRouletteWinner(null);
     setRouletteTargetIndex(0);
-    setRouletteOffset(0);
+    applyRouletteOffset(0);
     setRouletteDurationMs(rouletteSpinMs);
     setRoulettePhase("idle");
     setRouletteMessage("");
     setBusy(false);
-    if (destination) {
-      saveAndNavigate(nextState, destination);
-    } else {
-      save(nextState);
-    }
+    save(nextState);
   }
 
   async function loadHuntSnapshot() {
@@ -1126,18 +1360,31 @@ export function PublicStepClient({
         (attempt) =>
           attempt.status === "Candidate" || attempt.status === "Held",
       );
-      const pendingAttempt =
-        attempts.find((a) => a.id === state.selectedAttemptId) ??
-        attempts[attempts.length - 1];
+      const pendingAttempt = findResumeAttempt(
+        attempts,
+        state.attempts,
+        state.selectedAttemptId,
+        state.rouletteInProgressAttemptId,
+      );
       if (pendingAttempt) {
+        const alreadyRevealed = state.attempts.some(
+          (attempt) => attempt.id === pendingAttempt.id,
+        );
         saveAndNavigate(
-          {
-            attempts: mergeAttempts(state.attempts, attempts),
-            selectedAttemptId: pendingAttempt.id,
-            shareCount: snapshot.sharesGrantedToday,
-            bonusAttempts: snapshot.remainingBonusAttempts,
-          },
-          routeFor("results"),
+          alreadyRevealed
+            ? {
+                attempts: mergeAttempts(state.attempts, attempts),
+                selectedAttemptId: pendingAttempt.id,
+                rouletteInProgressAttemptId: "",
+                shareCount: snapshot.sharesGrantedToday,
+                bonusAttempts: snapshot.remainingBonusAttempts,
+              }
+            : {
+                rouletteInProgressAttemptId: pendingAttempt.id,
+                shareCount: snapshot.sharesGrantedToday,
+                bonusAttempts: snapshot.remainingBonusAttempts,
+              },
+          routeFor(alreadyRevealed ? "results" : "roulette"),
         );
         return;
       }
@@ -1157,20 +1404,43 @@ export function PublicStepClient({
         (attempt) =>
           attempt.status === "Candidate" || attempt.status === "Held",
       );
-      const pendingAttempt =
-        attempts.find((a) => a.id === state.selectedAttemptId) ??
-        attempts[attempts.length - 1];
-      if (pendingAttempt && snapshot.remainingBonusAttempts <= 0) {
-        saveAndNavigate(
-          {
-            attempts: mergeAttempts(state.attempts, attempts),
-            selectedAttemptId: pendingAttempt.id,
-            shareCount: snapshot.sharesGrantedToday,
-            bonusAttempts: snapshot.remainingBonusAttempts,
-          },
-          routeFor("results"),
+      const pendingAttempt = findResumeAttempt(
+        attempts,
+        state.attempts,
+        state.selectedAttemptId,
+        state.rouletteInProgressAttemptId,
+      );
+      if (pendingAttempt) {
+        const alreadyRevealed = state.attempts.some(
+          (attempt) => attempt.id === pendingAttempt.id,
         );
-        return;
+        if (!alreadyRevealed) {
+          await spinToAttempt(
+            pendingAttempt.sourceType === "referral_bonus"
+              ? "referral_bonus"
+              : "base",
+            routeFor("results"),
+            {
+              shareCount: snapshot.sharesGrantedToday,
+              bonusAttempts: snapshot.remainingBonusAttempts,
+            },
+            pendingAttempt,
+          );
+          return;
+        }
+        if (snapshot.remainingBonusAttempts <= 0) {
+          saveAndNavigate(
+            {
+              attempts: mergeAttempts(state.attempts, attempts),
+              selectedAttemptId: pendingAttempt.id,
+              rouletteInProgressAttemptId: "",
+              shareCount: snapshot.sharesGrantedToday,
+              bonusAttempts: snapshot.remainingBonusAttempts,
+            },
+            routeFor("results"),
+          );
+          return;
+        }
       }
       const hasUsedBaseSpin = snapshot.attempts.some(
         (attempt) => attempt.sourceType === "base",
@@ -1205,8 +1475,10 @@ export function PublicStepClient({
   async function fetchTierSlots() {
     if (!state.selectedAttemptId || !state.phone) {
       setTierSlots([]);
+      setTierSlotsLoading(false);
       return;
     }
+    setTierSlotsLoading(true);
     try {
       const params = new URLSearchParams({
         campaignSlug: campaign.slug,
@@ -1225,6 +1497,8 @@ export function PublicStepClient({
       }
     } catch {
       setTierSlots([]);
+    } finally {
+      setTierSlotsLoading(false);
     }
   }
 
@@ -1254,64 +1528,6 @@ export function PublicStepClient({
       return;
     }
     saveAndNavigate({}, routeFor("roulette"));
-  }
-
-  async function sendOtp() {
-    if (!state.phone) {
-      setOtpMessage("Enter your mobile number first.");
-      return;
-    }
-    setOtpBusy(true);
-    setOtpMessage("");
-    try {
-      const res = await api<{ sent: boolean; devCode?: string }>(
-        "/api/public/otp/request",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            campaignSlug: campaign.slug,
-            phone: state.phone,
-          }),
-        },
-      );
-      setOtpSent(true);
-      setOtpMessage(
-        res.devCode
-          ? `Code sent. Demo code: ${res.devCode}`
-          : "Verification code sent via SMS.",
-      );
-    } catch (caught) {
-      setOtpMessage(
-        caught instanceof Error ? caught.message : "Unable to send code.",
-      );
-    } finally {
-      setOtpBusy(false);
-    }
-  }
-
-  async function verifyOtpCode() {
-    setOtpBusy(true);
-    setOtpMessage("");
-    try {
-      const result = await api<{ customerSessionToken: string }>(
-        "/api/public/otp/verify",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            campaignSlug: campaign.slug,
-            phone: state.phone,
-            code: otpCode,
-          }),
-        },
-      );
-      setOtpVerified(true);
-      save({ customerSessionToken: result.customerSessionToken });
-      setOtpMessage("Phone number verified.");
-    } catch (caught) {
-      setOtpMessage(caught instanceof Error ? caught.message : "Invalid code.");
-    } finally {
-      setOtpBusy(false);
-    }
   }
 
   async function shareReferralLink() {
@@ -1403,22 +1619,27 @@ export function PublicStepClient({
 
   async function issueFinalVoucher() {
     setError("");
+    // The confirm button stays enabled even when details are missing, so a tap
+    // always tells the visitor exactly what still needs filling in. Checks run in
+    // the order the fields appear on the form.
+    if (!state.name.trim()) {
+      setError("Missing full name.");
+      return;
+    }
+    if (!state.phone) {
+      setError("Missing mobile number.");
+      return;
+    }
+    if (campaign.mode === "restaurant" && !(Number(state.guestCount) >= 1)) {
+      setError("Missing number of guests.");
+      return;
+    }
     if (!state.selectedAttemptId) {
-      setError("Choose one voucher candidate first.");
+      setError("Missing voucher — choose one voucher candidate first.");
       return;
     }
     if (!state.selectedSlotId) {
-      setError("Choose an available date and time first.");
-      return;
-    }
-    if (!state.name || !state.phone) {
-      setError("Name and mobile number are required.");
-      return;
-    }
-    if (otpRequired && !otpVerified) {
-      setError(
-        "Verify your phone number with the code we sent before confirming.",
-      );
+      setError("Missing date & time — choose an available slot first.");
       return;
     }
     setBusy(true);
@@ -1440,32 +1661,30 @@ export function PublicStepClient({
         }),
       });
       saveAndNavigate({ issued }, routeFor("confirmation"));
+      // Deliberately stay busy: this is a document navigation, so clearing it
+      // here would drop the button back to its idle label while the browser is
+      // still loading the confirmation page.
     } catch (caught) {
-      const message =
-        caught instanceof Error ? caught.message : "Unable to confirm voucher.";
-      if (/phone verification is required/i.test(message)) {
-        setOtpRequired(true);
-        setOtpVerified(false);
-        setError("");
-        setOtpMessage(
-          "Send a verification code to your mobile number, then enter it below.",
-        );
-      } else {
-        reportError(caught, "Unable to confirm voucher.");
-      }
-    } finally {
       setBusy(false);
+      reportError(caught, "Unable to confirm voucher.");
     }
   }
+
+  // Bottom nav is shown on every step but highlights nothing: the tabbed screens
+  // (home, vouchers, more) are all standalone global pages, not steps of this flow.
+  const bottomTab: "home" | "vouchers" | "more" | undefined = undefined;
 
   if (step === "landing") {
     return (
       <main className="mobile-flow-shell landing-flow-shell">
         <div className="mobile-app-frame landing-app-frame">
           <section className="landing-app-bar">
-            <strong>BizFlow Voucher Hunt</strong>
+            <strong>Voucher Hunt</strong>
           </section>
           <section className="landing-screen">{renderStep()}</section>
+          {isValidPhoneNumber(state.phone) ? (
+            <BottomNav activeTab={bottomTab} />
+          ) : null}
         </div>
       </main>
     );
@@ -1478,8 +1697,6 @@ export function PublicStepClient({
           <div className="step-app-bar">
             {step === "results" ||
             step === "confirmation" ||
-            step === "vouchers" ||
-            step === "more" ||
             step === "signin" ||
             step === "roulette" ? (
               <span className="step-back-link" aria-hidden="true" />
@@ -1487,11 +1704,7 @@ export function PublicStepClient({
               <Link
                 aria-label="Back"
                 className="step-back-link"
-                href={
-                  step === "voucher"
-                    ? routeFor("vouchers")
-                    : previousRoute(step)
-                }
+                href={previousRoute(step)}
                 prefetch={false}
               >
                 <FiChevronLeft aria-hidden="true" />
@@ -1502,9 +1715,7 @@ export function PublicStepClient({
           </div>
         </section>
         <section
-          className={`mobile-screen-card ${
-            step === "vouchers" ? "voucher-wallet-screen" : ""
-          } ${step === "roulette" ? "roulette-screen" : ""}`}
+          className={`mobile-screen-card ${step === "roulette" ? "roulette-screen" : ""}`}
         >
           {soldOut ? renderSoldOutNotice() : null}
           {renderStep()}
@@ -1597,37 +1808,61 @@ export function PublicStepClient({
             </div>
           </div>
         ) : null}
+        <BottomNav activeTab={bottomTab} />
       </div>
     </main>
   );
 
   function renderStep() {
     if (step === "landing") {
-      if (!flowHydrated || !state.phone) {
-        return (
-          <div className="landing-auth-check">
-            <div className="hunt-loading-emblem" aria-hidden="true">
-              <span className="hunt-loading-ring" />
-              <FiShoppingBag />
-            </div>
-            <h2 className="hunt-title">Checking sign in...</h2>
-          </div>
-        );
+      // Signed-out visitors are sent to the global /signin (by the server and the
+      // redirect effect), so the landing only renders the signed-in hunt screen.
+      if (!isValidPhoneNumber(state.phone)) {
+        return <ContentSkeleton />;
       }
+      const campaignImage = resolveCampaignImage(campaign);
       return (
         <>
-          <CampaignTabs campaigns={campaigns} currentSlug={campaign.slug} />
-          <h1 className="landing-title">Sign in and hunt for a voucher</h1>
-          <p className="landing-copy">
-            Sign in with your mobile number, spin the voucher roulette, then
-            pick your date &amp; time.
-          </p>
-          <div className="landing-hero-art" aria-hidden="true" />
+          <article className="campaign-landing-card">
+            {campaignImage ? (
+              <div className="campaign-landing-media">
+                <Image
+                  alt={campaignImage.alt}
+                  fill
+                  priority
+                  sizes="(max-width: 480px) calc(100vw - 72px), 352px"
+                  src={campaignImage.src}
+                  unoptimized={campaignImage.src.startsWith("data:")}
+                />
+                <span className={`campaign-landing-category mode-${campaign.mode}`}>
+                  {CAMPAIGN_MODE_LABELS[campaign.mode]}
+                </span>
+              </div>
+            ) : null}
+            <div className="campaign-landing-body">
+              <div>
+                <span className="campaign-landing-eyebrow">Selected campaign</span>
+                <h1>{campaign.title}</h1>
+                <p className="campaign-landing-business">{businessName}</p>
+              </div>
+              <p className="campaign-landing-offer">{campaign.offerMessage}</p>
+              <div className="campaign-landing-meta">
+                <span>
+                  <FiMapPin aria-hidden="true" />
+                  {campaign.location ?? "Location to be announced"}
+                </span>
+                <span>
+                  <FiCalendar aria-hidden="true" />
+                  {formatCampaignRange(campaign.startDate, campaign.endDate)}
+                </span>
+              </div>
+            </div>
+          </article>
+          <div className="landing-action-intro">
+            <h2>Ready to hunt?</h2>
+            <p>Spin the voucher roulette, then pick your date &amp; time.</p>
+          </div>
           <div className="landing-rule-card">
-            <RuleRow
-              icon={<FiShield aria-hidden="true" />}
-              text="Sign in with your phone number"
-            />
             <RuleRow
               icon={<FiClock aria-hidden="true" />}
               text="One roulette spin reveals one voucher result"
@@ -1647,46 +1882,9 @@ export function PublicStepClient({
           >
             {busy
               ? "Searching for vouchers..."
-              : state.phone
-                ? "Let's Hunt!"
-                : "Sign In to Hunt"}
-          </button>
-          <BottomNav activeTab="home" routeFor={routeFor} />
-        </>
-      );
-    }
-
-    if (step === "signin") {
-      return (
-        <>
-          <GiftIllustration />
-          <h2 className="hunt-title">Sign in to start hunting</h2>
-          <p className="muted hunt-subtitle">
-            Enter your mobile number to save your hunt and referral rewards.
-          </p>
-          <label className="field" style={{ marginTop: 14 }}>
-            <span>Mobile Number</span>
-            <input
-              value={state.phone}
-              onChange={(event) =>
-                save({
-                  phone: event.target.value,
-                  customerSessionToken: "",
-                })
-              }
-              placeholder="+639171234567"
-              inputMode="tel"
-            />
-          </label>
-          {error ? <p className="alert">{error}</p> : null}
-          <button
-            aria-busy={busy}
-            className="button full mobile-bottom-action"
-            disabled={busy || !isValidPhoneNumber(state.phone)}
-            onClick={signIn}
-            type="button"
-          >
-            Continue
+              : resumeRoute()
+                ? "Continue"
+                : "Let's Hunt!"}
           </button>
         </>
       );
@@ -1730,11 +1928,9 @@ export function PublicStepClient({
     }
 
     if (step === "roulette") {
-      const displayItems =
-        rouletteItems.length > 0 ? rouletteItems : placeholderRouletteItems();
       if (roulettePhase === "idle" && !rouletteItems.length && !error) {
         return (
-          <div className="roulette-page-content">
+          <div className="roulette-page-content roulette-page-content--loading">
             <div className="hunt-loading-emblem" aria-hidden="true">
               <span className="hunt-loading-ring" />
               <FiShoppingBag />
@@ -1747,15 +1943,33 @@ export function PublicStepClient({
         );
       }
       return (
-        <div className="roulette-page-content">
-          <p className="muted hunt-subtitle">
-            Every possible voucher is in the reel. Watch the arrow land on your
-            result.
+        <div className="roulette-page-content roulette-page-content--reel">
+          <p className="muted hunt-subtitle roulette-lead">
+            Every voucher is in the reel — watch the arrow land on your prize!
           </p>
           <div
-            className="roulette-stage roulette-page-stage"
-            aria-hidden="true"
+            className={`roulette-stage roulette-page-stage ${
+              isSpinning ? "is-stoppable" : ""
+            }`}
+            aria-hidden={isSpinning ? undefined : true}
+            role={isSpinning ? "button" : undefined}
+            tabIndex={isSpinning ? 0 : undefined}
+            aria-label={isSpinning ? "Tap to stop the voucher reel" : undefined}
+            onClick={isSpinning ? stopRoulette : undefined}
+            onKeyDown={
+              isSpinning
+                ? (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      stopRoulette();
+                    }
+                  }
+                : undefined
+            }
           >
+            {isSpinning ? (
+              <span className="roulette-tap-hint">Tap to stop</span>
+            ) : null}
             <span className="roulette-pointer" />
             <div className="roulette-reel-clip">
               <div
@@ -1768,48 +1982,49 @@ export function PublicStepClient({
                 }`}
                 style={rouletteTrackStyle}
               >
-                {displayItems.map((item, index) => {
-                  const presentation = getVoucherPresentation(item);
-                  return (
-                    <article
-                      className={`card candidate roulette-ticket voucher-${presentation.rarity} ${
-                        roulettePhase === "selected" &&
-                        index === rouletteTargetIndex
-                          ? "selected"
-                          : ""
-                      }`}
-                      key={`${item.displayLabel}-${index}`}
-                    >
-                      <VoucherCard
-                        benefit={item}
-                        detail={voucherDetail(item)}
-                      />
-                    </article>
-                  );
-                })}
+                {rouletteCards}
               </div>
             </div>
           </div>
-          <div className="roulette-result-copy">
-            <h2 className="hunt-title">
-              {rouletteWinner ? "Voucher selected!" : "Spinning now..."}
-            </h2>
-            <p className="muted hunt-subtitle">
-              {rouletteMessage || "Starting the roulette..."}
-            </p>
-            {error ? <p className="alert">{error}</p> : null}
-          </div>
-          {pendingSpinCompletion ? (
-            <div className="roulette-confirm-actions roulette-page-actions">
-              <button
-                className="button full"
-                onClick={confirmRouletteSelection}
-                type="button"
-              >
-                Confirm Voucher
-              </button>
+          {/* Everything below the reel lives in one zone that grows/shrinks as the
+              copy and confirm button appear, without moving the reel above it. */}
+          <div className="roulette-below">
+            <div
+              className={`roulette-result-copy ${rouletteWinner ? "is-winner" : ""}`}
+            >
+              <h2 className="hunt-title roulette-result-title">
+                {rouletteWinner
+                  ? "🎉 Voucher unlocked!"
+                  : roulettePhase === "landing"
+                    ? "Slowing down..."
+                    : "Spinning now..."}
+              </h2>
+              {rouletteMessage ? (
+                <p className="muted hunt-subtitle">{rouletteMessage}</p>
+              ) : null}
+              {error ? <p className="alert">{error}</p> : null}
             </div>
-          ) : null}
+            {pendingSpinCompletion ? (
+              <div className="roulette-confirm-actions roulette-page-actions">
+                <button
+                  aria-busy={confirming}
+                  className="button full"
+                  disabled={confirming}
+                  onClick={confirmRouletteSelection}
+                  type="button"
+                >
+                  {confirming ? (
+                    <>
+                      <span className="button-spinner" aria-hidden="true" />
+                      Confirming...
+                    </>
+                  ) : (
+                    "Confirm Voucher"
+                  )}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       );
     }
@@ -1822,7 +2037,9 @@ export function PublicStepClient({
             Pick the voucher you want to continue with. Extra spins add more
             options here.
           </p>
-          {state.attempts.length === 0 ? (
+          {!flowHydrated ? (
+            <ContentSkeleton />
+          ) : state.attempts.length === 0 ? (
             <div className="info-card">
               <p>No voucher result yet.</p>
               <Link
@@ -1884,6 +2101,10 @@ export function PublicStepClient({
                     Share to unlock another spin
                   </button>
                 )}
+                <p className="muted result-share-hint">
+                  Share your link. When a friend opens it, you earn one extra
+                  roulette spin.
+                </p>
                 <p className="muted result-share-note">
                   Extra spins earned today: {state.shareCount} /{" "}
                   {campaign.referralDailyLimit}
@@ -1916,6 +2137,9 @@ export function PublicStepClient({
     }
 
     if (step === "datetime") {
+      if (!flowHydrated) {
+        return <DateTimeSkeleton slots={slots} />;
+      }
       if (!state.userId || !state.selectedAttemptId) {
         return (
           <div className="info-card">
@@ -1929,6 +2153,9 @@ export function PublicStepClient({
             </Link>
           </div>
         );
+      }
+      if (tierSlotsLoading) {
+        return <DateTimeSkeleton slots={slots} />;
       }
       const datetimeDates = Array.from(
         new Set(tierSlots.map((slot) => slot.date)),
@@ -1948,12 +2175,8 @@ export function PublicStepClient({
             </div>
           ) : null}
           <p className="date-helper">
-            Choose when to use your{" "}
+            Pick a time to use your{" "}
             <strong>{selectedAttempt?.displayLabel}</strong> voucher.
-            {selectedAttempt &&
-            getVoucherPresentation(selectedAttempt).rarity !== "standard"
-              ? ""
-              : ""}
           </p>
 
           {tierSlots.length === 0 ? (
@@ -1971,9 +2194,12 @@ export function PublicStepClient({
                     .map((slot) => {
                       const slotSoldOut =
                         slot.remainingCapacity <= 0 || slot.status !== "active";
+                      const selected = slot.id === state.selectedSlotId;
+                      const low = slot.remainingCapacity <= 3;
                       return (
                         <button
-                          className={`slot-row ${slot.id === state.selectedSlotId ? "active" : ""} ${slotSoldOut ? "sold-out" : ""}`}
+                          aria-pressed={selected}
+                          className={`slot-row ${selected ? "active" : ""} ${slotSoldOut ? "sold-out" : ""}`}
                           disabled={slotSoldOut}
                           key={slot.id}
                           onClick={() =>
@@ -1984,16 +2210,26 @@ export function PublicStepClient({
                           }
                           type="button"
                         >
-                          <strong>
-                            {formatTime(slot.startTime)} –{" "}
-                            {formatTime(slot.endTime)}
-                          </strong>
+                          <span className="slot-row-main">
+                            <span className="slot-row-time">
+                              {formatTime(slot.startTime)} –{" "}
+                              {formatTime(slot.endTime)}
+                            </span>
+                            <span
+                              className={`slot-row-note ${low && !slotSoldOut ? "low" : ""} ${slotSoldOut ? "gone" : ""}`}
+                            >
+                              {slotSoldOut
+                                ? "Fully booked"
+                                : low
+                                  ? `Only ${slot.remainingCapacity} spots left`
+                                  : `${slot.remainingCapacity} spots available`}
+                            </span>
+                          </span>
                           <span
-                            className={`badge ${slot.remainingCapacity <= 3 ? "warning" : ""} ${slotSoldOut ? "danger" : ""}`}
+                            aria-hidden="true"
+                            className="slot-row-check"
                           >
-                            {slotSoldOut
-                              ? "Sold Out"
-                              : `${slot.remainingCapacity} left`}
+                            {selected ? <FiCheck /> : null}
                           </span>
                         </button>
                       );
@@ -2073,7 +2309,9 @@ export function PublicStepClient({
           <p className="muted">
             Confirm your selected voucher and reservation details.
           </p>
-          {selectedAttempt ? (
+          {!flowHydrated ? (
+            <ContentSkeleton />
+          ) : selectedAttempt ? (
             <article
               className={`card candidate confirm-ticket voucher-${getVoucherPresentation(selectedAttempt).rarity}`}
             >
@@ -2095,7 +2333,9 @@ export function PublicStepClient({
           </label>
           <label className="field">
             <span>Mobile Number</span>
-            <input readOnly value={state.phone} placeholder="+639171234567" />
+            <div className="field-readonly-value">
+              <span>{state.phone || "—"}</span>
+            </div>
           </label>
           <label className="field">
             <span>Email(Optional)</span>
@@ -2138,446 +2378,32 @@ export function PublicStepClient({
               }
             />
           </div>
-          {otpRequired ? (
-            <div className="otp-block">
-              <span className="otp-block-label">
-                Phone verification required
-              </span>
-              {otpVerified ? (
-                <p className="otp-verified">
-                  <FiCheckCircle aria-hidden="true" /> Phone number verified
-                </p>
-              ) : (
-                <>
-                  <button
-                    className="button secondary full"
-                    disabled={otpBusy || !state.phone}
-                    onClick={sendOtp}
-                    type="button"
-                  >
-                    {otpSent
-                      ? "Resend Verification Code"
-                      : "Send Verification Code"}
-                  </button>
-                  <div className="otp-verify-row">
-                    <input
-                      aria-label="6-digit verification code"
-                      autoComplete="one-time-code"
-                      className={`otp-code-input ${otpCode ? "has-value" : ""}`}
-                      disabled={!otpSent || otpBusy}
-                      inputMode="numeric"
-                      maxLength={6}
-                      pattern="[0-9]*"
-                      placeholder={
-                        otpSent ? "Enter 6-digit code" : "Send a code first"
-                      }
-                      value={otpCode}
-                      onChange={(event) =>
-                        setOtpCode(event.target.value.replace(/\D/g, ""))
-                      }
-                    />
-                    <button
-                      className="button"
-                      disabled={otpBusy || !otpSent || otpCode.length !== 6}
-                      onClick={verifyOtpCode}
-                      type="button"
-                    >
-                      Verify
-                    </button>
-                  </div>
-                </>
-              )}
-              {otpMessage ? (
-                <p className="muted otp-message">{otpMessage}</p>
-              ) : null}
-            </div>
-          ) : null}
           {error ? <p className="alert">{error}</p> : null}
           <button
+            aria-busy={busy}
             className="button full mobile-bottom-action"
-            disabled={
-              busy ||
-              !state.name ||
-              !state.phone ||
-              !state.selectedAttemptId ||
-              (otpRequired && !otpVerified)
-            }
+            disabled={busy}
             onClick={issueFinalVoucher}
             type="button"
           >
-            Confirm & Reserve
+            {busy ? (
+              <>
+                <span className="button-spinner" aria-hidden="true" />
+                Reserving...
+              </>
+            ) : (
+              "Confirm & Reserve"
+            )}
           </button>
         </>
       );
     }
 
-    if (step === "vouchers") {
-      return (
-        <div className="voucher-wallet">
-          <div className="voucher-wallet-heading">
-            <p className="muted">Your claimed vouchers saved on this device.</p>
-          </div>
-          {claimedVouchers.length > 0 ? (
-            <div className="candidate-grid">
-              {claimedVouchers.map((item) => (
-                <button
-                  aria-label={`View details for ${item.voucher.displayLabel}`}
-                  className={`card candidate candidate-button wallet-voucher voucher-${getVoucherPresentation(item.voucher).rarity}`}
-                  key={item.voucher.id}
-                  onClick={() =>
-                    navigate(
-                      `/campaign/${item.campaignSlug}/vouchers/${item.voucher.id}`,
-                    )
-                  }
-                  type="button"
-                >
-                  <VoucherCard
-                    benefit={item.voucher}
-                    code={item.voucher.voucherCode}
-                    detail={item.businessName}
-                  />
-                  <small className="wallet-voucher-meta">
-                    {item.campaignTitle} · {formatDate(item.slot.date)} at{" "}
-                    {formatTime(item.slot.startTime)}
-                  </small>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="info-card">
-              <p>No claimed vouchers saved on this device yet.</p>
-            </div>
-          )}
-          <BottomNav activeTab="vouchers" routeFor={routeFor} />
-        </div>
-      );
-    }
-
-    if (step === "more") {
-      return (
-        <div className="more-tab-content">
-          <div className="info-card">
-            <h2>Account</h2>
-            <p className="muted">
-              {state.phone
-                ? `Signed in as ${state.phone}`
-                : "You are not signed in."}
-            </p>
-          </div>
-          <div className="info-card rewards-wallet-card">
-            <div className="rewards-wallet-header">
-              <div>
-                <h2>Rewards Wallet</h2>
-                <p className="muted">
-                  {rewardWallet
-                    ? "Show this QR when paying at partner stores."
-                    : "Verify your phone number to unlock your wallet QR."}
-                </p>
-              </div>
-              <span className="badge success">5% credit</span>
-            </div>
-            {rewardWallet ? (
-              <>
-                <div className="rewards-wallet-balance">
-                  <span className="muted">Available reward credit</span>
-                  <strong>{rewardWallet.balance}</strong>
-                  <small>
-                    Credits are not cash and can only convert to BizFlow partner
-                    vouchers.
-                  </small>
-                </div>
-                <div className="reward-wallet-qr">
-                  {rewardQrDataUrl ? (
-                    <Image
-                      alt="Customer rewards wallet QR code"
-                      height={148}
-                      src={rewardQrDataUrl}
-                      unoptimized
-                      width={148}
-                    />
-                  ) : (
-                    <span>Generating wallet QR…</span>
-                  )}
-                </div>
-                <div className="reward-wallet-token">
-                  <button
-                    className="button secondary wallet-token-toggle"
-                    onClick={() => setRewardTokenVisible((visible) => !visible)}
-                    type="button"
-                  >
-                    {rewardTokenVisible ? (
-                      <FiEyeOff aria-hidden="true" />
-                    ) : (
-                      <FiEye aria-hidden="true" />
-                    )}
-                    {rewardTokenVisible
-                      ? "Hide wallet token"
-                      : "Show wallet token"}
-                  </button>
-                  {rewardTokenVisible && (
-                    <div className="wallet-token-value">
-                      <code>{rewardWallet.wallet.walletToken}</code>
-                      <button
-                        className="button secondary wallet-token-copy"
-                        onClick={copyRewardWalletToken}
-                        type="button"
-                      >
-                        <FiCopy aria-hidden="true" />
-                        Copy
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <label className="field rewards-convert-field">
-                  <span>Convert credits to voucher</span>
-                  <input
-                    inputMode="decimal"
-                    onChange={(event) =>
-                      setRewardConvertAmount(event.target.value)
-                    }
-                    placeholder="50.00"
-                    value={rewardConvertAmount}
-                  />
-                </label>
-                <button
-                  className="button full"
-                  disabled={
-                    rewardBusy ||
-                    !rewardWallet?.walletSecret ||
-                    !rewardConvertAmount.trim()
-                  }
-                  onClick={convertRewardCredit}
-                  type="button"
-                >
-                  Convert to Voucher
-                </button>
-                {rewardWallet.vouchers.length > 0 ? (
-                  <div className="reward-voucher-list">
-                    <strong>Your reward vouchers</strong>
-                    {rewardWallet.vouchers.slice(0, 3).map((voucher) => {
-                      const expanded = expandedRewardVoucherId === voucher.id;
-                      return (
-                        <div className="reward-voucher-card" key={voucher.id}>
-                          <button
-                            className="reward-voucher-row"
-                            onClick={() =>
-                              setExpandedRewardVoucherId(expanded ? "" : voucher.id)
-                            }
-                            type="button"
-                          >
-                            <span>{voucher.voucherCode}</span>
-                            <small>
-                              ₱{(voucher.remainingCentavos / 100).toFixed(2)} ·{" "}
-                              {voucher.status}
-                            </small>
-                            <FiChevronRight
-                              aria-hidden="true"
-                              className={`reward-voucher-arrow ${expanded ? "expanded" : ""}`}
-                            />
-                          </button>
-                          {expanded ? (
-                            <div className="reward-voucher-detail">
-                              <div className="reward-voucher-qr">
-                                {rewardVoucherQrDataUrl ? (
-                                  <Image
-                                    alt={`QR code for reward voucher ${voucher.voucherCode}`}
-                                    height={148}
-                                    src={rewardVoucherQrDataUrl}
-                                    unoptimized
-                                    width={148}
-                                  />
-                                ) : (
-                                  <span>Generating reward QR…</span>
-                                )}
-                              </div>
-                              <div className="reward-voucher-actions">
-                                <button
-                                  className="button secondary"
-                                  onClick={() =>
-                                    copyRewardVoucherValue(
-                                      voucher.voucherCode,
-                                      "Reward voucher code",
-                                    )
-                                  }
-                                  type="button"
-                                >
-                                  <FiCopy aria-hidden="true" />
-                                  Copy Code
-                                </button>
-                                <button
-                                  className="button secondary"
-                                  onClick={() =>
-                                    copyRewardVoucherValue(
-                                      voucher.qrToken,
-                                      "Reward QR token",
-                                    )
-                                  }
-                                  type="button"
-                                >
-                                  <FiCopy aria-hidden="true" />
-                                  Copy QR Token
-                                </button>
-                              </div>
-                              <small className="muted">
-                                Partner staff can scan this QR or enter the voucher
-                                code in Rewards Network.
-                              </small>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </>
-            ) : !state.customerSessionToken ? (
-              <div className="otp-block rewards-wallet-otp">
-                <span className="otp-block-label">
-                  Verify your phone to unlock your wallet
-                </span>
-                <button
-                  className="button secondary full"
-                  disabled={otpBusy || !state.phone}
-                  onClick={sendOtp}
-                  type="button"
-                >
-                  {otpSent
-                    ? "Resend Verification Code"
-                    : "Send Verification Code"}
-                </button>
-                <div className="otp-verify-row">
-                  <input
-                    aria-label="6-digit wallet verification code"
-                    autoComplete="one-time-code"
-                    className={`otp-code-input ${otpCode ? "has-value" : ""}`}
-                    disabled={!otpSent || otpBusy}
-                    inputMode="numeric"
-                    maxLength={6}
-                    pattern="[0-9]*"
-                    placeholder={
-                      otpSent ? "Enter 6-digit code" : "Send a code first"
-                    }
-                    value={otpCode}
-                    onChange={(event) =>
-                      setOtpCode(event.target.value.replace(/\D/g, ""))
-                    }
-                  />
-                  <button
-                    className="button"
-                    disabled={otpBusy || !otpSent || otpCode.length !== 6}
-                    onClick={verifyOtpCode}
-                    type="button"
-                  >
-                    Verify
-                  </button>
-                </div>
-                {otpMessage ? (
-                  <p className="muted otp-message">{otpMessage}</p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="muted">
-                {rewardBusy
-                  ? "Loading rewards wallet…"
-                  : error
-                    ? "We could not load your rewards wallet yet."
-                    : "Rewards wallet is ready after verification."}
-              </p>
-            )}
-            {error ? <p className="alert">{error}</p> : null}
-          </div>
-          <button
-            className="button secondary full more-sign-out-button"
-            onClick={signOut}
-            type="button"
-          >
-            <FiLogOut aria-hidden="true" />
-            Sign Out
-          </button>
-          {shareNotice ? (
-            <div
-              className={`snackbar ${shareNoticeExiting ? "snackbar-exit" : ""}`}
-              role="status"
-              aria-live="polite"
-            >
-              <FiCheckCircle aria-hidden="true" />
-              {shareNotice}
-            </div>
-          ) : null}
-          <BottomNav activeTab="more" routeFor={routeFor} />
-        </div>
-      );
-    }
-
-    if (step === "voucher") {
-      return viewedVoucher ? (
-        <div className="confirmation-content voucher-detail-content">
-          <h2>{viewedVoucher.voucher.displayLabel}</h2>
-          <p className="muted">Show this voucher and QR code at the outlet.</p>
-          <article
-            className={`card candidate issued-voucher voucher-${getVoucherPresentation(viewedVoucher.voucher).rarity}`}
-          >
-            <VoucherCard
-              benefit={viewedVoucher.voucher}
-              code={viewedVoucher.voucher.voucherCode}
-              detail={viewedVoucher.businessName}
-            />
-          </article>
-          <div className="qr-code">
-            {qrDataUrl ? (
-              <Image
-                alt={`QR code for voucher ${viewedVoucher.voucher.voucherCode}`}
-                height={164}
-                src={qrDataUrl}
-                unoptimized
-                width={164}
-              />
-            ) : (
-              <span>Generating QR code…</span>
-            )}
-          </div>
-          <div className="summary-list" style={{ textAlign: "left" }}>
-            <SummaryRow
-              icon={<FiCalendar aria-hidden="true" />}
-              label="Date"
-              value={formatDate(viewedVoucher.slot.date)}
-            />
-            <SummaryRow
-              icon={<FiClock aria-hidden="true" />}
-              label="Time"
-              value={formatTime(viewedVoucher.slot.startTime)}
-            />
-            <SummaryRow
-              icon={<FiCheckCircle aria-hidden="true" />}
-              label="Status"
-              value={formatVoucherStatus(viewedVoucher.voucher.status)}
-            />
-          </div>
-          <Link
-            className="button full mobile-bottom-action"
-            href={routeFor("vouchers")}
-            prefetch={false}
-          >
-            Back to My Vouchers
-          </Link>
-        </div>
-      ) : (
-        <div className="info-card">
-          <p>This voucher is no longer saved on this device.</p>
-          <Link
-            className="button full"
-            href={routeFor("vouchers")}
-            prefetch={false}
-          >
-            Back to My Vouchers
-          </Link>
-        </div>
-      );
-    }
-
     return (
       <>
-        {state.issued ? (
+        {!flowHydrated ? (
+          <ContentSkeleton />
+        ) : state.issued ? (
           <div className="confirmation-content">
             <div className="confirmation-check">
               <Image
@@ -2633,7 +2459,7 @@ export function PublicStepClient({
             </div>
             <button
               className="button full mobile-bottom-action"
-              onClick={() => navigate(routeFor("vouchers"))}
+              onClick={() => navigate(vouchersRoute)}
               type="button"
             >
               View My Vouchers
@@ -2676,40 +2502,6 @@ export function PublicStepClient({
         : {}),
     });
   }
-}
-
-const modeIcons: Record<Campaign["mode"], ReactNode> = {
-  restaurant: <FaUtensils aria-hidden="true" />,
-  online_shop: <FaStore aria-hidden="true" />,
-  beauty: <FaSpa aria-hidden="true" />,
-  pet: <FaPaw aria-hidden="true" />,
-  retail: <FaShoppingBag aria-hidden="true" />,
-  other: <FaTag aria-hidden="true" />,
-};
-
-function CampaignTabs({
-  campaigns,
-  currentSlug,
-}: {
-  campaigns: TabCampaign[];
-  currentSlug: string;
-}) {
-  if (campaigns.length === 0) return null;
-  return (
-    <div className="landing-tabs">
-      {campaigns.map((item) => (
-        <Link
-          className={`landing-tab ${item.slug === currentSlug ? "active" : ""}`}
-          href={`/campaign/${item.slug}`}
-          key={item.slug}
-          prefetch={false}
-        >
-          {modeIcons[item.mode]}
-          {item.title}
-        </Link>
-      ))}
-    </div>
-  );
 }
 
 function RuleRow({ icon, text }: { icon: ReactNode; text: string }) {
@@ -2810,38 +2602,17 @@ function GiftIllustration() {
 
 function BottomNav({
   activeTab,
-  routeFor,
 }: {
-  activeTab: "home" | "vouchers" | "more";
-  routeFor: (step: PublicStep) => string;
+  activeTab?: "home" | "vouchers" | "more";
 }) {
+  // Home = campaign directory; Vouchers/More = global routes.
   return (
-    <nav className="landing-bottom-nav" aria-label="Customer navigation">
-      <Link
-        className={activeTab === "home" ? "active" : ""}
-        href={routeFor("landing")}
-        prefetch={false}
-      >
-        <FiHome aria-hidden="true" />
-        Home
-      </Link>
-      <Link
-        className={activeTab === "vouchers" ? "active" : ""}
-        href={routeFor("vouchers")}
-        prefetch={false}
-      >
-        <FiShoppingBag aria-hidden="true" />
-        Vouchers
-      </Link>
-      <Link
-        className={activeTab === "more" ? "active" : ""}
-        href={routeFor("more")}
-        prefetch={false}
-      >
-        <FiMoreHorizontal aria-hidden="true" />
-        More
-      </Link>
-    </nav>
+    <CustomerBottomNav
+      active={activeTab}
+      homeHref="/"
+      vouchersHref="/vouchers"
+      moreHref="/more"
+    />
   );
 }
 

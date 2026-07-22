@@ -10,7 +10,6 @@ export type Business = {
   name: string;
   logoText: string;
   industry: CampaignMode;
-  staffPin: string;
 };
 
 export type Campaign = {
@@ -21,6 +20,8 @@ export type Campaign = {
   offerMessage: string;
   heroImage: string;
   mode: CampaignMode;
+  /** Human-readable location shown on the campaign directory card (e.g. "Makati"). */
+  location?: string;
   status: CampaignStatus;
   startDate: string;
   endDate: string;
@@ -29,8 +30,6 @@ export type Campaign = {
   candidateTimeoutMinutes: number;
   terms: string;
   shopUrl?: string;
-  /** When true, the final voucher can only be issued after phone OTP verification. */
-  requireOtp: boolean;
   /** When true, an issued restaurant reservation can be moved to another slot. */
   allowReschedule: boolean;
 };

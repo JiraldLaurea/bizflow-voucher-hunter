@@ -1,13 +1,7 @@
-import { notFound } from "next/navigation";
-import { getPublicCampaign } from "@/server/voucher-engine";
-import { PublicStepClient } from "../_components/PublicStepClient";
+import { redirect } from "next/navigation";
 
-export default async function SignInPage({ params }: { params: { slug: string } }) {
-  try {
-    const data = await getPublicCampaign(params.slug);
-    if (!data.business) notFound();
-    return <PublicStepClient step="signin" campaign={data.campaign} businessName={data.business.name} businessLogo={data.business.logoText} slots={data.slots} />;
-  } catch {
-    notFound();
-  }
+// Sign-in is now a single global page (/signin). Redirect any old per-campaign
+// sign-in link there, returning to this campaign afterwards.
+export default function CampaignSignInPage({ params }: { params: { slug: string } }) {
+  redirect(`/signin?next=${encodeURIComponent(`/campaign/${params.slug}`)}`);
 }

@@ -11,6 +11,16 @@ const schema = z.object({
   ref: z.string().min(1),
 });
 
+function relativeRedirect(path: string) {
+  return new NextResponse(null, {
+    status: 307,
+    headers: {
+      location: path,
+      "cache-control": "private, no-cache, no-store, max-age=0",
+    },
+  });
+}
+
 /**
  * Returns a JavaScript handoff instead of granting immediately. Messaging and
  * social preview crawlers fetch this URL but do not execute the handoff, so
@@ -22,13 +32,19 @@ export async function GET(request: NextRequest) {
     campaign: url.searchParams.get("campaign"),
     ref: url.searchParams.get("ref"),
   });
-  if (!parsed.success) return NextResponse.redirect(new URL("/", request.url));
+  if (!parsed.success) return relativeRedirect("/");
 
   const existingVisitorId = request.cookies.get(VISITOR_COOKIE)?.value ?? "";
   const visitorSessionId = existingVisitorId || crypto.randomUUID();
-  const claimUrl = new URL("/api/public/referral/claim", request.url);
-  claimUrl.searchParams.set("campaign", parsed.data.campaign);
-  claimUrl.searchParams.set("ref", parsed.data.ref);
+  // Keep the browser handoff relative. Reverse proxies such as ngrok can expose
+  // an HTTPS public host while Next.js sees the upstream as localhost:3000;
+  // constructing an absolute URL from request.url would send the visitor to
+  // that unreachable internal address.
+  const claimQuery = new URLSearchParams({
+    campaign: parsed.data.campaign,
+    ref: parsed.data.ref,
+  });
+  const claimPath = `/api/public/referral/claim?${claimQuery.toString()}`;
 
   const response = new NextResponse(
     `<!doctype html>
@@ -46,7 +62,7 @@ export async function GET(request: NextRequest) {
       <p style="color:#68738c">Confirming your visit securely.</p>
     </main>
     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-    <script>window.location.replace(${JSON.stringify(claimUrl.toString())});</script>
+    <script>window.location.replace(${JSON.stringify(claimPath)});</script>
   </body>
 </html>`,
     {

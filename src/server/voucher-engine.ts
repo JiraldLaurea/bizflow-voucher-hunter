@@ -18,7 +18,6 @@ import {
   run,
   withTx
 } from "@/server/db";
-import { assertOtpVerified } from "@/server/otp";
 import { normalizePhone } from "@/server/phone";
 import { sendSms, type SmsResult } from "@/server/sms";
 import type { Campaign, CampaignSlot, EndUser, SourceType, Voucher, VoucherAttempt, VoucherPool } from "@/types/voucher";
@@ -306,6 +305,7 @@ export async function listPublicVoucherPools(slug: string) {
   )
     .map(mapPool)
     .map((pool) => ({
+      ...(process.env.NODE_ENV !== "production" ? { poolId: pool.id } : {}),
       benefitType: pool.benefitType,
       benefitValue: pool.benefitValue,
       displayLabel: pool.displayLabel,
@@ -320,7 +320,38 @@ export async function listActiveCampaigns() {
   return (await all(db, "SELECT * FROM campaigns WHERE status = 'active' ORDER BY start_date DESC")).map(mapCampaign);
 }
 
-/** Phone sign-in: identifies the user and lets them hunt immediately (no slot yet). */
+export type CampaignCard = {
+  campaign: Campaign;
+  businessName: string;
+  businessLogo: string;
+  /** The business's industry — the meaningful "category" for the directory card. */
+  businessIndustry: string;
+};
+
+/** Active campaigns joined with their business, for the public directory grid. */
+export async function listPublicCampaignCards(): Promise<CampaignCard[]> {
+  const db = await getDb();
+  const rows = await all(
+    db,
+    `SELECT c.*, b.name AS business_name, b.logo_text AS business_logo, b.industry AS business_industry
+     FROM campaigns c JOIN businesses b ON b.id = c.business_id
+     WHERE c.status = 'active'
+     ORDER BY c.start_date DESC`
+  );
+  return rows.map((r) => ({
+    campaign: mapCampaign(r),
+    businessName: String(r.business_name),
+    businessLogo: String(r.business_logo),
+    businessIndustry: String(r.business_industry)
+  }));
+}
+
+/**
+ * Phone sign-in: identifies the user and returns their current hunt state. A
+ * visitor who already holds a final voucher can still sign in (to view it) — the
+ * one-voucher-per-campaign rule is enforced when generating candidates and at
+ * final selection, not at sign-in. The returned state includes any issued voucher.
+ */
 export async function startHunt(input: {
   campaignSlug: string;
   phone: string;
@@ -331,9 +362,6 @@ export async function startHunt(input: {
   const result = await withTx(async (tx) => {
     const campaign = await getCampaignOrThrow(tx, input.campaignSlug);
     const user = await findOrCreateUser(tx, campaign.id, input.phone, input.sessionId, input.name, input.email);
-    if (await hasFinalVoucher(tx, campaign.id, user.id)) {
-      throw new AppError("E-DUPLICATE-FINAL", "This phone number already has a final voucher for this campaign", 409);
-    }
     await addAnalytics(tx, campaign.id, "hunt_started", { phone: user.phone }, user.id);
     return { campaign, user };
   });
@@ -358,6 +386,7 @@ export function generateCandidate(input: {
   phone: string;
   sessionId: string;
   sourceType?: SourceType;
+  devPoolId?: string;
 }) {
   const sourceType = input.sourceType ?? "base";
   return withTx(async (tx) => {
@@ -389,7 +418,19 @@ export function generateCandidate(input: {
     ).map(mapPool);
     if (pools.length === 0) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this campaign", 409);
 
-    const pool = weightedPool(pools, new Set(activeAttempts.map((a) => a.displayLabel)));
+    if (input.devPoolId && process.env.NODE_ENV === "production") {
+      throw new AppError("E-DEV-OVERRIDE", "Voucher selection override is unavailable", 400);
+    }
+    const pool = input.devPoolId
+      ? pools.find((candidate) => candidate.id === input.devPoolId)
+      : weightedPool(pools, new Set(activeAttempts.map((a) => a.displayLabel)));
+    if (!pool) {
+      throw new AppError(
+        "E-POOL-404",
+        "The selected development voucher is unavailable for this campaign",
+        409,
+      );
+    }
 
     // Conditional decrement: guards against over-issue across connections/processes.
     const dec = await run(
@@ -481,8 +522,6 @@ export function selectFinalVoucher(input: {
     if (await hasFinalVoucher(tx, campaign.id, user.id)) {
       throw new AppError("E-DUPLICATE-FINAL", "This phone number already has a final voucher for this campaign", 409);
     }
-    // Enforce phone OTP verification for campaigns that require it (no-op otherwise).
-    await assertOtpVerified(tx, campaign, user.phone);
     await expireCandidates(tx);
 
     const attemptRow = await one(tx, "SELECT * FROM attempts WHERE id = ? AND campaign_id = ? AND user_id = ?", [
@@ -797,6 +836,76 @@ export async function getHuntSnapshot(input: { campaignSlug: string; phone: stri
   const userRow = normalized ? await one(db, "SELECT * FROM users WHERE campaign_id = ? AND phone = ?", [campaign.id, normalized]) : undefined;
   if (!userRow) throw new AppError("E-USER-404", "No hunt session found for this phone number", 404);
   return huntState(db, campaign, mapUser(userRow));
+}
+
+/**
+ * Development-only: wipe one phone number's hunt for a campaign so it can be run
+ * again from scratch. Returns the stock it reclaimed to the pools/slots, which is
+ * the whole point — deleting the rows alone would leak inventory:
+ *  - attempts still holding stock (Candidate/Held/Selected) return it to their pool
+ *  - each deleted voucher returns its seat to the slot (and un-sells-out the slot)
+ * The user row itself is kept, so the visitor stays signed in.
+ *
+ * Never exposed in production; the calling route refuses there too.
+ */
+export async function resetHuntForPhone(input: { campaignSlug: string; phone: string }) {
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError("E-DEV-ONLY", "Hunt reset is a development-only tool", 403);
+  }
+  return withTx(async (tx) => {
+    const campaign = await getCampaignOrThrow(tx, input.campaignSlug);
+    const normalized = normalizePhone(input.phone);
+    const userRow = normalized
+      ? await one(tx, "SELECT * FROM users WHERE campaign_id = ? AND phone = ?", [campaign.id, normalized])
+      : undefined;
+    if (!userRow) throw new AppError("E-USER-404", "No hunt session found for this phone number", 404);
+    const user = mapUser(userRow);
+
+    // Return pool stock held by any attempt that never made it back on its own.
+    const attempts = (
+      await all(tx, "SELECT * FROM attempts WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id])
+    ).map(mapAttempt);
+    let poolsRestored = 0;
+    for (const attempt of attempts) {
+      if (attempt.status === "Candidate" || attempt.status === "Held" || attempt.status === "Selected") {
+        await run(
+          tx,
+          `UPDATE pools
+           SET remaining_quantity = remaining_quantity + 1,
+               status = CASE WHEN status = 'depleted' THEN 'active' ELSE status END
+           WHERE id = ?`,
+          [attempt.poolId]
+        );
+        poolsRestored += 1;
+      }
+    }
+
+    // Return each issued voucher's seat to its slot.
+    const vouchers = (
+      await all(tx, "SELECT * FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id])
+    ).map(mapVoucher);
+    for (const voucher of vouchers) {
+      await run(
+        tx,
+        `UPDATE slots
+         SET remaining_capacity = remaining_capacity + 1,
+             status = CASE WHEN status = 'sold_out' THEN 'available' ELSE status END
+         WHERE id = ?`,
+        [voucher.slotId]
+      );
+    }
+
+    await run(tx, "DELETE FROM reservations WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
+    await run(tx, "DELETE FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
+    await run(tx, "DELETE FROM attempts WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
+
+    return {
+      campaignSlug: campaign.slug,
+      attemptsCleared: attempts.length,
+      vouchersCleared: vouchers.length,
+      poolsRestored
+    };
+  });
 }
 
 export async function dashboardMetrics(campaignId: string) {

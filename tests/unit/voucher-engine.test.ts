@@ -22,6 +22,17 @@ describe("voucher engine (hunt-first flow)", () => {
     await expect(generateCandidate(base)).rejects.toThrow(AppError);
   });
 
+  it("allows choosing a specific campaign voucher outside production", async () => {
+    await startHunt({ ...base, name: "Jane Doe" });
+    const candidate = await generateCandidate({
+      ...base,
+      devPoolId: "pool_dinner_90",
+    });
+
+    expect(candidate.poolId).toBe("pool_dinner_90");
+    expect(candidate.displayLabel).toBe("90% OFF");
+  });
+
   it("lists rarity-gated slots for the chosen candidate", async () => {
     await startHunt({ ...base, name: "Jane Doe" });
     const candidate = await generateCandidate(base);
@@ -39,7 +50,11 @@ describe("voucher engine (hunt-first flow)", () => {
     expect(issued.voucher.voucherCode).toMatch(/^BIZ-/);
     expect(issued.voucher.status).toBe("Issued");
     expect(issued.voucher.slotId).toBe(issued.slot.id);
-    await expect(startHunt({ ...base, sessionId: "another-session" })).rejects.toThrow(AppError);
+    // The holder can still sign in (to view their voucher)...
+    const state = await startHunt({ ...base, sessionId: "another-session" });
+    expect(state.voucher?.voucherCode).toBe(issued.voucher.voucherCode);
+    // ...but cannot hunt for a second voucher.
+    await expect(generateCandidate({ ...base, sessionId: "another-session" })).rejects.toThrow(AppError);
   });
 
   it("rejects a slot that does not offer the chosen tier", async () => {
