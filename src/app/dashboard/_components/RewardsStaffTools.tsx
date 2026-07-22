@@ -4,10 +4,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FiCheck, FiCreditCard, FiGift, FiRefreshCw, FiShield, FiX } from "react-icons/fi";
 import { api } from "@/lib/api-client";
-import type { Business, RewardVoucher, RewardVoucherRedemption, RewardWallet } from "@/types/voucher";
+import type { Business, RewardVoucher, RewardWallet } from "@/types/voucher";
 
 type CreditResult = {
-  wallet: RewardWallet;
   rewardAmount: string;
   balance: string;
   fraudFlag?: string;
@@ -16,21 +15,22 @@ type CreditResult = {
 };
 
 type ValidateRewardResult = {
-  voucher: RewardVoucher;
-  wallet: RewardWallet;
+  voucher: Pick<RewardVoucher, "voucherCode" | "remainingCentavos" | "status" | "expiresAt">;
+  wallet: Pick<RewardWallet, "maskedPhone" | "status">;
 };
 
 type RedeemResult = {
-  voucher: RewardVoucher;
-  redemption: RewardVoucherRedemption;
+  voucher: ValidateRewardResult["voucher"];
   amount: string;
 };
 
-export function RewardsStaffTools() {
+export function RewardsStaffTools({
+  business,
+}: {
+  business: Pick<Business, "id" | "name">;
+}) {
   const router = useRouter();
-  const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [businessId, setBusinessId] = useState("");
-  const [staffName, setStaffName] = useState("");
+  const businessId = business.id;
   const [walletToken, setWalletToken] = useState("");
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [creditIdempotencyKey, setCreditIdempotencyKey] = useState(() => crypto.randomUUID());
@@ -39,22 +39,6 @@ export function RewardsStaffTools() {
   const [rewardResult, setRewardResult] = useState<ValidateRewardResult | null>(null);
   const [toast, setToast] = useState<{ tone: "success" | "error"; title: string; detail?: string } | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    api<Business[]>("/api/businesses")
-      .then((items) => {
-        if (!active) return;
-        setBusinesses(items);
-        setBusinessId((current) => current || items[0]?.id || "");
-      })
-      .catch(() => {
-        if (active) setBusinesses([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -75,7 +59,6 @@ export function RewardsStaffTools() {
           walletToken: walletToken.trim(),
           businessId,
           purchaseAmount,
-          staffName: staffName.trim(),
           idempotencyKey: creditIdempotencyKey,
         }),
       });
@@ -133,7 +116,6 @@ export function RewardsStaffTools() {
           codeOrToken: rewardCode.trim(),
           businessId,
           amount: redeemAmount,
-          staffName: staffName.trim(),
         }),
       });
       setRewardResult({ voucher: result.voucher, wallet: rewardResult!.wallet });
@@ -150,12 +132,11 @@ export function RewardsStaffTools() {
     }
   }
 
-  const canCredit = walletToken.trim().length > 10 && businessId && staffName.trim().length >= 2 && purchaseAmount.trim();
+  const canCredit = walletToken.trim().length > 10 && businessId && purchaseAmount.trim();
   const canValidateReward = rewardCode.trim().length >= 3;
   const canRedeemReward =
     rewardResult?.voucher.status === "Active" &&
     businessId &&
-    staffName.trim().length >= 2 &&
     redeemAmount.trim().length > 0;
 
   return (
@@ -177,14 +158,6 @@ export function RewardsStaffTools() {
             <h3><FiCreditCard aria-hidden="true" /> Add 5% Reward Credit</h3>
           </div>
           <label className="field">
-            <span>Partner Store</span>
-            <select value={businessId} onChange={(event) => setBusinessId(event.target.value)}>
-              {businesses.map((business) => (
-                <option key={business.id} value={business.id}>{business.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
             <span>Customer Wallet QR Token</span>
             <input
               value={walletToken}
@@ -200,10 +173,6 @@ export function RewardsStaffTools() {
               onChange={(event) => setPurchaseAmount(event.target.value)}
               placeholder="0.00"
             />
-          </label>
-          <label className="field">
-            <span>Staff Name</span>
-            <input value={staffName} onChange={(event) => setStaffName(event.target.value)} placeholder="Your name" />
           </label>
           <button className="button full" disabled={!canCredit || busy} onClick={creditWallet} type="button">
             {busy ? <FiRefreshCw aria-hidden="true" /> : <FiCheck aria-hidden="true" />}
@@ -244,10 +213,6 @@ export function RewardsStaffTools() {
               onChange={(event) => setRedeemAmount(event.target.value)}
               placeholder="0.00"
             />
-          </label>
-          <label className="field">
-            <span>Staff Name</span>
-            <input value={staffName} onChange={(event) => setStaffName(event.target.value)} placeholder="Your name" />
           </label>
           <button className="button full" disabled={!canRedeemReward || busy} onClick={redeemReward} type="button">
             Record Voucher Payment

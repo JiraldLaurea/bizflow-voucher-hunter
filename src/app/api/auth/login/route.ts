@@ -27,22 +27,24 @@ export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
     const development = process.env.NODE_ENV !== "production";
-    const expectedEmail =
+    const adminEmail =
       process.env.ADMIN_EMAIL || (development ? "admin@bizflow.local" : "");
-    const expectedPassword =
+    const adminPassword =
       process.env.ADMIN_PASSWORD ||
       (development ? process.env.ADMIN_ACCESS_TOKEN : undefined);
-    if (!expectedEmail || !expectedPassword) {
+    const staffEmail = process.env.STAFF_EMAIL || (development ? "staff@bizflow.local" : "");
+    const staffPassword = process.env.STAFF_PASSWORD || (development ? "staff-password" : "");
+    if (!adminEmail || !adminPassword) {
       throw new AppError(
         "E-ADMIN-CONFIG",
         "Admin login is not configured on the server",
         500,
       );
     }
-    if (
-      !safeEqual(input.email.trim().toLowerCase(), expectedEmail.toLowerCase()) ||
-      !safeEqual(input.password, expectedPassword)
-    ) {
+    const email = input.email.trim().toLowerCase();
+    const isAdmin = safeEqual(email, adminEmail.toLowerCase()) && safeEqual(input.password, adminPassword);
+    const isStaff = Boolean(staffEmail && staffPassword) && safeEqual(email, staffEmail.toLowerCase()) && safeEqual(input.password, staffPassword);
+    if (!isAdmin && !isStaff) {
       throw new AppError(
         "E-ADMIN-CREDENTIALS",
         "Incorrect email or password",
@@ -50,19 +52,29 @@ export async function POST(request: Request) {
       );
     }
 
-    const name = process.env.ADMIN_NAME?.trim() || "BizFlow Admin";
-    const role = (process.env.ADMIN_ROLE?.trim() || "super_admin") as "super_admin" | "admin" | "staff";
-    const businessIds = (process.env.ADMIN_BUSINESS_IDS?.trim() || "*")
+    const name = isStaff ? (process.env.STAFF_NAME?.trim() || "Campaign Staff") : (process.env.ADMIN_NAME?.trim() || "BizFlow Admin");
+    const role = isStaff ? "staff" as const : (process.env.ADMIN_ROLE?.trim() || "super_admin") as "super_admin" | "admin";
+    const businessScope = isStaff
+      ? process.env.STAFF_BUSINESS_IDS || (development ? "biz_demo_restaurant" : "")
+      : process.env.ADMIN_BUSINESS_IDS || "*";
+    const businessIds = businessScope
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
+    if (isStaff && businessIds.length !== 1) {
+      throw new AppError(
+        "E-STAFF-SCOPE-CONFIG",
+        "Staff login must be assigned to exactly one business",
+        500,
+      );
+    }
     const token = await createAdminSession({
-      email: expectedEmail.toLowerCase(),
+      email,
       name,
       role,
-      businessIds: businessIds.length ? businessIds : ["*"],
+      businessIds: isStaff ? businessIds : businessIds.length ? businessIds : ["*"],
     });
-    const response = ok({ email: expectedEmail.toLowerCase(), name });
+    const response = ok({ email, name, role });
     response.cookies.set(ADMIN_SESSION_COOKIE, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

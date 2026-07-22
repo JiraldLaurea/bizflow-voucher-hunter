@@ -22,6 +22,20 @@ export default async function LoginPage({
     ? searchParams.next
     : "/dashboard";
   const adminEmail = process.env.ADMIN_EMAIL || "admin@bizflow.local";
+  // Dev convenience only: expose the admin password to the login form so it can
+  // offer a one-click fill. Mirrors the login route's dev fallback to
+  // ADMIN_ACCESS_TOKEN. Never sent to the client in production.
+  const devPassword =
+    process.env.NODE_ENV !== "production"
+      ? process.env.ADMIN_PASSWORD || process.env.ADMIN_ACCESS_TOKEN
+      : undefined;
+  const staffEmail =
+    process.env.STAFF_EMAIL ||
+    (process.env.NODE_ENV !== "production" ? "staff@bizflow.local" : undefined);
+  const devStaffPassword =
+    process.env.NODE_ENV !== "production"
+      ? process.env.STAFF_PASSWORD || "staff-password"
+      : undefined;
 
   return (
     <main className="admin-login-page">
@@ -44,7 +58,7 @@ export default async function LoginPage({
           </div>
           <p className="admin-login-brand-footer">BizFlow Admin Portal</p>
         </aside>
-        <LoginForm adminEmail={adminEmail} nextPath={nextPath} />
+        <LoginForm adminEmail={adminEmail} staffEmail={staffEmail} nextPath={nextPath} devPassword={devPassword} devStaffPassword={devStaffPassword} />
       </section>
     </main>
   );

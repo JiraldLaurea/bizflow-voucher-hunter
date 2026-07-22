@@ -1,4 +1,5 @@
 import { AppError } from "@/server/errors";
+import type { Campaign } from "@/types/voucher";
 import {
   sessionTokenFromRequest,
   verifyAdminSession,
@@ -24,13 +25,33 @@ export function assertBusinessAccess(
   session: Awaited<ReturnType<typeof requireAdmin>>,
   businessId: string,
 ) {
-  if (session.role === "super_admin" || session.businessIds.includes("*") || session.businessIds.includes(businessId)) {
+  if (
+    session.role === "super_admin" ||
+    (session.role === "admin" && session.businessIds.includes("*")) ||
+    session.businessIds.includes(businessId)
+  ) {
     return;
   }
-  throw new AppError("E-STAFF-BUSINESS-SCOPE", "You are not allowed to perform rewards actions for this business", 403);
+  throw new AppError("E-STAFF-BUSINESS-SCOPE", "You are not allowed to access this business", 403);
 }
 
 export function assertRewardsAdmin(session: Awaited<ReturnType<typeof requireAdmin>>) {
   if (session.role === "super_admin" || session.role === "admin") return;
   throw new AppError("E-REWARDS-ADMIN-SCOPE", "Rewards review and settlement actions require admin access", 403);
+}
+
+export function assertAdminRole(session: Awaited<ReturnType<typeof requireAdmin>>) {
+  if (session.role === "super_admin" || session.role === "admin") return;
+  throw new AppError("E-ADMIN-ROLE", "This action requires admin access", 403);
+}
+
+export function assertSuperAdmin(session: Awaited<ReturnType<typeof requireAdmin>>) {
+  if (session.role === "super_admin") return;
+  throw new AppError("E-SUPER-ADMIN-ROLE", "This action requires super-admin access", 403);
+}
+
+export function filterCampaignsForSession<T extends Pick<Campaign, "businessId">>(session: { role: "super_admin" | "admin" | "staff"; businessIds: string[] }, campaigns: T[]) {
+  return session.role === "staff"
+    ? campaigns.filter((campaign) => session.businessIds.includes(campaign.businessId))
+    : campaigns;
 }

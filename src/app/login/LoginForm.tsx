@@ -7,13 +7,19 @@ import { api } from "@/lib/api-client";
 
 export function LoginForm({
   adminEmail,
+  staffEmail,
   nextPath,
+  devPassword,
+  devStaffPassword,
 }: {
   adminEmail: string;
+  staffEmail?: string;
   nextPath: string;
+  devPassword?: string;
+  devStaffPassword?: string;
 }) {
   const router = useRouter();
-  const [email, setEmail] = useState(adminEmail);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -39,12 +45,9 @@ export function LoginForm({
   return (
     <form className="admin-login-form" onSubmit={submit}>
       <div className="admin-login-heading">
-        <span>Secure admin access</span>
+        <span>Secure workspace access</span>
         <h1>Welcome back</h1>
         <p>Sign in to manage campaigns, vouchers, and redemptions.</p>
-        <p className="admin-login-account-hint">
-          Admin account: <strong>{adminEmail}</strong>
-        </p>
       </div>
       <label className="admin-login-field">
         <span>Email address</span>
@@ -77,6 +80,10 @@ export function LoginForm({
         </div>
       </label>
       {error ? <p className="admin-login-error" role="alert">{error}</p> : null}
+      {devPassword ? <div className="admin-login-devfill-group">
+        <button className="admin-login-devfill" onClick={() => { setEmail(adminEmail); setPassword(devPassword); setError(""); }} type="button">Fill admin credentials</button>
+        {staffEmail && devStaffPassword ? <button className="admin-login-devfill" onClick={() => { setEmail(staffEmail); setPassword(devStaffPassword); setError(""); }} type="button">Fill staff credentials</button> : null}
+      </div> : null}
       <button className="button full admin-login-submit" disabled={busy} type="submit">
         {busy ? "Signing in..." : "Sign in to Dashboard"}
         {!busy ? <FiArrowRight aria-hidden="true" /> : null}

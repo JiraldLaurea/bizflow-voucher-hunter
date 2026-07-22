@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireAdmin } from "@/server/auth";
 import { createBusiness, listBusinesses } from "@/server/admin";
-import { fail, ok } from "@/server/errors";
+import { AppError, fail, ok } from "@/server/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +14,13 @@ const schema = z.object({
 
 export async function GET(request: Request) {
   try {
-    await requireAdmin(request);
-    return ok(await listBusinesses());
+    const session = await requireAdmin(request);
+    const businesses = await listBusinesses();
+    return ok(
+      session.role === "staff"
+        ? businesses.filter((business) => session.businessIds.includes(business.id))
+        : businesses,
+    );
   } catch (error) {
     return fail(error);
   }
@@ -23,7 +28,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await requireAdmin(request);
+    const session = await requireAdmin(request);
+    if (session.role === "staff") {
+      throw new AppError("E-STAFF-BUSINESS-CREATE", "Staff cannot create businesses", 403);
+    }
     const input = schema.parse(await request.json());
     return ok(await createBusiness(input), { status: 201 });
   } catch (error) {

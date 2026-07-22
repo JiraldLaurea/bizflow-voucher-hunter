@@ -1,10 +1,12 @@
-import { requireAdmin } from "@/server/auth";
+import { assertBusinessAccess, requireAdmin } from "@/server/auth";
+import { getCampaign } from "@/server/admin";
 import { fail } from "@/server/errors";
 import { exportCampaignCsv } from "@/server/voucher-engine";
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
-    await requireAdmin(request);
+    const session = await requireAdmin(request);
+    assertBusinessAccess(session, (await getCampaign(params.id)).businessId);
     const csv = await exportCampaignCsv(params.id);
     return new Response(csv, {
       headers: {

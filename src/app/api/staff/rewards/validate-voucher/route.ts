@@ -10,7 +10,19 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     await requireAdmin(request);
-    return ok(await validateRewardVoucher(schema.parse(await request.json())));
+    const result = await validateRewardVoucher(schema.parse(await request.json()));
+    return ok({
+      voucher: {
+        voucherCode: result.voucher.voucherCode,
+        remainingCentavos: result.voucher.remainingCentavos,
+        status: result.voucher.status,
+        expiresAt: result.voucher.expiresAt,
+      },
+      wallet: {
+        maskedPhone: result.wallet.maskedPhone,
+        status: result.wallet.status,
+      },
+    });
   } catch (error) {
     return fail(error);
   }

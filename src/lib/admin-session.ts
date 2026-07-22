@@ -97,6 +97,14 @@ export async function verifyAdminSession(
     ) {
       return null;
     }
+    // A staff session must always be tied to concrete businesses. Reject legacy
+    // wildcard/unscoped sessions rather than risking cross-business access.
+    if (
+      decoded.role === "staff" &&
+      (decoded.businessIds.length === 0 || decoded.businessIds.includes("*"))
+    ) {
+      return null;
+    }
     return decoded;
   } catch {
     return null;

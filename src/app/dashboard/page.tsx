@@ -1,15 +1,37 @@
-import { listCampaigns } from "@/server/admin";
+import { listBusinesses, listCampaignsWithIndustry } from "@/server/admin";
 import { dashboardMetrics } from "@/server/voucher-engine";
-import { CampaignSwitcher } from "./_components/CampaignSwitcher";
 import { selectCampaign } from "./_components/selectCampaign";
+import { CampaignSelector } from "./_components/CampaignSelector";
+import { cookies } from "next/headers";
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import { filterCampaignsForSession } from "@/server/auth";
+import { listStaffChangeRequests } from "@/server/change-requests";
 
 export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: { campaign?: string };
 }) {
-  const campaigns = await listCampaigns();
+  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  const campaigns = filterCampaignsForSession(session!, await listCampaignsWithIndustry());
   const selectedCampaign = selectCampaign(campaigns, searchParams.campaign);
+  const isStaff = session?.role === "staff";
+  const staffBusinessName =
+    isStaff && selectedCampaign
+      ? (await listBusinesses()).find(
+          (business) => business.id === selectedCampaign.businessId,
+        )?.name
+      : undefined;
+  const staffRequests =
+    isStaff && selectedCampaign && session
+      ? await Promise.all([
+          listStaffChangeRequests(selectedCampaign.id, session.email, "slot_create"),
+          listStaffChangeRequests(selectedCampaign.id, session.email, "pool_create"),
+        ])
+      : [[], []];
+  const pendingStaffRequestCount = staffRequests
+    .flat()
+    .filter((request) => request.status === "Pending").length;
 
   let metrics: Awaited<ReturnType<typeof dashboardMetrics>> | null = null;
   if (selectedCampaign) {
@@ -20,36 +42,49 @@ export default async function DashboardPage({
     }
   }
   const slotRows = metrics?.slotPerformance ?? [];
+  const metricCards = isStaff
+    ? [
+        ["Active Slots", slotRows.length],
+        ["Vouchers Issued", metrics?.summary.finalVouchersIssued ?? 0],
+        ["Vouchers Redeemed", metrics?.summary.redemptions ?? 0],
+        ["Pending Change Requests", pendingStaffRequestCount],
+      ]
+    : [
+        ["Total Campaigns", campaigns.length],
+        ["Active Slots", slotRows.length],
+        ["Vouchers Issued", metrics?.summary.finalVouchersIssued ?? 0],
+        [
+          "Redemption Rate",
+          `${metrics?.summary.finalVouchersIssued ? Math.round((metrics.summary.redemptions / metrics.summary.finalVouchersIssued) * 100) : 0}%`,
+        ],
+        ["Bookings Confirmed", metrics?.summary.finalVouchersIssued ?? 0],
+        ["Share Attempts", 0],
+      ];
 
   return (
     <>
+      <CampaignSelector campaigns={campaigns} selected={selectedCampaign?.slug} />
       <header className="admin-topbar">
         <div>
-          <h1>BizFlow Voucher Hunt - Admin Dashboard</h1>
-          <p className="muted">Campaign, Slot, Voucher, and Analytics Management</p>
+          <h1>
+            {isStaff
+              ? `${staffBusinessName ?? selectedCampaign?.title ?? "Campaign"} Staff Dashboard`
+              : "BizFlow Voucher Hunt - Admin Dashboard"}
+          </h1>
+          <p className="muted">
+            {isStaff
+              ? `${selectedCampaign?.title ?? "Your campaign"} performance and pending change requests.`
+              : "Campaign, Slot, Voucher, and Analytics Management"}
+          </p>
         </div>
       </header>
 
-      {selectedCampaign ? (
-        <CampaignSwitcher campaigns={campaigns} selectedSlug={selectedCampaign.slug} action="/dashboard" />
-      ) : null}
-
       <div className="admin-grid">
-        {[
-          ["Total Campaigns", campaigns.length],
-          ["Active Slots", slotRows.length],
-          ["Vouchers Issued", metrics?.summary.finalVouchersIssued ?? 0],
-          [
-            "Redemption Rate",
-            `${metrics?.summary.finalVouchersIssued ? Math.round((metrics.summary.redemptions / metrics.summary.finalVouchersIssued) * 100) : 0}%`,
-          ],
-          ["Bookings Confirmed", metrics?.summary.finalVouchersIssued ?? 0],
-          ["Share Attempts", 0]
-        ].map(([label, value]) => (
+        {metricCards.map(([label, value]) => (
           <article className="card metric span-3" key={label}>
             <span className="muted">{label}</span>
             <strong>{value}</strong>
-            <span className="trend">+4.8% vs last 7 days</span>
+            {!isStaff ? <span className="trend">+4.8% vs last 7 days</span> : null}
           </article>
         ))}
 

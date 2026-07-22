@@ -1,7 +1,26 @@
 import { rewardsNetworkOverview } from "@/server/rewards-network";
 import { HeldPurchaseActions, SettlementRowActions } from "../_components/RewardsAdminActions";
+import { RewardsStaffTools } from "../_components/RewardsStaffTools";
+import { cookies } from "next/headers";
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import { listBusinesses } from "@/server/admin";
 
 export default async function RewardsNetworkPage() {
+  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  if (session?.role === "staff") {
+    const business = (await listBusinesses()).find((item) =>
+      session.businessIds.includes(item.id),
+    );
+    if (!business) {
+      return (
+        <section className="panel">
+          <h2>Business access is not configured</h2>
+          <p className="muted">Ask an administrator to assign this staff account to a business.</p>
+        </section>
+      );
+    }
+    return <RewardsStaffTools business={business} />;
+  }
   const overview = await rewardsNetworkOverview();
   const settlementBadgeClass = (status: string) =>
     status === "Completed"

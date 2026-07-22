@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import type { Client, Transaction } from "@libsql/client";
 import { all, getDb, one, run, withTx } from "@/server/db";
 import { AppError } from "@/server/errors";
-import { assertCustomerSession } from "@/server/otp";
 import { normalizePhone } from "@/server/phone";
 import type {
   RewardLedgerEntry,
@@ -187,6 +186,14 @@ async function getBusinessOrThrow(db: Exec, businessId: string) {
   return { id: String(row.id), name: String(row.name) };
 }
 
+// The reward endpoints authenticate the caller from the httpOnly sign-in cookie
+// and pass the resolved phone in, so functions only need to normalize it.
+function requireWalletPhone(phone: string) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) throw new AppError("E-USER-PHONE", "A valid Philippine mobile number is required", 400);
+  return normalized;
+}
+
 async function walletByPhone(db: Exec, phone: string) {
   const normalized = normalizePhone(phone);
   if (!normalized) throw new AppError("E-USER-PHONE", "A valid Philippine mobile number is required", 400);
@@ -216,15 +223,12 @@ async function walletByToken(db: Exec, walletToken: string) {
 }
 
 export async function getOrCreateRewardWallet(input: {
-  campaignSlug: string;
   phone: string;
-  customerSessionToken: string;
   name?: string;
   email?: string;
 }) {
-  const session = await assertCustomerSession(input);
   return withTx(async (tx) => {
-    const normalized = session.phone;
+    const normalized = requireWalletPhone(input.phone);
     const now = isoNow();
 
     await run(
@@ -269,14 +273,11 @@ export async function getOrCreateRewardWallet(input: {
 }
 
 export async function rewardWalletSnapshot(input: {
-  campaignSlug: string;
   phone: string;
-  customerSessionToken: string;
   walletSecret: string;
 }) {
-  const session = await assertCustomerSession(input);
   const db = await getDb();
-  const wallet = await walletByPhoneAndSecret(db, session.phone, input.walletSecret);
+  const wallet = await walletByPhoneAndSecret(db, requireWalletPhone(input.phone), input.walletSecret);
   const [ledger, vouchers] = await Promise.all([
     all(db, "SELECT * FROM reward_ledger_entries WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 12", [wallet.id]),
     all(db, "SELECT * FROM reward_vouchers WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 20", [wallet.id]),
@@ -440,15 +441,12 @@ async function applyRewardCredit(
 }
 
 export async function convertRewardCreditToVoucher(input: {
-  campaignSlug: string;
   phone: string;
-  customerSessionToken: string;
   walletSecret: string;
   amount: string | number;
 }) {
-  const session = await assertCustomerSession(input);
   return withTx(async (tx) => {
-    const wallet = await walletByPhoneAndSecret(tx, session.phone, input.walletSecret);
+    const wallet = await walletByPhoneAndSecret(tx, requireWalletPhone(input.phone), input.walletSecret);
     const amountCentavos = moneyToCentavos(input.amount, "voucher amount");
     if (amountCentavos < MIN_CONVERSION_CENTAVOS) {
       throw new AppError("E-REWARD-MIN-CONVERT", `Minimum conversion is ${centavosToMoney(MIN_CONVERSION_CENTAVOS)}`, 400);

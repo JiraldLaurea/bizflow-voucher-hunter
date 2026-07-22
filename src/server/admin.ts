@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import type { InArgs } from "@libsql/client";
 import { AppError } from "@/server/errors";
-import { all, getDb, mapBusiness, mapCampaign, mapPool, mapSlot, one, run } from "@/server/db";
+import { all, getDb, mapBusiness, mapCampaign, mapPool, mapSlot, one, run, type Exec } from "@/server/db";
+import { hashStaffPin } from "@/server/staff-pin";
 import type { Business, Campaign, CampaignSlot, VoucherPool } from "@/types/voucher";
 
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
@@ -27,13 +28,12 @@ export async function createBusiness(input: CreateBusinessInput): Promise<Busine
     id: id("biz"),
     name: input.name,
     logoText: input.logoText,
-    industry: input.industry,
-    staffPin: input.staffPin
+    industry: input.industry
   };
   await run(
     db,
     "INSERT INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)",
-    business
+    { ...business, staffPin: hashStaffPin(input.staffPin) }
   );
   return business;
 }
@@ -43,6 +43,29 @@ export async function listCampaigns(): Promise<Campaign[]> {
   return (await all(db, "SELECT * FROM campaigns ORDER BY start_date DESC")).map(mapCampaign);
 }
 
+/**
+ * Campaigns annotated with their owning business's industry. The industry is the
+ * customer-facing category (drives the directory's colour/icon), which can
+ * differ from a campaign's `mode` — e.g. a beauty clinic running an
+ * appointment-based campaign in restaurant `mode`. The admin campaign selector
+ * uses `industry` so it matches what customers see.
+ */
+export type CampaignWithIndustry = Campaign & { industry: string };
+
+export async function listCampaignsWithIndustry(): Promise<CampaignWithIndustry[]> {
+  const db = await getDb();
+  const rows = await all(
+    db,
+    `SELECT c.*, b.industry AS business_industry
+     FROM campaigns c JOIN businesses b ON b.id = c.business_id
+     ORDER BY c.start_date DESC`,
+  );
+  return rows.map((row) => ({
+    ...mapCampaign(row),
+    industry: String(row.business_industry),
+  }));
+}
+
 export type CreateCampaignInput = {
   businessId: string;
   slug: string;
@@ -50,6 +73,7 @@ export type CreateCampaignInput = {
   offerMessage: string;
   heroImage: string;
   mode: Campaign["mode"];
+  location?: string;
   startDate: string;
   endDate: string;
   baseAttempts: number;
@@ -58,7 +82,6 @@ export type CreateCampaignInput = {
   terms: string;
   shopUrl?: string;
   status?: Campaign["status"];
-  requireOtp?: boolean;
   allowReschedule?: boolean;
 };
 
@@ -109,6 +132,7 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Campai
     offerMessage: input.offerMessage,
     heroImage: input.heroImage,
     mode: input.mode,
+    location: input.location?.trim() || undefined,
     status: input.status ?? "active",
     startDate: input.startDate,
     endDate: input.endDate,
@@ -117,13 +141,12 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Campai
     candidateTimeoutMinutes: input.candidateTimeoutMinutes,
     terms: input.terms,
     shopUrl: input.shopUrl,
-    requireOtp: input.requireOtp ?? false,
     allowReschedule: input.allowReschedule ?? false
   };
   await run(
     db,
-    `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, require_otp, allow_reschedule)
-     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`,
+    `INSERT INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, location, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, allow_reschedule)
+     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @location, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @allowReschedule)`,
     {
       id: campaign.id,
       businessId: campaign.businessId,
@@ -132,6 +155,7 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Campai
       offerMessage: campaign.offerMessage,
       heroImage: campaign.heroImage,
       mode: campaign.mode,
+      location: campaign.location ?? null,
       status: campaign.status,
       startDate: campaign.startDate,
       endDate: campaign.endDate,
@@ -140,18 +164,20 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Campai
       candidateTimeoutMinutes: campaign.candidateTimeoutMinutes,
       terms: campaign.terms,
       shopUrl: campaign.shopUrl ?? null,
-      requireOtp: campaign.requireOtp ? 1 : 0,
       allowReschedule: campaign.allowReschedule ? 1 : 0
     }
   );
   return campaign;
 }
 
-export async function getCampaign(idOrSlug: string): Promise<Campaign> {
-  const db = await getDb();
+async function getCampaignFromDb(db: Exec, idOrSlug: string): Promise<Campaign> {
   const row = await one(db, "SELECT * FROM campaigns WHERE id = ? OR slug = ?", [idOrSlug, idOrSlug]);
   if (!row) throw new AppError("E-CAMPAIGN-404", "Campaign was not found", 404);
   return mapCampaign(row);
+}
+
+export async function getCampaign(idOrSlug: string): Promise<Campaign> {
+  return getCampaignFromDb(await getDb(), idOrSlug);
 }
 
 const CAMPAIGN_PATCH_COLUMNS: Record<string, string> = {
@@ -166,11 +192,10 @@ const CAMPAIGN_PATCH_COLUMNS: Record<string, string> = {
   candidateTimeoutMinutes: "candidate_timeout_minutes",
   terms: "terms",
   shopUrl: "shop_url",
-  requireOtp: "require_otp",
   allowReschedule: "allow_reschedule"
 };
 
-const CAMPAIGN_BOOLEAN_KEYS = new Set(["requireOtp", "allowReschedule"]);
+const CAMPAIGN_BOOLEAN_KEYS = new Set(["allowReschedule"]);
 
 export async function updateCampaign(idOrSlug: string, patch: Partial<CreateCampaignInput>): Promise<Campaign> {
   const db = await getDb();
@@ -204,9 +229,9 @@ export async function listSlots(campaignIdOrSlug: string): Promise<CampaignSlot[
   return (await all(db, "SELECT * FROM slots WHERE campaign_id = ? ORDER BY date, start_time", [campaign.id])).map(mapSlot);
 }
 
-export async function createSlot(campaignIdOrSlug: string, input: CreateSlotInput): Promise<CampaignSlot> {
-  const db = await getDb();
-  const campaign = await getCampaign(campaignIdOrSlug);
+export async function createSlot(campaignIdOrSlug: string, input: CreateSlotInput, executor?: Exec): Promise<CampaignSlot> {
+  const db = executor ?? await getDb();
+  const campaign = await getCampaignFromDb(db, campaignIdOrSlug);
   if (input.totalCapacity < 1) throw new AppError("E-SLOT-CAPACITY", "totalCapacity must be at least 1", 422);
   if (input.endTime <= input.startTime) {
     throw new AppError("E-SLOT-TIME", "Slot endTime must be after startTime", 422);
@@ -244,9 +269,9 @@ export async function listPools(campaignIdOrSlug: string): Promise<PoolWithSlots
   }));
 }
 
-export async function createPool(campaignIdOrSlug: string, input: CreatePoolInput): Promise<PoolWithSlots> {
-  const db = await getDb();
-  const campaign = await getCampaign(campaignIdOrSlug);
+export async function createPool(campaignIdOrSlug: string, input: CreatePoolInput, executor?: Exec): Promise<PoolWithSlots> {
+  const db = executor ?? await getDb();
+  const campaign = await getCampaignFromDb(db, campaignIdOrSlug);
   if (input.totalQuantity < 1) throw new AppError("E-POOL-QUANTITY", "totalQuantity must be at least 1", 422);
   if (input.probabilityWeight < 1) throw new AppError("E-POOL-WEIGHT", "probabilityWeight must be at least 1", 422);
   if (input.expiryValue < 0) throw new AppError("E-POOL-EXPIRY", "expiryValue cannot be negative", 422);
@@ -273,7 +298,8 @@ export async function createPool(campaignIdOrSlug: string, input: CreatePoolInpu
     remainingQuantity: input.totalQuantity,
     probabilityWeight: input.probabilityWeight,
     expiryType: input.expiryType,
-    expiryValue: input.expiryValue,
+    expiryValue:
+      input.expiryType === "selected_slot_only" ? 0 : input.expiryValue,
     minimumSpend: input.minimumSpend,
     status: input.status ?? "active",
     restriction: input.restriction

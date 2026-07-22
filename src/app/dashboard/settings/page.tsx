@@ -1,6 +1,11 @@
 import { ResetDataButton } from "../_components/ResetDataButton";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  if (session?.role !== "super_admin") redirect("/dashboard");
   return (
     <>
       <header className="admin-topbar">

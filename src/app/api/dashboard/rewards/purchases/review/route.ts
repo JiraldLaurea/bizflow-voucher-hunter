@@ -6,7 +6,6 @@ import { reviewHeldRewardPurchase } from "@/server/rewards-network";
 const schema = z.object({
   purchaseId: z.string().min(3),
   decision: z.enum(["approve", "reject"]),
-  reviewer: z.string().trim().min(2).optional(),
   note: z.string().trim().optional(),
 });
 
@@ -19,7 +18,7 @@ export async function POST(request: Request) {
       await reviewHeldRewardPurchase({
         purchaseId: input.purchaseId,
         decision: input.decision,
-        reviewer: input.reviewer || session.name,
+        reviewer: session.email,
         note: input.note,
       }),
     );

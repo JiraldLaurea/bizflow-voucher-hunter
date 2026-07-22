@@ -13,10 +13,11 @@ import type {
   VoucherAttempt,
   VoucherPool
 } from "@/types/voucher";
+import { hashStaffPin, isHashedStaffPin } from "@/server/staff-pin";
 
 // libSQL returns rows keyed by column name; mappers narrow them to domain types.
 type Row = any;
-type Exec = Client | Transaction;
+export type Exec = Client | Transaction;
 
 /**
  * Connection target. Turso/libSQL in production via DATABASE_URL (libsql://...)
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   offer_message TEXT NOT NULL,
   hero_image TEXT NOT NULL,
   mode TEXT NOT NULL,
+  location TEXT,
   status TEXT NOT NULL,
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
@@ -52,7 +54,6 @@ CREATE TABLE IF NOT EXISTS campaigns (
   candidate_timeout_minutes INTEGER NOT NULL,
   terms TEXT NOT NULL,
   shop_url TEXT,
-  require_otp INTEGER NOT NULL DEFAULT 0,
   allow_reschedule INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS slots (
@@ -89,6 +90,20 @@ CREATE TABLE IF NOT EXISTS pool_slots (
   PRIMARY KEY (pool_id, slot_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pool_slots_slot ON pool_slots (slot_id);
+CREATE TABLE IF NOT EXISTS change_requests (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  requested_by TEXT NOT NULL,
+  request_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Pending',
+  reviewed_by TEXT,
+  review_note TEXT,
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_change_requests_status ON change_requests (status, created_at);
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -355,6 +370,8 @@ const DATA_TABLES = [
   "referral_rewards",
   "redemption_logs",
   "sms_logs",
+  // References campaigns(id) and businesses(id), so it must be wiped before them.
+  "change_requests",
   "reservations",
   "vouchers",
   "attempts",
@@ -393,6 +410,7 @@ async function init() {
   }
 
   await c.executeMultiple(SCHEMA);
+  await ensureStaffPinHashes(c);
   await ensureRewardsSchema(c);
   await ensureSmsSchema(c);
 
@@ -407,6 +425,19 @@ async function init() {
 
   // Same version: self-heal an empty or partially-seeded database.
   if (!(await hasCompleteSeed(c))) await seed(c);
+}
+
+async function ensureStaffPinHashes(c: Client) {
+  const rows = (await c.execute("SELECT id, staff_pin FROM businesses")).rows as Row[];
+  for (const row of rows) {
+    const value = String(row.staff_pin ?? "");
+    if (value && !isHashedStaffPin(value)) {
+      await c.execute({
+        sql: "UPDATE businesses SET staff_pin = ? WHERE id = ?",
+        args: [hashStaffPin(value), String(row.id)],
+      });
+    }
+  }
 }
 
 async function hasColumn(c: Client, table: string, column: string) {
@@ -455,7 +486,9 @@ async function ensureSmsSchema(c: Client) {
     ["sms_logs", "delivery_status", "TEXT"],
     ["sms_logs", "delivery_error", "TEXT"],
     ["sms_logs", "delivery_receipt", "TEXT"],
-    ["sms_logs", "delivered_at", "TEXT"]
+    ["sms_logs", "delivered_at", "TEXT"],
+    // Campaign directory location (added without a destructive schema-version bump).
+    ["campaigns", "location", "TEXT"]
   ];
   for (const [table, column, definition] of smsColumnAdds) {
     if (!(await hasColumn(c, table, column))) {
@@ -463,6 +496,18 @@ async function ensureSmsSchema(c: Client) {
     }
   }
   await c.execute("CREATE INDEX IF NOT EXISTS idx_sms_logs_provider_message_id ON sms_logs (provider_message_id)");
+
+  // Backfill locations for seed campaigns that predate the location column.
+  // Idempotent (only fills NULLs) and scoped to seed ids, so admin-created
+  // campaigns are untouched.
+  for (const campaign of seedData.campaigns) {
+    if (campaign.location) {
+      await c.execute({
+        sql: "UPDATE campaigns SET location = ? WHERE id = ? AND location IS NULL",
+        args: [campaign.location, campaign.id]
+      });
+    }
+  }
 }
 
 /** Returns the ready libSQL client (schema created + seeded on first use). */
@@ -509,7 +554,7 @@ export async function run(db: Exec, sql: string, args?: InArgs): Promise<number>
 
 /** Seed data. Also used to (re)populate the database for local dev and tests. */
 export const seedData: {
-  businesses: Business[];
+  businesses: Array<Business & { staffPin: string }>;
   campaigns: Campaign[];
   slots: CampaignSlot[];
   pools: VoucherPool[];
@@ -517,7 +562,8 @@ export const seedData: {
 } = {
   businesses: [
     { id: "biz_demo_restaurant", name: "Mesa Manila Test Kitchen", logoText: "MM", industry: "restaurant", staffPin: "2468" },
-    { id: "biz_demo_shop", name: "SariSari Studio", logoText: "SS", industry: "online_shop", staffPin: "1357" }
+    { id: "biz_demo_shop", name: "SariSari Studio", logoText: "SS", industry: "online_shop", staffPin: "1357" },
+    { id: "biz_demo_clinic", name: "Glow Lab Skin Clinic", logoText: "GL", industry: "beauty", staffPin: "9753" }
   ],
   campaigns: [
     {
@@ -525,6 +571,7 @@ export const seedData: {
       businessId: "biz_demo_restaurant",
       slug: "july-dinner",
       title: "July Dinner",
+      location: "Makati City",
       offerMessage: "Pick your visit window first, then hunt for one final dining voucher.",
       heroImage:
         "linear-gradient(135deg, rgba(21,72,87,.9), rgba(229,90,54,.76)), url('https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80')",
@@ -536,7 +583,6 @@ export const seedData: {
       referralDailyLimit: 5,
       candidateTimeoutMinutes: 10,
       terms: "Valid for selected slot only. Minimum spend applies. One final voucher per phone number.",
-      requireOtp: false,
       allowReschedule: true
     },
     {
@@ -544,6 +590,7 @@ export const seedData: {
       businessId: "biz_demo_shop",
       slug: "8pm-drop",
       title: "8PM Shopping",
+      location: "Online · Nationwide",
       offerMessage: "Choose the drop window, reveal candidates, and keep one checkout code.",
       heroImage:
         "linear-gradient(135deg, rgba(29,44,74,.9), rgba(38,142,125,.72)), url('https://images.unsplash.com/photo-1607082350899-7e105aa886ae?auto=format&fit=crop&w=1600&q=80')",
@@ -556,8 +603,27 @@ export const seedData: {
       candidateTimeoutMinutes: 10,
       terms: "Valid within the selected drop window or stated expiry. One code per phone number.",
       shopUrl: "https://example.com/shop",
-      requireOtp: false,
       allowReschedule: false
+    },
+    {
+      id: "camp_glow_facial",
+      businessId: "biz_demo_clinic",
+      slug: "glow-facial",
+      title: "Glow Facial Week",
+      location: "BGC, Taguig",
+      offerMessage: "Book your facial appointment first, then hunt for one skincare voucher.",
+      heroImage:
+        "linear-gradient(135deg, rgba(120,52,110,.9), rgba(233,120,150,.72)), url('https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1600&q=80')",
+      // Appointment-based flow: same reservation mechanics as a restaurant slot.
+      mode: "restaurant",
+      status: "active",
+      startDate: "2026-07-01",
+      endDate: "2026-07-31",
+      baseAttempts: 3,
+      referralDailyLimit: 5,
+      candidateTimeoutMinutes: 10,
+      terms: "Valid for the selected appointment only. Non-transferable. One voucher per phone number.",
+      allowReschedule: true
     }
   ],
   slots: [
@@ -571,7 +637,13 @@ export const seedData: {
     // Online shop: two evening drops plus a 10am off-peak morning drop.
     { id: "slot_shop_0705_2000", campaignId: "camp_8pm_drop", date: "2026-07-05", startTime: "20:00", endTime: "22:00", timezone: "Asia/Manila", totalCapacity: 100, remainingCapacity: 100, status: "active" },
     { id: "slot_shop_0706_2200", campaignId: "camp_8pm_drop", date: "2026-07-06", startTime: "22:00", endTime: "23:59", timezone: "Asia/Manila", totalCapacity: 75, remainingCapacity: 75, status: "active" },
-    { id: "slot_shop_0707_1000", campaignId: "camp_8pm_drop", date: "2026-07-07", startTime: "10:00", endTime: "12:00", timezone: "Asia/Manila", totalCapacity: 50, remainingCapacity: 50, status: "active" }
+    { id: "slot_shop_0707_1000", campaignId: "camp_8pm_drop", date: "2026-07-07", startTime: "10:00", endTime: "12:00", timezone: "Asia/Manila", totalCapacity: 50, remainingCapacity: 50, status: "active" },
+    // Beauty clinic: hourly appointment windows across three days.
+    { id: "slot_glow_0708_1000", campaignId: "camp_glow_facial", date: "2026-07-08", startTime: "10:00", endTime: "11:00", timezone: "Asia/Manila", totalCapacity: 4, remainingCapacity: 4, status: "active" },
+    { id: "slot_glow_0708_1400", campaignId: "camp_glow_facial", date: "2026-07-08", startTime: "14:00", endTime: "15:00", timezone: "Asia/Manila", totalCapacity: 4, remainingCapacity: 4, status: "active" },
+    { id: "slot_glow_0709_1000", campaignId: "camp_glow_facial", date: "2026-07-09", startTime: "10:00", endTime: "11:00", timezone: "Asia/Manila", totalCapacity: 5, remainingCapacity: 5, status: "active" },
+    { id: "slot_glow_0709_1600", campaignId: "camp_glow_facial", date: "2026-07-09", startTime: "16:00", endTime: "17:00", timezone: "Asia/Manila", totalCapacity: 3, remainingCapacity: 3, status: "active" },
+    { id: "slot_glow_0710_1100", campaignId: "camp_glow_facial", date: "2026-07-10", startTime: "11:00", endTime: "12:00", timezone: "Asia/Manila", totalCapacity: 6, remainingCapacity: 6, status: "active" }
   ],
   pools: [
     // Restaurant: campaign-wide benefit tiers. Rarer tiers have less stock.
@@ -586,7 +658,14 @@ export const seedData: {
     { id: "pool_shop_50", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 9, remainingQuantity: 9, probabilityWeight: 5, expiryType: "hours", expiryValue: 24, minimumSpend: 1500, status: "active" },
     { id: "pool_shop_20", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 85, remainingQuantity: 85, probabilityWeight: 50, expiryType: "days", expiryValue: 7, minimumSpend: 1000, status: "active" },
     { id: "pool_shop_10", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "10", displayLabel: "10% OFF", totalQuantity: 24, remainingQuantity: 24, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 500, status: "active" },
-    { id: "pool_shop_ship", campaignId: "camp_8pm_drop", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 55, remainingQuantity: 55, probabilityWeight: 30, expiryType: "days", expiryValue: 7, status: "active" }
+    { id: "pool_shop_ship", campaignId: "camp_8pm_drop", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 55, remainingQuantity: 55, probabilityWeight: 30, expiryType: "days", expiryValue: 7, status: "active" },
+
+    // Beauty clinic: campaign-wide skincare benefit tiers.
+    { id: "pool_glow_70", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "70", displayLabel: "70% OFF Facial", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "days", expiryValue: 30, minimumSpend: 1500, status: "active" },
+    { id: "pool_glow_50", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, expiryType: "days", expiryValue: 30, minimumSpend: 1200, status: "active" },
+    { id: "pool_glow_30", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, expiryType: "days", expiryValue: 45, minimumSpend: 800, status: "active" },
+    { id: "pool_glow_20", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 50, expiryType: "days", expiryValue: 60, minimumSpend: 600, status: "active" },
+    { id: "pool_glow_addon", campaignId: "camp_glow_facial", benefitType: "free_item", benefitValue: "add_on", displayLabel: "Free Add-on Treatment", totalQuantity: 25, remainingQuantity: 25, probabilityWeight: 30, expiryType: "days", expiryValue: 30, minimumSpend: 500, status: "active" }
   ],
   // Which slots each benefit tier is offered at. Rarer/higher tiers map to
   // fewer (off-peak) slots; common tiers are available everywhere.
@@ -626,7 +705,26 @@ export const seedData: {
     { poolId: "pool_shop_10", slotId: "slot_shop_0707_1000" },
     { poolId: "pool_shop_ship", slotId: "slot_shop_0705_2000" },
     { poolId: "pool_shop_ship", slotId: "slot_shop_0706_2200" },
-    { poolId: "pool_shop_ship", slotId: "slot_shop_0707_1000" }
+    { poolId: "pool_shop_ship", slotId: "slot_shop_0707_1000" },
+
+    // Clinic: 70% at a single off-peak morning slot; commoner tiers spread wider.
+    { poolId: "pool_glow_70", slotId: "slot_glow_0708_1000" },
+    { poolId: "pool_glow_50", slotId: "slot_glow_0708_1000" },
+    { poolId: "pool_glow_50", slotId: "slot_glow_0709_1000" },
+    { poolId: "pool_glow_30", slotId: "slot_glow_0708_1000" },
+    { poolId: "pool_glow_30", slotId: "slot_glow_0708_1400" },
+    { poolId: "pool_glow_30", slotId: "slot_glow_0709_1000" },
+    { poolId: "pool_glow_30", slotId: "slot_glow_0710_1100" },
+    // 20% OFF: every appointment slot
+    { poolId: "pool_glow_20", slotId: "slot_glow_0708_1000" },
+    { poolId: "pool_glow_20", slotId: "slot_glow_0708_1400" },
+    { poolId: "pool_glow_20", slotId: "slot_glow_0709_1000" },
+    { poolId: "pool_glow_20", slotId: "slot_glow_0709_1600" },
+    { poolId: "pool_glow_20", slotId: "slot_glow_0710_1100" },
+    // Free Add-on: afternoon windows
+    { poolId: "pool_glow_addon", slotId: "slot_glow_0708_1400" },
+    { poolId: "pool_glow_addon", slotId: "slot_glow_0709_1600" },
+    { poolId: "pool_glow_addon", slotId: "slot_glow_0710_1100" }
   ]
 };
 
@@ -647,13 +745,26 @@ async function hasCompleteSeed(c: Client) {
     if (Number((result.rows[0] as Row).count) !== rows.length) return false;
   }
 
+  // pool_slots has a composite key (no id), so verify each seed pair explicitly.
+  // Without this, a DB that has the pools/slots but is missing their tier→slot
+  // mappings looks "complete" and never gets re-seeded, leaving campaigns with
+  // no selectable time slots.
+  if (seedData.poolSlots.length > 0) {
+    const where = seedData.poolSlots.map(() => "(pool_id = ? AND slot_id = ?)").join(" OR ");
+    const result = await c.execute({
+      sql: `SELECT COUNT(*) AS count FROM pool_slots WHERE ${where}`,
+      args: seedData.poolSlots.flatMap((p) => [p.poolId, p.slotId]),
+    });
+    if (Number((result.rows[0] as Row).count) !== seedData.poolSlots.length) return false;
+  }
+
   return true;
 }
 
 const INSERT_BUSINESS =
   "INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)";
-const INSERT_CAMPAIGN = `INSERT OR IGNORE INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, require_otp, allow_reschedule)
-     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @requireOtp, @allowReschedule)`;
+const INSERT_CAMPAIGN = `INSERT OR IGNORE INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, location, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, allow_reschedule)
+     VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @location, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @allowReschedule)`;
 const INSERT_SLOT = `INSERT OR IGNORE INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
      VALUES (@id, @campaignId, @date, @startTime, @endTime, @timezone, @branchId, @totalCapacity, @remainingCapacity, @status)`;
 const INSERT_POOL = `INSERT OR IGNORE INTO pools (id, campaign_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
@@ -671,7 +782,7 @@ async function seed(c: Client) {
   const statements: InStatement[] = [
     ...seedData.businesses.map((r) => ({
       sql: INSERT_BUSINESS,
-      args: { id: r.id, name: r.name, logoText: r.logoText, industry: r.industry, staffPin: r.staffPin }
+      args: { id: r.id, name: r.name, logoText: r.logoText, industry: r.industry, staffPin: hashStaffPin(r.staffPin) }
     })),
     ...seedData.campaigns.map((r) => ({
       sql: INSERT_CAMPAIGN,
@@ -683,6 +794,7 @@ async function seed(c: Client) {
         offerMessage: r.offerMessage,
         heroImage: r.heroImage,
         mode: r.mode,
+        location: r.location ?? null,
         status: r.status,
         startDate: r.startDate,
         endDate: r.endDate,
@@ -691,7 +803,6 @@ async function seed(c: Client) {
         candidateTimeoutMinutes: r.candidateTimeoutMinutes,
         terms: r.terms,
         shopUrl: r.shopUrl ?? null,
-        requireOtp: r.requireOtp ? 1 : 0,
         allowReschedule: r.allowReschedule ? 1 : 0
       }
     })),
@@ -742,6 +853,37 @@ export async function resetDb() {
     "write"
   );
   await seed(c);
+  // Invalidate every customer sign-in: the reseed wipes the users their cookies
+  // point at, so bump the epoch to force a fresh sign-in on any device.
+  await bumpCustomerAuthEpoch(c);
+}
+
+// ---- Customer auth epoch --------------------------------------------------
+// Customer "sign-in" is a phone stamped into a client cookie. There is no
+// per-user server session to revoke, so revocation is done globally: the server
+// holds a monotonically increasing epoch in `meta`, sign-in stamps the current
+// epoch into the cookie, and the page gates reject a cookie whose epoch is stale.
+// Bumping the epoch (on reset) therefore signs everyone out, everywhere.
+
+const CUSTOMER_AUTH_EPOCH_KEY = "customer_auth_epoch";
+
+export async function getCustomerAuthEpoch(): Promise<string> {
+  const db = await getDb();
+  const row = await one(db, "SELECT value FROM meta WHERE key = ?", [
+    CUSTOMER_AUTH_EPOCH_KEY
+  ]);
+  return row ? String(row.value) : "1";
+}
+
+async function bumpCustomerAuthEpoch(c: Client) {
+  const row = await one(c, "SELECT value FROM meta WHERE key = ?", [
+    CUSTOMER_AUTH_EPOCH_KEY
+  ]);
+  const next = String(Number(row?.value ?? "1") + 1);
+  await c.execute({
+    sql: "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+    args: [CUSTOMER_AUTH_EPOCH_KEY, next]
+  });
 }
 
 // ---- Row mappers: SQLite snake_case rows -> typed camelCase domain objects ----
@@ -750,8 +892,7 @@ export const mapBusiness = (r: Row): Business => ({
   id: r.id,
   name: r.name,
   logoText: r.logo_text,
-  industry: r.industry,
-  staffPin: r.staff_pin
+  industry: r.industry
 });
 
 export const mapCampaign = (r: Row): Campaign => ({
@@ -762,6 +903,7 @@ export const mapCampaign = (r: Row): Campaign => ({
   offerMessage: r.offer_message,
   heroImage: r.hero_image,
   mode: r.mode,
+  location: r.location ?? undefined,
   status: r.status,
   startDate: r.start_date,
   endDate: r.end_date,
@@ -770,7 +912,6 @@ export const mapCampaign = (r: Row): Campaign => ({
   candidateTimeoutMinutes: r.candidate_timeout_minutes,
   terms: r.terms,
   shopUrl: r.shop_url ?? undefined,
-  requireOtp: Boolean(r.require_otp),
   allowReschedule: Boolean(r.allow_reschedule)
 });
 

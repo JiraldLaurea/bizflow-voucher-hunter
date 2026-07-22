@@ -13,6 +13,12 @@ import {
   updateCampaign
 } from "@/server/admin";
 import { generateCandidate, listSlotsForAttempt, startHunt } from "@/server/voucher-engine";
+import {
+  decideChangeRequest,
+  listChangeRequests,
+  requestCampaignChange,
+  reviseChangeRequest,
+} from "@/server/change-requests";
 
 const campaignInput = {
   businessId: "biz_demo_shop",
@@ -100,8 +106,13 @@ describe("admin CRUD", () => {
 
   it("patches an existing campaign", async () => {
     const campaign = await createCampaign({ ...campaignInput, slug: "patch-me" });
-    const updated = await updateCampaign(campaign.id, { title: "Patched Title", status: "paused" });
+    const updated = await updateCampaign(campaign.id, {
+      title: "Patched Title",
+      heroImage: "/images/campaigns/replacement.webp",
+      status: "paused",
+    });
     expect(updated.title).toBe("Patched Title");
+    expect(updated.heroImage).toBe("/images/campaigns/replacement.webp");
     expect(updated.status).toBe("paused");
   });
 
@@ -129,5 +140,84 @@ describe("admin CRUD", () => {
     await expect(createBusiness({ name: "Bad Pin Co", logoText: "BP", industry: "retail", staffPin: "12" })).rejects.toThrow(
       AppError
     );
+  });
+
+  it("keeps approved and rejected staff requests in admin history", async () => {
+    const approved = await requestCampaignChange({
+      campaignId: "camp_july_dinner",
+      requestedBy: "staff@bizflow.local",
+      requestType: "slot_create",
+      payload: {
+        date: "2026-07-08",
+        startTime: "12:00",
+        endTime: "13:00",
+        totalCapacity: 8,
+      },
+    });
+    const rejected = await requestCampaignChange({
+      campaignId: "camp_july_dinner",
+      requestedBy: "staff@bizflow.local",
+      requestType: "slot_create",
+      payload: {
+        date: "2026-07-09",
+        startTime: "15:00",
+        endTime: "16:00",
+        totalCapacity: 4,
+      },
+    });
+
+    await decideChangeRequest(approved.id, true, "admin@bizflow.local");
+    await decideChangeRequest(rejected.id, false, "admin@bizflow.local");
+
+    const history = await listChangeRequests("camp_july_dinner", "slot_create");
+    expect(history.find((request) => request.id === approved.id)).toMatchObject({
+      status: "Approved",
+      reviewedBy: "admin@bizflow.local",
+    });
+    expect(history.find((request) => request.id === rejected.id)).toMatchObject({
+      status: "Rejected",
+      reviewedBy: "admin@bizflow.local",
+    });
+    expect(history.every((request) => Boolean(request.reviewedAt))).toBe(true);
+
+    const revision = await reviseChangeRequest(rejected.id, {
+      date: "2026-07-10",
+      startTime: "15:30",
+      endTime: "16:30",
+      totalCapacity: 6,
+    });
+    const revisedHistory = await listChangeRequests("camp_july_dinner", "slot_create");
+    expect(revision).toMatchObject({
+      status: "Pending",
+      requestedBy: "staff@bizflow.local",
+    });
+    expect(revisedHistory[0].id).toBe(revision.id);
+    expect(revisedHistory.find((request) => request.id === rejected.id)?.status).toBe("Rejected");
+  });
+
+  it("approves a staff request only once under concurrent review", async () => {
+    const request = await requestCampaignChange({
+      campaignId: "camp_july_dinner",
+      requestedBy: "staff@bizflow.local",
+      requestType: "slot_create",
+      payload: {
+        date: "2026-07-11",
+        startTime: "12:00",
+        endTime: "13:00",
+        totalCapacity: 7,
+      },
+    });
+
+    const decisions = await Promise.allSettled([
+      decideChangeRequest(request.id, true, "admin-one@bizflow.local"),
+      decideChangeRequest(request.id, true, "admin-two@bizflow.local"),
+    ]);
+    expect(decisions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(decisions.filter((result) => result.status === "rejected")).toHaveLength(1);
+
+    const matchingSlots = (await listSlots("camp_july_dinner")).filter(
+      (slot) => slot.date === "2026-07-11" && slot.startTime === "12:00" && slot.endTime === "13:00",
+    );
+    expect(matchingSlots).toHaveLength(1);
   });
 });

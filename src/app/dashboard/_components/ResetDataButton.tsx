@@ -4,6 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FiRefreshCw } from "react-icons/fi";
 import { api } from "@/lib/api-client";
+import {
+  forgetCustomerSession,
+  forgetIdentity,
+} from "@/lib/customer-identity";
 
 const CONFIRM_PHRASE = "RESET";
 const CLAIMED_VOUCHERS_STORAGE_KEY = "bizflow-claimed-vouchers";
@@ -47,6 +51,11 @@ export function ResetDataButton() {
         method: "POST",
       });
       clearPublicVoucherStorage();
+      // The reseed wipes the users the browser was signed in as, so also drop the
+      // customer sign-in (identity cookie + wallet session). Otherwise the public
+      // flow keeps a phone that no longer exists; clearing it returns to sign-in.
+      forgetIdentity();
+      forgetCustomerSession();
       setConfirmation("");
       router.refresh();
     } catch (caught) {

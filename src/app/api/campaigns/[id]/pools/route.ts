@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { requireAdmin } from "@/server/auth";
-import { createPool, listPools } from "@/server/admin";
+import { assertBusinessAccess, requireAdmin } from "@/server/auth";
+import { createPool, getCampaign, listPools } from "@/server/admin";
+import { requestCampaignChange } from "@/server/change-requests";
 import { fail, ok } from "@/server/errors";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,8 @@ const schema = z.object({
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
-    await requireAdmin(request);
+    const session = await requireAdmin(request);
+    assertBusinessAccess(session, (await getCampaign(params.id)).businessId);
     return ok(await listPools(params.id));
   } catch (error) {
     return fail(error);
@@ -30,8 +32,11 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
-    await requireAdmin(request);
+    const session = await requireAdmin(request);
+    const campaign = await getCampaign(params.id);
+    assertBusinessAccess(session, campaign.businessId);
     const input = schema.parse(await request.json());
+    if (session.role === "staff") return ok(await requestCampaignChange({ campaignId: campaign.id, requestedBy: session.email, requestType: "pool_create", payload: input }), { status: 202 });
     return ok(await createPool(params.id, input), { status: 201 });
   } catch (error) {
     return fail(error);

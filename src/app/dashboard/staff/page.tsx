@@ -18,7 +18,6 @@ import {
 import type { IScannerControls } from "@zxing/browser";
 import { api } from "@/lib/api-client";
 import type { Campaign, CampaignSlot, EndUser, Voucher } from "@/types/voucher";
-import { RewardsStaffTools } from "../_components/RewardsStaffTools";
 
 type Validation = {
   voucher: Voucher;
@@ -39,7 +38,6 @@ const statusPresentation: Record<Voucher["status"], { label: string; tone: "succ
 
 export default function StaffPage() {
   const [code, setCode] = useState("");
-  const [staffName, setStaffName] = useState("");
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<Validation | null>(null);
@@ -47,6 +45,9 @@ export default function StaffPage() {
   const [newSlotId, setNewSlotId] = useState("");
   const [scanMessage, setScanMessage] = useState("");
   const [scanning, setScanning] = useState(false);
+  // No camera (typical on desktop) → hide "Scan QR" entirely and let upload fill
+  // the row, instead of offering a button that only ever errors.
+  const [cameraAvailable, setCameraAvailable] = useState(false);
   const [validationToast, setValidationToast] = useState<{
     id: number;
     message: string;
@@ -91,6 +92,32 @@ export default function StaffPage() {
       window.clearTimeout(dismissTimeout);
     };
   }, [validationToast]);
+
+  // Detect a video input once on mount. enumerateDevices reports the device kind
+  // even before camera permission is granted, so this works pre-permission.
+  useEffect(() => {
+    let active = true;
+    const media = navigator.mediaDevices;
+    if (!media?.enumerateDevices) {
+      setCameraAvailable(false);
+      return;
+    }
+    media
+      .enumerateDevices()
+      .then((devices) => {
+        if (active) {
+          setCameraAvailable(
+            devices.some((device) => device.kind === "videoinput"),
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setCameraAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!scanning || !videoRef.current) return;
@@ -170,12 +197,6 @@ export default function StaffPage() {
   }
 
   async function redeem() {
-    const nextStaffName = staffName.trim();
-    if (nextStaffName.length < 2) {
-      showAdminToast("Enter your staff name before marking the voucher as used.");
-      return;
-    }
-
     const nextPurchaseAmount = purchaseAmount.trim()
       ? Number(purchaseAmount)
       : undefined;
@@ -193,7 +214,6 @@ export default function StaffPage() {
           method: "POST",
           body: JSON.stringify({
             codeOrToken: code,
-            staffName: nextStaffName,
             purchaseAmount: nextPurchaseAmount,
             note: note.trim() || undefined,
           })
@@ -211,7 +231,7 @@ export default function StaffPage() {
     try {
       await api("/api/staff/vouchers/no-show", {
         method: "POST",
-        body: JSON.stringify({ codeOrToken: code, staffName: staffName.trim() || undefined }),
+        body: JSON.stringify({ codeOrToken: code }),
       });
       showAdminToast("Reservation marked as no-show.", "success");
       await validate(code);
@@ -283,15 +303,19 @@ export default function StaffPage() {
             <span>Voucher Code or QR Token</span>
             <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="BF20-15MAY-12PM-X7A8" />
           </label>
-          <div className="qr-input-actions">
-            <button
-              className="button secondary qr-action"
-              onClick={() => setScanning(true)}
-              type="button"
-            >
-              <FiCamera aria-hidden="true" />
-              Scan QR
-            </button>
+          <div
+            className={`qr-input-actions ${cameraAvailable ? "" : "single"}`}
+          >
+            {cameraAvailable ? (
+              <button
+                className="button secondary qr-action"
+                onClick={() => setScanning(true)}
+                type="button"
+              >
+                <FiCamera aria-hidden="true" />
+                Scan QR
+              </button>
+            ) : null}
             <button
               className="button secondary qr-action"
               onClick={() => uploadRef.current?.click()}
@@ -328,10 +352,6 @@ export default function StaffPage() {
               {scanMessage}
             </p>
           ) : null}
-          <label className="field">
-            <span>Staff Name (required)</span>
-            <input value={staffName} onChange={(event) => setStaffName(event.target.value)} placeholder="Your name" />
-          </label>
           <label className="field">
             <span>Purchase Amount (optional)</span>
             <input value={purchaseAmount} onChange={(event) => setPurchaseAmount(event.target.value)} type="number" />
@@ -461,7 +481,6 @@ export default function StaffPage() {
             </div>
           )}
         </section>
-        <RewardsStaffTools />
       </div>
       {validationToast ? (
         <div
