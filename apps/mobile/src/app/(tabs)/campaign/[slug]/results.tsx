@@ -1,0 +1,226 @@
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import {
+  AppState,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { buildReferralLink } from "@/api/client";
+import { Button, InlineError } from "@/components/FormControls";
+import { InfoCard, StepHeader } from "@/components/HuntUi";
+import { VoucherTicket } from "@/components/VoucherTicket";
+import { useHunt } from "@/hunt/HuntContext";
+import { voucherDetail } from "@/lib/format";
+import { colors, fonts, spacing } from "@/theme";
+
+/** Step 4 — the revealed candidates, one per spin the visitor has taken. */
+export default function ResultsScreen() {
+  const router = useRouter();
+  const {
+    campaign,
+    flow,
+    refreshSnapshot,
+    save,
+    selectedAttempt,
+    slug,
+  } = useHunt();
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState("");
+
+  const refreshReferralState = useCallback(() => {
+    void refreshSnapshot().catch(() => {
+      // A transient refresh failure should not replace the vouchers already shown.
+    });
+  }, [refreshSnapshot]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshReferralState();
+      const interval = setInterval(refreshReferralState, 5000);
+      return () => clearInterval(interval);
+    }, [refreshReferralState]),
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refreshReferralState();
+    });
+    return () => subscription.remove();
+  }, [refreshReferralState]);
+
+  async function handleShareOrSpin() {
+    setShareError("");
+    if (flow.bonusAttempts > 0) {
+      router.push({ pathname: "/campaign/[slug]/roulette", params: { slug } });
+      return;
+    }
+    if (!flow.userId) {
+      setShareError("Your referral link is still being prepared. Please try again.");
+      return;
+    }
+
+    setSharing(true);
+    try {
+      const link = buildReferralLink(slug, flow.userId);
+      await Share.share({
+        title: "Voucher Hunt",
+        message: `Open my Voucher Hunt link and help me unlock another spin: ${link}`,
+      });
+      refreshReferralState();
+    } catch (caught) {
+      setShareError(
+        caught instanceof Error ? caught.message : "Unable to share your link.",
+      );
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  return (
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
+      <StepHeader title="Voucher Results" />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.title}>Your Voucher Options</Text>
+        <Text style={styles.lead}>
+          Pick the voucher you want to continue with. Extra spins add more options
+          here.
+        </Text>
+
+        {flow.attempts.length === 0 ? (
+          <InfoCard>
+            <Text style={styles.infoText}>No voucher result yet.</Text>
+            <Button
+              onPress={() =>
+                router.replace({ pathname: "/campaign/[slug]", params: { slug } })
+              }
+            >
+              Return to campaign
+            </Button>
+          </InfoCard>
+        ) : (
+          <View style={styles.stack}>
+            {flow.attempts.map((attempt) => {
+              const selected = attempt.id === flow.selectedAttemptId;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  key={attempt.id}
+                  onPress={() =>
+                    save({
+                      selectedAttemptId: attempt.id,
+                      selectedDate: "",
+                      selectedSlotId: "",
+                      issued: null,
+                    })
+                  }
+                >
+                  <VoucherTicket
+                    benefit={attempt}
+                    detail={voucherDetail(attempt)}
+                    footnote="Min. spend applies"
+                    selected={selected}
+                  />
+                </Pressable>
+              );
+            })}
+
+            <View style={styles.shareBlock}>
+              <Button
+                loading={sharing}
+                loadingLabel="Opening share sheet..."
+                variant="secondary"
+                onPress={() => void handleShareOrSpin()}
+              >
+                {flow.bonusAttempts > 0
+                  ? `Spin again (${flow.bonusAttempts} available)`
+                  : "Share to unlock another spin"}
+              </Button>
+              {shareError ? <InlineError message={shareError} /> : null}
+              <Text style={styles.shareHint}>
+                Share your link. When a friend opens it, you earn one extra roulette
+                spin.
+              </Text>
+              <Text style={styles.shareNote}>
+                Extra spins earned today: {flow.shareCount} /{" "}
+                {campaign?.campaign.referralDailyLimit ?? 0}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.action}>
+          <Button
+            disabled={!selectedAttempt}
+            onPress={() =>
+              router.push({ pathname: "/campaign/[slug]/datetime", params: { slug } })
+            }
+          >
+            Pick date &amp; time
+          </Button>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    backgroundColor: colors.page,
+    flex: 1,
+  },
+  content: {
+    padding: 18,
+    paddingBottom: 48,
+    paddingTop: 26,
+  },
+  title: {
+    color: colors.ink,
+    fontFamily: fonts.bold,
+    fontSize: 25,
+    lineHeight: 28,
+    marginBottom: 12,
+  },
+  lead: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: spacing.lg,
+  },
+  infoText: {
+    color: colors.ink,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+  },
+  stack: {
+    gap: spacing.md,
+  },
+  shareBlock: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  shareHint: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  shareNote: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+  },
+  action: {
+    marginTop: spacing.xl,
+  },
+});

@@ -1,0 +1,109 @@
+/**
+ * Dynamic Expo config. This replaces the previous static `app.json` so the
+ * App Link domain can come from the environment rather than being baked in —
+ * the deployed host is an ops decision (see docs/MOBILE_APP_MIGRATION.md §0).
+ *
+ * Env:
+ *   EXPO_PUBLIC_API_BASE_URL  – the backend the app talks to (required at runtime)
+ *   EXPO_PUBLIC_APP_LINK_HOST – bare hostname (no scheme) that should open the app,
+ *                               e.g. "vouchers.example.com". Optional; when unset
+ *                               only the custom scheme is registered.
+ */
+
+/** Brand purple — `--purple` in the web's globals.css. */
+const BRAND_PURPLE = "#5c3dff";
+
+const appLinkHost = process.env.EXPO_PUBLIC_APP_LINK_HOST?.trim();
+
+/**
+ * Android intent filters.
+ *
+ * The custom scheme always works and needs no domain verification, so it is the
+ * dependable path for dev and for links we generate ourselves. The https filter is
+ * only added when a host is configured, because `autoVerify` against a host that
+ * does not serve `/.well-known/assetlinks.json` silently fails verification and
+ * leaves Android showing a disambiguation dialog.
+ */
+function intentFilters() {
+  const filters = [
+    {
+      action: "VIEW",
+      category: ["BROWSABLE", "DEFAULT"],
+      data: [{ scheme: "voucherhunt" }],
+    },
+  ];
+
+  if (appLinkHost) {
+    filters.push({
+      action: "VIEW",
+      autoVerify: true,
+      category: ["BROWSABLE", "DEFAULT"],
+      // Scoped to the customer paths. Leaving it open would also capture the
+      // admin dashboard and the referral handoff, which must stay in the browser.
+      data: [
+        { scheme: "https", host: appLinkHost, pathPrefix: "/campaign" },
+        { scheme: "https", host: appLinkHost, pathPrefix: "/vouchers" },
+      ],
+    });
+  }
+
+  return filters;
+}
+
+module.exports = {
+  expo: {
+    name: "Voucher Hunt",
+    slug: "voucher-hunt",
+    version: "1.0.0",
+    orientation: "portrait",
+    icon: "./assets/images/icon.png",
+    scheme: "voucherhunt",
+    userInterfaceStyle: "light",
+    ios: {
+      // No `icon` override: the template pointed at `./assets/expo.icon`, which is
+      // Expo's own artwork. Falling through to the brand `icon` above keeps iOS
+      // consistent when it is eventually built (Android ships first).
+      supportsTablet: false,
+      associatedDomains: appLinkHost ? [`applinks:${appLinkHost}`] : undefined,
+    },
+    android: {
+      adaptiveIcon: {
+        backgroundColor: BRAND_PURPLE,
+        foregroundImage: "./assets/images/android-icon-foreground.png",
+        backgroundImage: "./assets/images/android-icon-background.png",
+        monochromeImage: "./assets/images/android-icon-monochrome.png",
+      },
+      predictiveBackGestureEnabled: false,
+      package: "com.voucherhunt.mobile",
+      intentFilters: intentFilters(),
+      // The customer app only displays QR codes; scanning is staff-only and stays
+      // on the web. Nothing here may request SMS permissions — that is a Play
+      // restricted permission and the OTP is sent server-side anyway.
+      permissions: [],
+      blockedPermissions: [
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS",
+      ],
+    },
+    web: {
+      output: "static",
+      favicon: "./assets/images/favicon.png",
+    },
+    plugins: [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          backgroundColor: BRAND_PURPLE,
+          image: "./assets/images/splash-icon.png",
+          imageWidth: 140,
+        },
+      ],
+      "expo-secure-store",
+    ],
+    experiments: {
+      typedRoutes: true,
+      reactCompiler: true,
+    },
+  },
+};
