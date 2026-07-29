@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FiArrowLeft, FiArrowRight } from "react-icons/fi";
 import { api } from "@/lib/api-client";
 import { isValidPhoneNumber, rememberIdentity } from "@/lib/customer-identity";
+import { toDisplayPhone } from "@/lib/phone-display";
 
 /**
  * The single, campaign-agnostic customer sign-in — now OTP-verified.
@@ -85,7 +86,7 @@ export function SignInForm({ next }: { next: string }) {
           <p className="muted">
             {step === "phone"
               ? "Enter your mobile number — we'll text you a code to verify it's yours."
-              : `Enter the code we sent to ${phone}.`}
+              : `Enter the code we sent to ${toDisplayPhone(phone)}.`}
           </p>
 
           {step === "phone" ? (

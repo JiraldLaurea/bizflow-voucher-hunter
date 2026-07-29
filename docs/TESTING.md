@@ -57,7 +57,7 @@ Seeded routes:
 | Confirmation | http://localhost:3000/campaign/july-dinner/confirmation | |
 | My Vouchers (global) | http://localhost:3000/vouchers | Device-local wallet |
 | Voucher detail (global) | http://localhost:3000/vouchers/&lt;voucherId&gt; | |
-| More / Rewards wallet (global) | http://localhost:3000/more | No OTP step |
+| More / Loyalty Points wallet (global) | http://localhost:3000/more | Daily LP status, QR, and LP-voucher conversion |
 | Online shop landing | http://localhost:3000/campaign/8pm-drop | |
 | Beauty clinic landing | http://localhost:3000/campaign/glow-facial | |
 | Admin dashboard | http://localhost:3000/dashboard | |
@@ -303,7 +303,7 @@ Validate:
 | Campaign table | Seeded restaurant, online shop, and beauty clinic rows render, each with an **Allow reschedule** toggle |
 | Slot table | Slot inventory rows render with status chips |
 | Staff requests | Approve / Reject sit side by side in one row |
-| Rewards | Rewards network wallet/settlement tools render |
+| Loyalty Points | LP wallet, staff tools, fees, and partner settlement controls render |
 | Export button | CSV export link is available |
 
 The campaign selector only appears when more than one campaign exists, and it is scoped **per page** —
@@ -445,7 +445,7 @@ Use desktop and mobile viewport sizes.
 | `/campaign/july-dinner/confirmation` | confirmation status, voucher code, QR block, evenly padded summary rows |
 | `/vouchers` | wallet list, expired markers, no back arrow |
 | `/vouchers/<id>` | voucher detail, QR, summary rows |
-| `/more` | account card, rewards wallet + QR (no OTP step), dev tools (local only), Sign Out |
+| `/more` | account card, Loyalty Points wallet + QR, daily LP status, dev tools (local only), Sign Out |
 | `/campaign/8pm-drop` | online shop copy, no guest-count dependency |
 | `/campaign/glow-facial` | beauty clinic copy, appointment slots |
 | `/dashboard` | per-page campaign selector (top-left, category-coloured icon), admin tables, metric cards, status chips |

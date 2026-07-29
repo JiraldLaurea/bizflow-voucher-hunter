@@ -11,10 +11,12 @@ import {
   FiEyeOff,
   FiLogOut,
   FiRefreshCw,
+  FiShare2,
 } from "react-icons/fi";
 import { CustomerBottomNav } from "@/app/_components/CustomerBottomNav";
 import { api } from "@/lib/api-client";
 import { forgetIdentity } from "@/lib/customer-identity";
+import { toDisplayPhone } from "@/lib/phone-display";
 import {
   clearAllFlowState,
   huntResetPatch,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/flow-storage";
 import { claimedVouchersStorageKey } from "@/lib/voucher-display";
 import type {
+  LoyaltyDailyStatus,
   RewardLedgerEntry,
   RewardVoucher,
   RewardWallet,
@@ -34,12 +37,19 @@ type RewardWalletSnapshot = {
   balance: string;
   ledger: RewardLedgerEntry[];
   vouchers: RewardVoucher[];
+  dailyStatus: LoyaltyDailyStatus;
 };
 
 type DevPoolOption = {
   poolId?: string;
   displayLabel: string;
   remainingQuantity?: number;
+};
+
+type ReferralLinkIdentity = {
+  campaignSlug: string;
+  referrerUserId: string;
+  visitPath: string;
 };
 
 const devToolsEnabled = process.env.NODE_ENV !== "production";
@@ -65,6 +75,12 @@ async function copyText(value: string) {
   const copied = document.execCommand("copy");
   input.remove();
   if (!copied) throw new Error("Copy failed.");
+}
+
+function formatPoints(pointsCentavos: number) {
+  return `${(pointsCentavos / 100).toLocaleString("en-PH", {
+    maximumFractionDigits: 2,
+  })} LP`;
 }
 
 /** Renders a data-URL QR for `token`, or "" while absent/failed. */
@@ -93,7 +109,7 @@ function useQrDataUrl(token: string | undefined) {
  * lives at a global URL, so any campaign-relative navigation would be wrong
  * here. The only campaign it knows about is `campaignSlug` — an anchor used
  * purely to scope the OTP session, the dev pool list, and the hunt reset. The
- * rewards wallet itself is per-phone and network-wide. Nothing in this file
+ * Loyalty Points wallet itself is per-phone and network-wide. Nothing in this file
  * navigates to that campaign.
  */
 export function MoreScreen({
@@ -121,6 +137,7 @@ export function MoreScreen({
 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [referralBusy, setReferralBusy] = useState(false);
 
   const walletQr = useQrDataUrl(wallet?.wallet.walletToken);
   const expandedVoucher = wallet?.vouchers.find(
@@ -148,7 +165,7 @@ export function MoreScreen({
       setError(
         caught instanceof Error
           ? caught.message
-          : "Unable to load rewards wallet.",
+          : "Unable to load Loyalty Points.",
       );
     } finally {
       setWalletBusy(false);
@@ -191,7 +208,33 @@ export function MoreScreen({
     }
   }
 
-  async function convertRewardCredit() {
+  async function shareDailyReferral() {
+    setReferralBusy(true);
+    setError("");
+    try {
+      const referral = await api<ReferralLinkIdentity>(
+        "/api/public/referral/link",
+        {
+          method: "POST",
+          body: JSON.stringify({ campaignSlug }),
+        },
+      );
+      await copyText(`${window.location.origin}${referral.visitPath}`);
+      setNotice(
+        "Referral link copied. You’ll earn 10 LP when one new user opens it.",
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to create your referral link.",
+      );
+    } finally {
+      setReferralBusy(false);
+    }
+  }
+
+  async function convertLoyaltyPoints() {
     if (!convertAmount.trim()) {
       setError("Enter an amount to convert.");
       return;
@@ -207,13 +250,13 @@ export function MoreScreen({
         }),
       });
       setConvertAmount("");
-      setNotice("Reward credit converted into a voucher.");
+      setNotice("Loyalty Points converted into an LP voucher.");
       await loadWallet();
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Unable to convert reward credit.",
+          : "Unable to convert Loyalty Points.",
       );
     } finally {
       setWalletBusy(false);
@@ -280,37 +323,82 @@ export function MoreScreen({
             <div className="info-card">
               <h2>Account</h2>
               <p className="muted">
-                {phone ? `Signed in as ${phone}` : "You are not signed in."}
+                {phone
+                  ? `Signed in as ${toDisplayPhone(phone)}`
+                  : "You are not signed in."}
               </p>
             </div>
 
             <div className="info-card rewards-wallet-card">
               <div className="rewards-wallet-header">
                 <div>
-                  <h2>Rewards Wallet</h2>
+                  <h2>Loyalty Points</h2>
                   <p className="muted">
                     {wallet
-                      ? "Show this QR when paying at partner stores."
-                      : "Your rewards wallet across BizFlow partner stores."}
+                      ? "Earn 5% LP on eligible purchases and redeem it through participating partner offers."
+                      : "Your Loyalty Points wallet across partner stores."}
                   </p>
                 </div>
-                <span className="badge success">5% credit</span>
+                <span className="badge success">Earn 5% LP</span>
               </div>
 
               {wallet ? (
                 <>
                   <div className="rewards-wallet-balance">
-                    <span className="muted">Available reward credit</span>
+                    <span className="muted">Available Loyalty Points</span>
                     <strong>{wallet.balance}</strong>
                     <small>
-                      Credits are not cash and can only convert to BizFlow
-                      partner vouchers.
+                      LP has no fixed peso equivalent. Redeem it through
+                      participating partner offers.
                     </small>
+                  </div>
+                  <div className="loyalty-daily-card">
+                    <div className="loyalty-daily-heading">
+                      <div>
+                        <strong>Earn LP every day</strong>
+                        <small>
+                          Up to {wallet.dailyStatus.monthlyPotential} in 30 days
+                        </small>
+                      </div>
+                      <span>{wallet.dailyStatus.earnedToday} today</span>
+                    </div>
+                    <div className="loyalty-daily-row">
+                      <FiCheckCircle aria-hidden="true" />
+                      <span>
+                        <strong>Use Voucher Hunt today</strong>
+                        <small>{wallet.dailyStatus.appUsePoints}</small>
+                      </span>
+                      <small className="loyalty-earned">Earned</small>
+                    </div>
+                    <div className="loyalty-daily-row">
+                      {wallet.dailyStatus.referralAwarded ? (
+                        <FiCheckCircle aria-hidden="true" />
+                      ) : (
+                        <FiRefreshCw aria-hidden="true" />
+                      )}
+                      <span>
+                        <strong>Refer one new user today</strong>
+                        <small>{wallet.dailyStatus.referralPoints}</small>
+                      </span>
+                      {wallet.dailyStatus.referralAwarded ? (
+                        <small className="loyalty-earned">Earned</small>
+                      ) : (
+                        <button
+                          className="loyalty-referral-action"
+                          disabled={referralBusy}
+                          onClick={shareDailyReferral}
+                          type="button"
+                        >
+                          <FiShare2 aria-hidden="true" />
+                          {referralBusy ? "Preparing…" : "Share link"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="reward-wallet-qr">
                     {walletQr ? (
                       <Image
-                        alt="Customer rewards wallet QR code"
+                        alt="Customer Loyalty Points wallet QR code"
                         height={148}
                         src={walletQr}
                         unoptimized
@@ -350,7 +438,7 @@ export function MoreScreen({
                     )}
                   </div>
                   <label className="field rewards-convert-field">
-                    <span>Convert credits to voucher</span>
+                    <span>LP amount to convert</span>
                     <input
                       inputMode="decimal"
                       onChange={(event) => setConvertAmount(event.target.value)}
@@ -365,14 +453,14 @@ export function MoreScreen({
                       !wallet.walletSecret ||
                       !convertAmount.trim()
                     }
-                    onClick={convertRewardCredit}
+                    onClick={convertLoyaltyPoints}
                     type="button"
                   >
-                    Convert to Voucher
+                    Create LP Voucher
                   </button>
                   {wallet.vouchers.length > 0 ? (
                     <div className="reward-voucher-list">
-                      <strong>Your reward vouchers</strong>
+                      <strong>Your LP vouchers</strong>
                       {wallet.vouchers.slice(0, 3).map((voucher) => {
                         const expanded = expandedVoucherId === voucher.id;
                         return (
@@ -386,7 +474,7 @@ export function MoreScreen({
                             >
                               <span>{voucher.voucherCode}</span>
                               <small>
-                                ₱{(voucher.remainingCentavos / 100).toFixed(2)} ·{" "}
+                                {formatPoints(voucher.remainingCentavos)} ·{" "}
                                 {voucher.status}
                               </small>
                               <FiChevronRight
@@ -399,7 +487,7 @@ export function MoreScreen({
                                 <div className="reward-voucher-qr">
                                   {voucherQr ? (
                                     <Image
-                                      alt={`QR code for reward voucher ${voucher.voucherCode}`}
+                                      alt={`QR code for LP voucher ${voucher.voucherCode}`}
                                       height={148}
                                       src={voucherQr}
                                       unoptimized
@@ -415,7 +503,7 @@ export function MoreScreen({
                                     onClick={() =>
                                       copy(
                                         voucher.voucherCode,
-                                        "Reward voucher code",
+                                        "LP voucher code",
                                       )
                                     }
                                     type="button"
@@ -426,7 +514,7 @@ export function MoreScreen({
                                   <button
                                     className="button secondary"
                                     onClick={() =>
-                                      copy(voucher.qrToken, "Reward QR token")
+                                      copy(voucher.qrToken, "LP voucher QR token")
                                     }
                                     type="button"
                                   >
@@ -436,7 +524,8 @@ export function MoreScreen({
                                 </div>
                                 <small className="muted">
                                   Partner staff can scan this QR or enter the
-                                  voucher code in Rewards Network.
+                                  LP voucher code in the staff Loyalty Points
+                                  page.
                                 </small>
                               </div>
                             ) : null}
@@ -449,8 +538,8 @@ export function MoreScreen({
               ) : (
                 <p className="muted">
                   {walletBusy
-                    ? "Loading rewards wallet…"
-                    : "Rewards wallet is unavailable right now."}
+                    ? "Loading Loyalty Points wallet…"
+                    : "Loyalty Points wallet is unavailable right now."}
                 </p>
               )}
               {error ? <p className="alert">{error}</p> : null}

@@ -4,6 +4,7 @@ import { all, getDb, one, run, withTx } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { normalizePhone } from "@/server/phone";
 import type {
+  LoyaltyDailyStatus,
   RewardLedgerEntry,
   RewardPurchase,
   RewardSettlementStatus,
@@ -15,10 +16,13 @@ import type {
 type Exec = Client | Transaction;
 type Row = any;
 
-const REWARD_RATE_BPS = 500; // 5.00%
+const LOYALTY_RATE_BPS = 500; // 5.00%
+const SERVICE_FEE_BPS = 1_000; // 10.00%
+const DAILY_APP_USE_POINTS_CENTAVOS = 10_00; // 10 LP
+const DAILY_REFERRAL_POINTS_CENTAVOS = 10_00; // 10 LP
 const MAX_PURCHASE_CENTAVOS = 1_000_000_00; // PHP 1,000,000 per scan
-const MAX_REDEMPTION_CENTAVOS = 250_000_00; // PHP 250,000 per voucher payment
-const MIN_CONVERSION_CENTAVOS = 50_00; // PHP 50 minimum voucher conversion
+const MAX_REDEMPTION_CENTAVOS = 250_000_00; // 250,000 LP per voucher payment
+const MIN_CONVERSION_CENTAVOS = 50_00; // 50 LP minimum voucher conversion
 
 const isoNow = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
@@ -47,6 +51,55 @@ export function centavosToMoney(amountCentavos: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+/** LP is stored in hundredths, just like currency, to keep 5% calculations exact. */
+export function centavosToLoyaltyPoints(pointsCentavos: number) {
+  return `${(pointsCentavos / 100).toLocaleString("en-PH", {
+    minimumFractionDigits: Number.isInteger(pointsCentavos / 100) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })} LP`;
+}
+
+export function loyaltyPointsToCentavos(value: unknown, fieldName = "LP amount") {
+  if (typeof value === "string") {
+    return moneyToCentavos(value.trim().replace(/\s*LP$/i, ""), fieldName);
+  }
+  return moneyToCentavos(value, fieldName);
+}
+
+function manilaDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Asia/Manila",
+    year: "numeric",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return {
+    date: `${value("year")}-${value("month")}-${value("day")}`,
+    day: Number(value("day")),
+    period: `${value("year")}-${value("month")}`,
+  };
+}
+
+function nextPeriod(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function settlementWindowFor(createdAt: string) {
+  const redemptionPeriod = manilaDateParts(new Date(createdAt)).period;
+  const payoutPeriod = nextPeriod(redemptionPeriod);
+  return `${payoutPeriod}-01 to ${payoutPeriod}-07`;
+}
+
+function isSettlementEligible(createdAt: string) {
+  const today = manilaDateParts();
+  const redemptionPeriod = manilaDateParts(new Date(createdAt)).period;
+  return today.day <= 7 && redemptionPeriod < today.period;
 }
 
 export function maskPhone(phone: string) {
@@ -129,6 +182,10 @@ function mapRedemption(row: Row): RewardVoucherRedemption {
     walletId: row.wallet_id,
     businessId: row.business_id,
     amountCentavos: row.amount_centavos,
+    serviceFeeCentavos: Number(row.service_fee_centavos ?? 0),
+    settlementAmountCentavos: Number(
+      row.settlement_amount_centavos ?? row.amount_centavos,
+    ),
     staffName: row.staff_name,
     settlementStatus: row.settlement_status,
     settlementId: row.settlement_id ?? undefined,
@@ -208,18 +265,191 @@ async function walletByPhoneAndSecret(db: Exec, phone: string, walletSecret: str
     normalized,
     walletSecret.trim(),
   ]);
-  if (!row) throw new AppError("E-REWARD-WALLET-AUTH", "Reward wallet authorization is required", 401);
+  if (!row) throw new AppError("E-REWARD-WALLET-AUTH", "Loyalty Points wallet authorization is required", 401);
   const wallet = mapWallet(row);
-  if (wallet.status !== "Active") throw new AppError("E-REWARD-WALLET-SUSPENDED", "Reward wallet is suspended", 409);
+  if (wallet.status !== "Active") throw new AppError("E-REWARD-WALLET-SUSPENDED", "Loyalty Points wallet is suspended", 409);
   return wallet;
 }
 
 async function walletByToken(db: Exec, walletToken: string) {
   const row = await one(db, "SELECT * FROM reward_wallets WHERE wallet_token = ?", [walletToken.trim()]);
-  if (!row) throw new AppError("E-REWARD-WALLET-404", "Reward wallet was not found", 404);
+  if (!row) throw new AppError("E-REWARD-WALLET-404", "Loyalty Points wallet was not found", 404);
   const wallet = mapWallet(row);
-  if (wallet.status !== "Active") throw new AppError("E-REWARD-WALLET-SUSPENDED", "Reward wallet is suspended", 409);
+  if (wallet.status !== "Active") throw new AppError("E-REWARD-WALLET-SUSPENDED", "Loyalty Points wallet is suspended", 409);
   return wallet;
+}
+
+async function ensureRewardWallet(
+  db: Exec,
+  input: { phone: string; name?: string; email?: string },
+) {
+  const normalized = requireWalletPhone(input.phone);
+  const now = isoNow();
+  await run(
+    db,
+    `INSERT OR IGNORE INTO reward_wallets
+     (id, phone, name, email, wallet_token, wallet_secret, balance_centavos, lifetime_earned_centavos, lifetime_converted_centavos, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 'Active', ?, ?)`,
+    [
+      id("rwal"),
+      normalized,
+      input.name ?? null,
+      input.email ?? null,
+      token("rwallet"),
+      token("rwsecret"),
+      now,
+      now,
+    ],
+  );
+  await run(
+    db,
+    `UPDATE reward_wallets
+     SET name = COALESCE(?, name), email = COALESCE(?, email), updated_at = ?
+     WHERE phone = ?`,
+    [input.name ?? null, input.email ?? null, now, normalized],
+  );
+  return mapWallet(
+    await one(db, "SELECT * FROM reward_wallets WHERE phone = ?", [normalized]),
+  );
+}
+
+async function awardDailyLoyaltyPoints(
+  db: Exec,
+  input: {
+    walletId: string;
+    rewardType: "app_use" | "referral";
+    sourceId?: string;
+  },
+) {
+  const activeWallet = await one(
+    db,
+    "SELECT status FROM reward_wallets WHERE id = ?",
+    [input.walletId],
+  );
+  if (!activeWallet || activeWallet.status !== "Active") {
+    throw new AppError(
+      "E-REWARD-WALLET-SUSPENDED",
+      "Loyalty Points wallet is suspended",
+      409,
+    );
+  }
+  const rewardDate = manilaDateParts().date;
+  const pointsCentavos =
+    input.rewardType === "app_use"
+      ? DAILY_APP_USE_POINTS_CENTAVOS
+      : DAILY_REFERRAL_POINTS_CENTAVOS;
+  const rewardId = id("lday");
+  const now = isoNow();
+  const inserted = await run(
+    db,
+    `INSERT OR IGNORE INTO loyalty_daily_rewards
+     (id, wallet_id, reward_type, reward_date, points_centavos, source_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      rewardId,
+      input.walletId,
+      input.rewardType,
+      rewardDate,
+      pointsCentavos,
+      input.sourceId ?? null,
+      now,
+    ],
+  );
+  if (inserted !== 1) return false;
+
+  await run(
+    db,
+    `UPDATE reward_wallets
+     SET balance_centavos = balance_centavos + ?,
+         lifetime_earned_centavos = lifetime_earned_centavos + ?,
+         updated_at = ?
+     WHERE id = ? AND status = 'Active'`,
+    [pointsCentavos, pointsCentavos, now, input.walletId],
+  );
+  const wallet = mapWallet(
+    await one(db, "SELECT * FROM reward_wallets WHERE id = ?", [input.walletId]),
+  );
+  await run(
+    db,
+    `INSERT INTO reward_ledger_entries
+     (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id("rled"),
+      input.walletId,
+      input.rewardType === "app_use" ? "daily_app_use" : "referral_bonus",
+      pointsCentavos,
+      wallet.balanceCentavos,
+      input.rewardType === "app_use" ? "daily_app_use" : "daily_referral",
+      input.sourceId ?? rewardId,
+      JSON.stringify({ rewardDate, pointsCentavos }),
+      now,
+    ],
+  );
+  await audit(db, {
+    actorType: "system",
+    action:
+      input.rewardType === "app_use"
+        ? "daily_app_use_lp_awarded"
+        : "daily_referral_lp_awarded",
+    entityType: "loyalty_daily_reward",
+    entityId: rewardId,
+    metadata: {
+      walletId: input.walletId,
+      rewardDate,
+      pointsCentavos,
+      sourceId: input.sourceId ?? null,
+    },
+  });
+  return true;
+}
+
+async function loyaltyDailyStatus(
+  db: Exec,
+  walletId: string,
+): Promise<LoyaltyDailyStatus> {
+  const date = manilaDateParts().date;
+  const rows = await all(
+    db,
+    `SELECT reward_type, points_centavos
+     FROM loyalty_daily_rewards
+     WHERE wallet_id = ? AND reward_date = ?`,
+    [walletId, date],
+  );
+  const appUse = rows.find((row) => row.reward_type === "app_use");
+  const referral = rows.find((row) => row.reward_type === "referral");
+  const earned = rows.reduce(
+    (sum, row) => sum + Number(row.points_centavos),
+    0,
+  );
+  return {
+    date,
+    appUseAwarded: Boolean(appUse),
+    referralAwarded: Boolean(referral),
+    appUsePoints: centavosToLoyaltyPoints(DAILY_APP_USE_POINTS_CENTAVOS),
+    referralPoints: centavosToLoyaltyPoints(
+      DAILY_REFERRAL_POINTS_CENTAVOS,
+    ),
+    earnedToday: centavosToLoyaltyPoints(earned),
+    monthlyPotential: centavosToLoyaltyPoints(
+      (DAILY_APP_USE_POINTS_CENTAVOS +
+        DAILY_REFERRAL_POINTS_CENTAVOS) *
+        30,
+    ),
+  };
+}
+
+/** Called only after a distinct referral visit has passed anti-abuse checks. */
+export async function awardReferralLoyaltyPoints(
+  db: Exec,
+  input: { phone: string; referralRewardId: string },
+) {
+  const wallet = await ensureRewardWallet(db, { phone: input.phone });
+  return awardDailyLoyaltyPoints(db, {
+    walletId: wallet.id,
+    rewardType: "referral",
+    sourceId: input.referralRewardId,
+  });
 }
 
 export async function getOrCreateRewardWallet(input: {
@@ -228,26 +458,16 @@ export async function getOrCreateRewardWallet(input: {
   email?: string;
 }) {
   return withTx(async (tx) => {
-    const normalized = requireWalletPhone(input.phone);
-    const now = isoNow();
-
-    await run(
-      tx,
-      `INSERT OR IGNORE INTO reward_wallets
-       (id, phone, name, email, wallet_token, wallet_secret, balance_centavos, lifetime_earned_centavos, lifetime_converted_centavos, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 'Active', ?, ?)`,
-      [id("rwal"), normalized, input.name ?? null, input.email ?? null, token("rwallet"), token("rwsecret"), now, now],
+    const initialWallet = await ensureRewardWallet(tx, input);
+    const appUseAwardedNow = await awardDailyLoyaltyPoints(tx, {
+      walletId: initialWallet.id,
+      rewardType: "app_use",
+    });
+    const wallet = mapWallet(
+      await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [
+        initialWallet.id,
+      ]),
     );
-
-    await run(
-      tx,
-      `UPDATE reward_wallets
-       SET name = COALESCE(?, name), email = COALESCE(?, email), updated_at = ?
-       WHERE phone = ?`,
-      [input.name ?? null, input.email ?? null, now, normalized],
-    );
-
-    const wallet = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE phone = ?", [normalized]));
     const secretRow = await one(tx, "SELECT wallet_secret FROM reward_wallets WHERE id = ?", [wallet.id]);
     const [ledger, vouchers] = await Promise.all([
       all(tx, "SELECT * FROM reward_ledger_entries WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 12", [wallet.id]),
@@ -265,9 +485,11 @@ export async function getOrCreateRewardWallet(input: {
     return {
       wallet,
       walletSecret: String(secretRow.wallet_secret),
-      balance: centavosToMoney(wallet.balanceCentavos),
+      balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
       ledger: ledger.map(mapLedger),
       vouchers: vouchers.map(mapRewardVoucher),
+      dailyStatus: await loyaltyDailyStatus(tx, wallet.id),
+      appUseAwardedNow,
     };
   });
 }
@@ -285,9 +507,10 @@ export async function rewardWalletSnapshot(input: {
   return {
     wallet,
     walletSecret: input.walletSecret,
-    balance: centavosToMoney(wallet.balanceCentavos),
+    balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
     ledger: ledger.map(mapLedger),
     vouchers: vouchers.map(mapRewardVoucher),
+    dailyStatus: await loyaltyDailyStatus(db, wallet.id),
   };
 }
 
@@ -319,8 +542,8 @@ export async function creditRewardFromPurchase(input: {
       return {
         wallet,
         purchase: existing,
-        rewardAmount: centavosToMoney(existing.rewardAmountCentavos),
-        balance: centavosToMoney(wallet.balanceCentavos),
+        rewardAmount: centavosToLoyaltyPoints(existing.rewardAmountCentavos),
+        balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
         fraudFlag: existing.fraudFlag,
         heldForReview: existing.status === "Held",
         idempotentReplay: true,
@@ -340,8 +563,16 @@ export async function creditRewardFromPurchase(input: {
         400
       );
     }
-    const rewardCentavos = Math.floor((purchaseCentavos * REWARD_RATE_BPS) / 10_000);
-    if (rewardCentavos <= 0) throw new AppError("E-REWARD-TOO-SMALL", "Purchase amount is too small to earn credit", 400);
+    const rewardCentavos = Math.floor(
+      (purchaseCentavos * LOYALTY_RATE_BPS) / 10_000,
+    );
+    if (rewardCentavos <= 0) {
+      throw new AppError(
+        "E-REWARD-TOO-SMALL",
+        "Purchase amount is too small to earn Loyalty Points",
+        400,
+      );
+    }
 
     const recentSince = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const recent = Number(
@@ -388,8 +619,8 @@ export async function creditRewardFromPurchase(input: {
     return {
       wallet: updated,
       purchase: mapPurchase(await one(tx, "SELECT * FROM reward_purchases WHERE id = ?", [purchaseId])),
-      rewardAmount: centavosToMoney(rewardCentavos),
-      balance: centavosToMoney(updated.balanceCentavos),
+      rewardAmount: centavosToLoyaltyPoints(rewardCentavos),
+      balance: centavosToLoyaltyPoints(updated.balanceCentavos),
       fraudFlag: flag,
       heldForReview: Boolean(flag),
       idempotentReplay: false,
@@ -433,7 +664,7 @@ async function applyRewardCredit(
       input.purchaseId,
       input.businessId,
       input.staffName,
-      JSON.stringify({ purchaseCentavos: input.purchaseCentavos, rewardRateBps: REWARD_RATE_BPS, ...(input.metadata ?? {}) }),
+      JSON.stringify({ purchaseCentavos: input.purchaseCentavos, loyaltyRateBps: LOYALTY_RATE_BPS, ...(input.metadata ?? {}) }),
       now,
     ],
   );
@@ -447,9 +678,16 @@ export async function convertRewardCreditToVoucher(input: {
 }) {
   return withTx(async (tx) => {
     const wallet = await walletByPhoneAndSecret(tx, requireWalletPhone(input.phone), input.walletSecret);
-    const amountCentavos = moneyToCentavos(input.amount, "voucher amount");
+    const amountCentavos = loyaltyPointsToCentavos(
+      input.amount,
+      "LP voucher amount",
+    );
     if (amountCentavos < MIN_CONVERSION_CENTAVOS) {
-      throw new AppError("E-REWARD-MIN-CONVERT", `Minimum conversion is ${centavosToMoney(MIN_CONVERSION_CENTAVOS)}`, 400);
+      throw new AppError(
+        "E-REWARD-MIN-CONVERT",
+        `Minimum conversion is ${centavosToLoyaltyPoints(MIN_CONVERSION_CENTAVOS)}`,
+        400,
+      );
     }
 
     const now = isoNow();
@@ -462,7 +700,13 @@ export async function convertRewardCreditToVoucher(input: {
        WHERE id = ? AND balance_centavos >= ? AND status = 'Active'`,
       [amountCentavos, amountCentavos, now, wallet.id, amountCentavos],
     );
-    if (affected !== 1) throw new AppError("E-REWARD-BALANCE", "Insufficient reward credit", 409);
+    if (affected !== 1) {
+      throw new AppError(
+        "E-REWARD-BALANCE",
+        "Insufficient Loyalty Points",
+        409,
+      );
+    }
 
     const updated = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]));
     const voucherId = id("rvch");
@@ -488,7 +732,7 @@ export async function convertRewardCreditToVoucher(input: {
     await audit(tx, {
       actorType: "customer",
       actorId: wallet.id,
-      action: "reward_credit_converted",
+      action: "loyalty_points_converted",
       entityType: "reward_voucher",
       entityId: voucherId,
       metadata: { amountCentavos },
@@ -497,7 +741,7 @@ export async function convertRewardCreditToVoucher(input: {
     return {
       wallet: updated,
       voucher: mapRewardVoucher(await one(tx, "SELECT * FROM reward_vouchers WHERE id = ?", [voucherId])),
-      balance: centavosToMoney(updated.balanceCentavos),
+      balance: centavosToLoyaltyPoints(updated.balanceCentavos),
     };
   });
 }
@@ -506,7 +750,7 @@ async function loadRewardVoucher(db: Exec, codeOrToken: string) {
   const value = codeOrToken.trim();
   const upper = value.toUpperCase();
   const row = await one(db, "SELECT * FROM reward_vouchers WHERE UPPER(voucher_code) = ? OR qr_token = ?", [upper, value]);
-  if (!row) throw new AppError("E-REWARD-VOUCHER-404", "Reward voucher was not found", 404);
+  if (!row) throw new AppError("E-REWARD-VOUCHER-404", "LP voucher was not found", 404);
   return mapRewardVoucher(row);
 }
 
@@ -532,21 +776,33 @@ export async function redeemRewardVoucher(input: {
     await getBusinessOrThrow(tx, input.businessId);
     const staffName = input.staffName.trim();
     if (staffName.length < 2) throw new AppError("E-STAFF-NAME", "Staff name is required", 400);
-    const amountCentavos = moneyToCentavos(input.amount, "voucher payment amount");
+    const amountCentavos = loyaltyPointsToCentavos(
+      input.amount,
+      "LP payment amount",
+    );
     if (amountCentavos <= 0 || amountCentavos > MAX_REDEMPTION_CENTAVOS) {
       throw new AppError("E-MONEY-RANGE", "Voucher payment amount is outside the allowed range", 400);
     }
 
     const voucher = await loadRewardVoucher(tx, input.codeOrToken);
-    if (voucher.status !== "Active") throw new AppError("E-REWARD-VOUCHER-INACTIVE", "Reward voucher is not active", 409);
+    if (voucher.status !== "Active") throw new AppError("E-REWARD-VOUCHER-INACTIVE", "LP voucher is not active", 409);
     if (voucher.expiresAt && new Date(voucher.expiresAt).getTime() < Date.now()) {
       await run(tx, "UPDATE reward_vouchers SET status = 'Expired' WHERE id = ?", [voucher.id]);
-      throw new AppError("E-REWARD-VOUCHER-EXPIRED", "Reward voucher is expired", 409);
+      throw new AppError("E-REWARD-VOUCHER-EXPIRED", "LP voucher is expired", 409);
     }
     if (amountCentavos > voucher.remainingCentavos) {
-      throw new AppError("E-REWARD-VOUCHER-BALANCE", "Voucher does not have enough remaining value", 409);
+      throw new AppError(
+        "E-REWARD-VOUCHER-BALANCE",
+        "LP voucher does not have enough remaining points",
+        409,
+      );
     }
 
+    const serviceFeeCentavos = Math.floor(
+      (amountCentavos * SERVICE_FEE_BPS) / 10_000,
+    );
+    const settlementAmountCentavos =
+      amountCentavos - serviceFeeCentavos;
     const remaining = voucher.remainingCentavos - amountCentavos;
     const status = remaining === 0 ? "Redeemed" : "Active";
     const now = isoNow();
@@ -558,16 +814,26 @@ export async function redeemRewardVoucher(input: {
       [remaining, status, remaining, now, voucher.id, amountCentavos],
     );
     if (updatedRows !== 1) {
-      throw new AppError("E-REWARD-VOUCHER-RACE", "Reward voucher changed while redeeming. Validate it again.", 409);
+      throw new AppError("E-REWARD-VOUCHER-RACE", "LP voucher changed while redeeming. Validate it again.", 409);
     }
 
     const redemptionId = id("rred");
     await run(
       tx,
       `INSERT INTO reward_voucher_redemptions
-       (id, voucher_id, wallet_id, business_id, amount_centavos, staff_name, settlement_status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?)`,
-      [redemptionId, voucher.id, voucher.walletId, input.businessId, amountCentavos, staffName, now],
+       (id, voucher_id, wallet_id, business_id, amount_centavos, service_fee_centavos, settlement_amount_centavos, staff_name, settlement_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?)`,
+      [
+        redemptionId,
+        voucher.id,
+        voucher.walletId,
+        input.businessId,
+        amountCentavos,
+        serviceFeeCentavos,
+        settlementAmountCentavos,
+        staffName,
+        now,
+      ],
     );
     await audit(tx, {
       actorType: "staff",
@@ -575,13 +841,25 @@ export async function redeemRewardVoucher(input: {
       action: "reward_voucher_redeemed",
       entityType: "reward_voucher_redemption",
       entityId: redemptionId,
-      metadata: { voucherId: voucher.id, businessId: input.businessId, amountCentavos, settlementStatus: "Pending" },
+      metadata: {
+        voucherId: voucher.id,
+        businessId: input.businessId,
+        amountCentavos,
+        serviceFeeBps: SERVICE_FEE_BPS,
+        serviceFeeCentavos,
+        settlementAmountCentavos,
+        settlementStatus: "Pending",
+      },
     });
 
     return {
       voucher: mapRewardVoucher(await one(tx, "SELECT * FROM reward_vouchers WHERE id = ?", [voucher.id])),
       redemption: mapRedemption(await one(tx, "SELECT * FROM reward_voucher_redemptions WHERE id = ?", [redemptionId])),
-      amount: centavosToMoney(amountCentavos),
+      amount: centavosToLoyaltyPoints(amountCentavos),
+      serviceFee: centavosToLoyaltyPoints(serviceFeeCentavos),
+      settlementAmount: centavosToLoyaltyPoints(
+        settlementAmountCentavos,
+      ),
     };
   });
 }
@@ -636,7 +914,7 @@ export async function reviewHeldRewardPurchase(input: {
     return {
       wallet,
       purchase: mapPurchase(await one(tx, "SELECT * FROM reward_purchases WHERE id = ?", [purchase.id])),
-      balance: centavosToMoney(wallet.balanceCentavos),
+      balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
     };
   });
 }
@@ -655,24 +933,94 @@ export async function processRewardSettlements(input: { redemptionIds: string[];
 
     const reviewer = input.reviewer.trim() || "Settlement Reviewer";
     const now = isoNow();
-    const period = now.slice(0, 7);
+    const currentManilaDate = manilaDateParts();
+    if (currentManilaDate.day > 7) {
+      throw new AppError(
+        "E-SETTLEMENT-WINDOW",
+        "Partner settlements can only be processed during the first 7 days of each month",
+        409,
+      );
+    }
+    for (const row of rows) {
+      const redemptionPeriod = manilaDateParts(
+        new Date(String(row.created_at)),
+      ).period;
+      if (redemptionPeriod >= currentManilaDate.period) {
+        throw new AppError(
+          "E-SETTLEMENT-PERIOD",
+          "Only redemptions from a completed month are eligible for settlement",
+          409,
+        );
+      }
+    }
     const byBusiness = new Map<string, Row[]>();
     rows.forEach((row) => {
-      const list = byBusiness.get(row.business_id) ?? [];
+      const period = manilaDateParts(new Date(String(row.created_at))).period;
+      const key = `${row.business_id}:${period}`;
+      const list = byBusiness.get(key) ?? [];
       list.push(row);
-      byBusiness.set(row.business_id, list);
+      byBusiness.set(key, list);
     });
 
-    const settlements: Array<{ settlementId: string; businessId: string; totalAmount: string; redemptionCount: number }> = [];
-    for (const [businessId, businessRows] of byBusiness) {
-      const settlementId = id("rset");
-      const total = businessRows.reduce((sum, row) => sum + Number(row.amount_centavos), 0);
-      await run(
-        tx,
-        `INSERT INTO reward_settlements (id, business_id, period, total_amount_centavos, status, created_at)
-         VALUES (?, ?, ?, ?, 'Processed', ?)`,
-        [settlementId, businessId, period, total, now],
+    const settlements: Array<{
+      settlementId: string;
+      businessId: string;
+      period: string;
+      grossAmount: string;
+      serviceFee: string;
+      totalAmount: string;
+      redemptionCount: number;
+    }> = [];
+    for (const [key, businessRows] of byBusiness) {
+      const [businessId, period] = key.split(":");
+      const gross = businessRows.reduce(
+        (sum, row) => sum + Number(row.amount_centavos),
+        0,
       );
+      const fee = businessRows.reduce(
+        (sum, row) => sum + Number(row.service_fee_centavos ?? 0),
+        0,
+      );
+      const total = businessRows.reduce(
+        (sum, row) =>
+          sum +
+          Number(row.settlement_amount_centavos ?? row.amount_centavos),
+        0,
+      );
+      const existing = await one(
+        tx,
+        "SELECT * FROM reward_settlements WHERE business_id = ? AND period = ?",
+        [businessId, period],
+      );
+      let settlementId: string;
+      if (existing) {
+        if (existing.status !== "Processed") {
+          throw new AppError(
+            "E-SETTLEMENT-CLOSED",
+            "This business settlement period is already closed",
+            409,
+          );
+        }
+        settlementId = String(existing.id);
+        await run(
+          tx,
+          `UPDATE reward_settlements
+           SET gross_amount_centavos = gross_amount_centavos + ?,
+               service_fee_centavos = service_fee_centavos + ?,
+               total_amount_centavos = total_amount_centavos + ?
+           WHERE id = ?`,
+          [gross, fee, total, settlementId],
+        );
+      } else {
+        settlementId = id("rset");
+        await run(
+          tx,
+          `INSERT INTO reward_settlements
+           (id, business_id, period, gross_amount_centavos, service_fee_centavos, total_amount_centavos, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'Processed', ?)`,
+          [settlementId, businessId, period, gross, fee, total, now],
+        );
+      }
       const businessIds = businessRows.map((row) => row.id);
       await run(
         tx,
@@ -687,9 +1035,24 @@ export async function processRewardSettlements(input: { redemptionIds: string[];
         action: "reward_settlement_processed",
         entityType: "reward_settlement",
         entityId: settlementId,
-        metadata: { businessId, redemptionIds: businessIds, totalAmountCentavos: total },
+        metadata: {
+          businessId,
+          period,
+          redemptionIds: businessIds,
+          grossAmountCentavos: gross,
+          serviceFeeCentavos: fee,
+          totalAmountCentavos: total,
+        },
       });
-      settlements.push({ settlementId, businessId, totalAmount: centavosToMoney(total), redemptionCount: businessRows.length });
+      settlements.push({
+        settlementId,
+        businessId,
+        period,
+        grossAmount: centavosToLoyaltyPoints(gross),
+        serviceFee: centavosToLoyaltyPoints(fee),
+        totalAmount: centavosToLoyaltyPoints(total),
+        redemptionCount: businessRows.length,
+      });
     }
     return { settlements };
   });
@@ -766,7 +1129,12 @@ export async function rewardsNetworkOverview() {
   );
   const pending = await one(
     db,
-    "SELECT COALESCE(SUM(amount_centavos), 0) AS total, COUNT(*) AS count FROM reward_voucher_redemptions WHERE settlement_status = 'Pending'",
+    `SELECT
+       COALESCE(SUM(settlement_amount_centavos), 0) AS total,
+       COALESCE(SUM(service_fee_centavos), 0) AS fees,
+       COUNT(*) AS count
+     FROM reward_voucher_redemptions
+     WHERE settlement_status = 'Pending'`,
   );
   const held = await one(
     db,
@@ -787,7 +1155,7 @@ export async function rewardsNetworkOverview() {
     maskedPhone: maskPhone(row.phone),
     businessName: row.business_name,
     purchaseAmount: centavosToMoney(row.purchase_amount_centavos),
-    rewardAmount: centavosToMoney(row.reward_amount_centavos),
+    rewardAmount: centavosToLoyaltyPoints(row.reward_amount_centavos),
   }));
   const redemptions = (
     await all(
@@ -805,16 +1173,32 @@ export async function rewardsNetworkOverview() {
     maskedPhone: maskPhone(row.phone),
     businessName: row.business_name,
     voucherCode: row.voucher_code,
-    amount: centavosToMoney(row.amount_centavos),
+    amount: centavosToLoyaltyPoints(row.amount_centavos),
+    serviceFee: centavosToLoyaltyPoints(
+      Number(row.service_fee_centavos ?? 0),
+    ),
+    settlementAmount: centavosToLoyaltyPoints(
+      Number(row.settlement_amount_centavos ?? row.amount_centavos),
+    ),
+    settlementPeriod: manilaDateParts(new Date(String(row.created_at))).period,
+    settlementWindow: settlementWindowFor(String(row.created_at)),
+    settlementEligible: isSettlementEligible(String(row.created_at)),
   }));
 
   return {
     summary: {
       wallets: Number(totals.wallets),
-      outstandingCredit: centavosToMoney(Number(totals.outstanding_credit)),
-      lifetimeEarned: centavosToMoney(Number(totals.lifetime_earned)),
-      lifetimeConverted: centavosToMoney(Number(totals.lifetime_converted)),
-      pendingSettlement: centavosToMoney(Number(pending.total)),
+      outstandingCredit: centavosToLoyaltyPoints(
+        Number(totals.outstanding_credit),
+      ),
+      lifetimeEarned: centavosToLoyaltyPoints(
+        Number(totals.lifetime_earned),
+      ),
+      lifetimeConverted: centavosToLoyaltyPoints(
+        Number(totals.lifetime_converted),
+      ),
+      pendingSettlement: centavosToLoyaltyPoints(Number(pending.total)),
+      pendingServiceFees: centavosToLoyaltyPoints(Number(pending.fees)),
       pendingSettlementCount: Number(pending.count),
       heldReviewCount: Number(held.count),
     },
@@ -855,10 +1239,21 @@ export async function listRewardSettlementRows(input: { businessId?: string; sta
     date: row.created_at,
     customerReference: maskPhone(row.phone),
     voucherCode: row.voucher_code,
-    voucherAmount: centavosToMoney(row.amount_centavos),
+    voucherAmount: centavosToLoyaltyPoints(row.amount_centavos),
     amountCentavos: row.amount_centavos,
+    serviceFee: centavosToLoyaltyPoints(
+      Number(row.service_fee_centavos ?? 0),
+    ),
+    serviceFeeCentavos: Number(row.service_fee_centavos ?? 0),
     storeBranch: row.business_name,
-    settlementAmount: centavosToMoney(row.amount_centavos),
+    settlementAmount: centavosToLoyaltyPoints(
+      Number(row.settlement_amount_centavos ?? row.amount_centavos),
+    ),
+    settlementAmountCentavos: Number(
+      row.settlement_amount_centavos ?? row.amount_centavos,
+    ),
+    settlementWindow: settlementWindowFor(String(row.created_at)),
+    settlementEligible: isSettlementEligible(String(row.created_at)),
     status: row.settlement_status,
     verifiedBy: row.settlement_verified_by ?? undefined,
     verifiedAt: row.settlement_verified_at ?? undefined,

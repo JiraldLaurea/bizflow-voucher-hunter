@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
-import { generateCandidate, listSlotsForAttempt, redeemVoucher, selectFinalVoucher, startHunt, validateVoucher } from "@/server/voucher-engine";
+import {
+  generateCandidate,
+  getHuntSnapshot,
+  listSlotsForAttempt,
+  redeemVoucher,
+  resetHuntForPhone,
+  selectFinalVoucher,
+  startHunt,
+  validateVoucher,
+} from "@/server/voucher-engine";
 import { huntAndSelect } from "../helpers";
 
 const base = { campaignSlug: "july-dinner", phone: "+639171234567", sessionId: "test-session" };
@@ -31,6 +40,29 @@ describe("voucher engine (hunt-first flow)", () => {
 
     expect(candidate.poolId).toBe("pool_dinner_90");
     expect(candidate.displayLabel).toBe("90% OFF");
+  });
+
+  it("fully resets consumed attempts so the base hunt can start again", async () => {
+    await startHunt({ ...base, name: "Jane Doe" });
+    await generateCandidate(base);
+
+    const reset = await resetHuntForPhone({
+      campaignSlug: base.campaignSlug,
+      phone: base.phone,
+    });
+    expect(reset.attemptsCleared).toBe(1);
+
+    const cleared = await getHuntSnapshot({
+      campaignSlug: base.campaignSlug,
+      phone: base.phone,
+    });
+    expect(cleared.attempts).toHaveLength(0);
+    expect(cleared.voucher).toBeUndefined();
+    expect(cleared.remainingBaseAttempts).toBeGreaterThan(0);
+
+    await expect(generateCandidate(base)).resolves.toMatchObject({
+      sourceType: "base",
+    });
   });
 
   it("lists rarity-gated slots for the chosen candidate", async () => {

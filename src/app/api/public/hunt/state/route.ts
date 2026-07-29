@@ -9,7 +9,7 @@ const schema = z.object({ campaignSlug: z.string().min(1) });
 
 export async function GET(request: Request) {
   try {
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const { searchParams } = new URL(request.url);
     const input = schema.parse({ campaignSlug: searchParams.get("campaignSlug") });
     return ok(await getHuntSnapshot({ ...input, phone }));

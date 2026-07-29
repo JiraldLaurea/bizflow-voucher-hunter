@@ -22,7 +22,15 @@ type ValidateRewardResult = {
 type RedeemResult = {
   voucher: ValidateRewardResult["voucher"];
   amount: string;
+  serviceFee: string;
+  settlementAmount: string;
 };
+
+function formatPoints(pointsCentavos: number) {
+  return `${(pointsCentavos / 100).toLocaleString("en-PH", {
+    maximumFractionDigits: 2,
+  })} LP`;
+}
 
 export function RewardsStaffTools({
   business,
@@ -66,25 +74,25 @@ export function RewardsStaffTools({
       if (result.heldForReview) {
         setToast({
           tone: "error",
-          title: "Reward held for review",
+          title: "Loyalty Points held for review",
           detail: result.fraudFlag?.replace(/_/g, " ") ?? "Suspicious activity",
         });
       } else if (result.idempotentReplay) {
         setToast({
           tone: "success",
           title: "Duplicate request safely ignored",
-          detail: `Existing credit: ${result.rewardAmount} · Wallet balance: ${result.balance}`,
+          detail: `Existing LP: ${result.rewardAmount} · Wallet balance: ${result.balance}`,
         });
       } else {
         setToast({
           tone: "success",
-          title: `${result.rewardAmount} credited`,
+          title: `${result.rewardAmount} added`,
           detail: `Wallet balance: ${result.balance}`,
         });
       }
       router.refresh();
     } catch (error) {
-      showError(error, "Unable to credit reward.");
+      showError(error, "Unable to add Loyalty Points.");
     } finally {
       setBusy(false);
     }
@@ -98,10 +106,10 @@ export function RewardsStaffTools({
         body: JSON.stringify({ codeOrToken: rewardCode.trim() }),
       });
       setRewardResult(result);
-      setToast({ tone: "success", title: "Reward voucher loaded." });
+      setToast({ tone: "success", title: "LP voucher loaded." });
     } catch (error) {
       setRewardResult(null);
-      showError(error, "Unable to validate reward voucher.");
+      showError(error, "Unable to validate LP voucher.");
     } finally {
       setBusy(false);
     }
@@ -121,12 +129,12 @@ export function RewardsStaffTools({
       setRewardResult({ voucher: result.voucher, wallet: rewardResult!.wallet });
       setToast({
         tone: "success",
-        title: "Reward voucher payment recorded",
-        detail: `Settlement amount: ${result.amount}`,
+        title: `${result.amount} payment recorded`,
+        detail: `Partner receives ${result.settlementAmount}; service fee ${result.serviceFee}.`,
       });
       router.refresh();
     } catch (error) {
-      showError(error, "Unable to redeem reward voucher.");
+      showError(error, "Unable to redeem LP voucher.");
     } finally {
       setBusy(false);
     }
@@ -143,8 +151,11 @@ export function RewardsStaffTools({
     <section className="panel span-12 rewards-staff-tools">
       <div className="admin-topbar">
         <div>
-          <h2>Rewards Network Staff Tools</h2>
-          <p className="muted">Credit 5% rewards from paid purchases or accept reward vouchers for GCash settlement.</p>
+          <h2>Loyalty Points Staff Tools</h2>
+          <p className="muted">
+            Add 5% LP from paid purchases or accept LP vouchers for monthly
+            partner settlement.
+          </p>
         </div>
         <span className="badge success">
           <FiShield aria-hidden="true" />
@@ -155,7 +166,7 @@ export function RewardsStaffTools({
       <div className="rewards-staff-grid">
         <div className="rewards-tool-card">
           <div className="rewards-tool-card-header">
-            <h3><FiCreditCard aria-hidden="true" /> Add 5% Reward Credit</h3>
+            <h3><FiCreditCard aria-hidden="true" /> Add 5% Loyalty Points</h3>
           </div>
           <label className="field">
             <span>Customer Wallet QR Token</span>
@@ -166,7 +177,7 @@ export function RewardsStaffTools({
             />
           </label>
           <label className="field">
-            <span>Actual Paid Amount</span>
+            <span>Actual Paid Amount (₱)</span>
             <input
               inputMode="decimal"
               value={purchaseAmount}
@@ -176,16 +187,16 @@ export function RewardsStaffTools({
           </label>
           <button className="button full" disabled={!canCredit || busy} onClick={creditWallet} type="button">
             {busy ? <FiRefreshCw aria-hidden="true" /> : <FiCheck aria-hidden="true" />}
-            Credit Reward
+            Add Loyalty Points
           </button>
         </div>
 
         <div className="rewards-tool-card">
           <div className="rewards-tool-card-header">
-            <h3><FiGift aria-hidden="true" /> Accept Reward Voucher</h3>
+            <h3><FiGift aria-hidden="true" /> Accept LP Voucher</h3>
           </div>
           <label className="field">
-            <span>Reward Voucher Code or QR Token</span>
+            <span>LP Voucher Code or QR Token</span>
             <input
               value={rewardCode}
               onChange={(event) => setRewardCode(event.target.value)}
@@ -194,19 +205,19 @@ export function RewardsStaffTools({
           </label>
           <div className="split-actions">
             <button className="button secondary full" disabled={!canValidateReward || busy} onClick={validateReward} type="button">
-              Validate Reward
+              Validate LP Voucher
             </button>
           </div>
           {rewardResult ? (
             <div className="rewards-result-box">
               <strong>{rewardResult.voucher.voucherCode}</strong>
-              <span>Remaining: ₱{(rewardResult.voucher.remainingCentavos / 100).toFixed(2)}</span>
+              <span>Remaining: {formatPoints(rewardResult.voucher.remainingCentavos)}</span>
               <span>Status: {rewardResult.voucher.status}</span>
               <span>Customer: {rewardResult.wallet.maskedPhone}</span>
             </div>
           ) : null}
           <label className="field">
-            <span>Voucher Payment Amount</span>
+            <span>LP Payment Amount</span>
             <input
               inputMode="decimal"
               value={redeemAmount}
@@ -215,7 +226,7 @@ export function RewardsStaffTools({
             />
           </label>
           <button className="button full" disabled={!canRedeemReward || busy} onClick={redeemReward} type="button">
-            Record Voucher Payment
+            Record LP Payment
           </button>
         </div>
       </div>

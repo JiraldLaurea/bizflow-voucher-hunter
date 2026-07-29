@@ -224,6 +224,14 @@ CREATE TABLE IF NOT EXISTS customer_sessions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_phone ON customer_sessions (campaign_id, phone, expires_at);
+CREATE TABLE IF NOT EXISTS customer_tokens (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  phone TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_customer_tokens_phone ON customer_tokens (phone, expires_at);
 CREATE TABLE IF NOT EXISTS rate_events (
   id TEXT PRIMARY KEY,
   bucket_key TEXT NOT NULL,
@@ -275,6 +283,17 @@ CREATE TABLE IF NOT EXISTS reward_ledger_entries (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reward_ledger_wallet ON reward_ledger_entries (wallet_id, created_at);
+CREATE TABLE IF NOT EXISTS loyalty_daily_rewards (
+  id TEXT PRIMARY KEY,
+  wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
+  reward_type TEXT NOT NULL,
+  reward_date TEXT NOT NULL,
+  points_centavos INTEGER NOT NULL CHECK (points_centavos > 0),
+  source_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (wallet_id, reward_type, reward_date)
+);
+CREATE INDEX IF NOT EXISTS idx_loyalty_daily_wallet ON loyalty_daily_rewards (wallet_id, reward_date);
 CREATE TABLE IF NOT EXISTS reward_vouchers (
   id TEXT PRIMARY KEY,
   wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
@@ -295,6 +314,8 @@ CREATE TABLE IF NOT EXISTS reward_voucher_redemptions (
   wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
   business_id TEXT NOT NULL REFERENCES businesses(id),
   amount_centavos INTEGER NOT NULL CHECK (amount_centavos > 0),
+  service_fee_centavos INTEGER NOT NULL DEFAULT 0 CHECK (service_fee_centavos >= 0),
+  settlement_amount_centavos INTEGER NOT NULL CHECK (settlement_amount_centavos >= 0),
   staff_name TEXT NOT NULL,
   settlement_status TEXT NOT NULL,
   settlement_id TEXT,
@@ -308,6 +329,8 @@ CREATE TABLE IF NOT EXISTS reward_settlements (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL REFERENCES businesses(id),
   period TEXT NOT NULL,
+  gross_amount_centavos INTEGER NOT NULL DEFAULT 0 CHECK (gross_amount_centavos >= 0),
+  service_fee_centavos INTEGER NOT NULL DEFAULT 0 CHECK (service_fee_centavos >= 0),
   total_amount_centavos INTEGER NOT NULL CHECK (total_amount_centavos >= 0),
   status TEXT NOT NULL,
   gcash_reference TEXT,
@@ -360,10 +383,12 @@ const DATA_TABLES = [
   "reward_settlements",
   "reward_voucher_redemptions",
   "reward_vouchers",
+  "loyalty_daily_rewards",
   "reward_ledger_entries",
   "reward_purchases",
   "reward_wallets",
   "rate_events",
+  "customer_tokens",
   "customer_sessions",
   "otp_challenges",
   "analytics_events",
@@ -385,7 +410,7 @@ const DATA_TABLES = [
 
 // Bump when the seed or table shapes change so deployed databases refresh.
 // v2 = campaign-level pools + pool_slots tier→slot mapping. v3 = campaign titles.
-// v4 = rewards network wallet/settlement tables.
+// v4 = Loyalty Points wallet/settlement tables.
 const SCHEMA_VERSION = "4";
 
 async function init() {
@@ -459,6 +484,10 @@ async function ensureRewardsSchema(c: Client) {
     ["reward_voucher_redemptions", "settlement_verified_by", "TEXT"],
     ["reward_voucher_redemptions", "settlement_verified_at", "TEXT"],
     ["reward_voucher_redemptions", "adjustment_note", "TEXT"],
+    ["reward_voucher_redemptions", "service_fee_centavos", "INTEGER"],
+    ["reward_voucher_redemptions", "settlement_amount_centavos", "INTEGER"],
+    ["reward_settlements", "gross_amount_centavos", "INTEGER"],
+    ["reward_settlements", "service_fee_centavos", "INTEGER"],
     ["reward_audit_logs", "previous_hash", "TEXT"],
     ["reward_audit_logs", "event_hash", "TEXT"],
   ];
@@ -476,6 +505,31 @@ async function ensureRewardsSchema(c: Client) {
   );
   await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_wallets_secret ON reward_wallets (wallet_secret)");
   await c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reward_purchases_idempotency ON reward_purchases (business_id, idempotency_key) WHERE idempotency_key IS NOT NULL");
+  await c.execute(
+    `CREATE TABLE IF NOT EXISTS loyalty_daily_rewards (
+      id TEXT PRIMARY KEY,
+      wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
+      reward_type TEXT NOT NULL,
+      reward_date TEXT NOT NULL,
+      points_centavos INTEGER NOT NULL CHECK (points_centavos > 0),
+      source_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE (wallet_id, reward_type, reward_date)
+    )`,
+  );
+  await c.execute("CREATE INDEX IF NOT EXISTS idx_loyalty_daily_wallet ON loyalty_daily_rewards (wallet_id, reward_date)");
+  // Historical redemptions predate the service-fee rule. Preserve their full
+  // partner payout instead of retroactively charging a fee.
+  await c.execute(
+    `UPDATE reward_voucher_redemptions
+     SET service_fee_centavos = COALESCE(service_fee_centavos, 0),
+         settlement_amount_centavos = COALESCE(settlement_amount_centavos, amount_centavos)`,
+  );
+  await c.execute(
+    `UPDATE reward_settlements
+     SET gross_amount_centavos = COALESCE(gross_amount_centavos, total_amount_centavos),
+         service_fee_centavos = COALESCE(service_fee_centavos, 0)`,
+  );
 }
 
 // Adds the SMPP delivery-receipt columns to already-deployed databases without a

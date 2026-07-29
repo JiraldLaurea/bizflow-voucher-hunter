@@ -16,7 +16,8 @@ import {
   FiXCircle,
 } from "react-icons/fi";
 import type { IScannerControls } from "@zxing/browser";
-import { api } from "@/lib/api-client";
+import { ApiError, api } from "@/lib/api-client";
+import { toDisplayPhone } from "@/lib/phone-display";
 import type { Campaign, CampaignSlot, EndUser, Voucher } from "@/types/voucher";
 
 type Validation = {
@@ -31,19 +32,42 @@ const statusPresentation: Record<Voucher["status"], { label: string; tone: "succ
   Issued: { label: "Valid & Confirmed", tone: "success", icon: FiCheck },
   Delivered: { label: "Valid & Confirmed", tone: "success", icon: FiCheck },
   Redeemed: { label: "Already Used", tone: "warning", icon: FiAlertTriangle },
-  Expired: { label: "Invalid / Expired", tone: "danger", icon: FiXCircle },
-  Cancelled: { label: "Invalid / Expired", tone: "danger", icon: FiXCircle },
-  NoShow: { label: "Invalid / Expired", tone: "danger", icon: FiXCircle },
+  Expired: { label: "Voucher Expired", tone: "danger", icon: FiXCircle },
+  Cancelled: { label: "Voucher Cancelled", tone: "danger", icon: FiXCircle },
+  NoShow: { label: "Marked as No-show", tone: "danger", icon: FiXCircle },
 };
+
+function statusExplanation(validation: Validation) {
+  switch (validation.voucher.status) {
+    case "Expired":
+      return `This voucher expired on ${new Date(validation.voucher.expiresAt).toLocaleString()} and can no longer be redeemed.`;
+    case "Redeemed":
+      return "This voucher has already been redeemed and cannot be used again.";
+    case "Cancelled":
+      return "This reservation was cancelled, so its voucher is no longer valid.";
+    case "NoShow":
+      return "This reservation was marked as a no-show and its voucher can no longer be redeemed.";
+    case "Issued":
+    case "Delivered":
+      return "This voucher is active and can be marked as used.";
+  }
+}
 
 export default function StaffPage() {
   const [code, setCode] = useState("");
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<Validation | null>(null);
+  const [validationFailure, setValidationFailure] = useState<{
+    message: string;
+    title: string;
+  } | null>(null);
   const [rescheduleSlots, setRescheduleSlots] = useState<CampaignSlot[]>([]);
   const [newSlotId, setNewSlotId] = useState("");
   const [scanMessage, setScanMessage] = useState("");
+  const [scanMessageTone, setScanMessageTone] = useState<
+    "error" | "info" | "success"
+  >("info");
   const [scanning, setScanning] = useState(false);
   // No camera (typical on desktop) → hide "Scan QR" entirely and let upload fill
   // the row, instead of offering a button that only ever errors.
@@ -68,11 +92,28 @@ export default function StaffPage() {
 
   async function validate(codeOrToken = code) {
     try {
-      setResult(await api<Validation>("/api/staff/vouchers/validate", { method: "POST", body: JSON.stringify({ codeOrToken }) }));
+      const validation = await api<Validation>("/api/staff/vouchers/validate", {
+        method: "POST",
+        body: JSON.stringify({ codeOrToken }),
+      });
+      setValidationFailure(null);
+      setResult(validation);
     } catch (error) {
       setResult(null);
       const nextMessage =
         error instanceof Error ? error.message : "Unable to validate voucher.";
+      setValidationFailure(
+        error instanceof ApiError && error.code === "E-VOUCHER-404"
+          ? {
+              title: "Voucher Not Found",
+              message:
+                "This code or QR token does not match any voucher. Check the value and try again.",
+            }
+          : {
+              title: "Validation Failed",
+              message: nextMessage,
+            },
+      );
       showAdminToast(nextMessage);
     }
   }
@@ -124,6 +165,7 @@ export default function StaffPage() {
 
     let cancelled = false;
     async function startCamera() {
+      setScanMessageTone("info");
       setScanMessage("Point the camera at the voucher QR code.");
       try {
         const { BrowserQRCodeReader } = await import("@zxing/browser");
@@ -140,6 +182,7 @@ export default function StaffPage() {
             scannerControlsRef.current = null;
             setCode(value);
             setScanning(false);
+            setScanMessageTone("success");
             setScanMessage("QR scanned successfully.");
             void validate(value);
           },
@@ -152,6 +195,7 @@ export default function StaffPage() {
         scannerControlsRef.current = controls;
       } catch (error) {
         setScanning(false);
+        setScanMessageTone("error");
         setScanMessage(
           error instanceof Error && error.name === "NotAllowedError"
             ? "Camera permission was denied. Allow camera access or upload a QR image instead."
@@ -174,11 +218,13 @@ export default function StaffPage() {
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     setScanning(false);
+    setScanMessageTone("info");
     setScanMessage("");
   }
 
   async function decodeUpload(file?: File) {
     if (!file) return;
+    setScanMessageTone("info");
     setScanMessage("Reading QR image...");
     const url = URL.createObjectURL(file);
     try {
@@ -186,9 +232,11 @@ export default function StaffPage() {
       const result = await new BrowserQRCodeReader().decodeFromImageUrl(url);
       const value = result.getText().trim();
       setCode(value);
+      setScanMessageTone("success");
       setScanMessage("QR image read successfully.");
       await validate(value);
     } catch {
+      setScanMessageTone("error");
       setScanMessage("No readable QR code was found in that image.");
     } finally {
       URL.revokeObjectURL(url);
@@ -348,7 +396,10 @@ export default function StaffPage() {
             </div>
           ) : null}
           {scanMessage ? (
-            <p className="qr-scan-message" role="status">
+            <p
+              className={`qr-scan-message ${scanMessageTone}`}
+              role={scanMessageTone === "error" ? "alert" : "status"}
+            >
               {scanMessage}
             </p>
           ) : null}
@@ -402,6 +453,12 @@ export default function StaffPage() {
                 </div>
               )}
               <h3 className="staff-result-status">{presentation.label}</h3>
+              <p
+                className={`staff-result-explanation ${presentation.tone}`}
+                role="status"
+              >
+                {statusExplanation(result)}
+              </p>
               <div className="summary-list staff-result-summary">
                 <div className="summary-row">
                   <span className="icon-box">
@@ -409,7 +466,7 @@ export default function StaffPage() {
                   </span>
                   <div>
                     <strong>Customer</strong>
-                    <p className="muted">{result.user?.name || "Unknown"} · {result.user?.phone ?? "-"}</p>
+                    <p className="muted">{result.user?.name || "Unknown"} · {result.user?.phone ? toDisplayPhone(result.user.phone) : "-"}</p>
                   </div>
                 </div>
                 <div className="summary-row">
@@ -470,6 +527,16 @@ export default function StaffPage() {
                 </div>
               ) : null}
             </>
+          ) : validationFailure ? (
+            <div className="staff-result-empty staff-result-invalid">
+              <div className="staff-result-empty-content">
+                <span className="staff-result-empty-icon danger">
+                  <FiXCircle aria-hidden="true" />
+                </span>
+                <h3>{validationFailure.title}</h3>
+                <p>{validationFailure.message}</p>
+              </div>
+            </div>
           ) : (
             <div className="staff-result-empty">
               <div className="staff-result-empty-content">

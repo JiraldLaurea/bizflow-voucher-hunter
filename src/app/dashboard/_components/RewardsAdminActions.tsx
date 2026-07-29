@@ -37,10 +37,14 @@ export function HeldPurchaseActions({ purchaseId }: { purchaseId: string }) {
 export function SettlementRowActions({
   redemptionId,
   settlementId,
+  settlementEligible,
+  settlementWindow,
   status,
 }: {
   redemptionId: string;
   settlementId?: string;
+  settlementEligible?: boolean;
+  settlementWindow?: string;
   status: string;
 }) {
   const router = useRouter();
@@ -74,14 +78,18 @@ export function SettlementRowActions({
   return (
     <div className="reward-row-actions">
       {status === "Pending" ? (
-        <button
-          className="button compact-button"
-          disabled={busy}
-          onClick={() => void post({ action: "process", redemptionIds: [redemptionId] })}
-          type="button"
-        >
-          Process
-        </button>
+        settlementEligible ? (
+          <button
+            className="button compact-button"
+            disabled={busy}
+            onClick={() => void post({ action: "process", redemptionIds: [redemptionId] })}
+            type="button"
+          >
+            Process
+          </button>
+        ) : (
+          <small className="muted">Scheduled {settlementWindow}</small>
+        )
       ) : null}
       {status === "Processed" && settlementId ? (
         <button className="button compact-button" disabled={busy} onClick={() => void complete()} type="button">

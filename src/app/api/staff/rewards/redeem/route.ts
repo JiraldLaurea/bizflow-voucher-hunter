@@ -23,6 +23,8 @@ export async function POST(request: Request) {
         expiresAt: result.voucher.expiresAt,
       },
       amount: result.amount,
+      serviceFee: result.serviceFee,
+      settlementAmount: result.settlementAmount,
     });
   } catch (error) {
     return fail(error);

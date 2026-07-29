@@ -19,8 +19,18 @@ import {
   withTx
 } from "@/server/db";
 import { normalizePhone } from "@/server/phone";
+import { awardReferralLoyaltyPoints } from "@/server/rewards-network";
 import { sendSms, type SmsResult } from "@/server/sms";
-import type { Campaign, CampaignSlot, EndUser, SourceType, Voucher, VoucherAttempt, VoucherPool } from "@/types/voucher";
+import type {
+  Campaign,
+  CampaignSlot,
+  ClaimedVoucher,
+  EndUser,
+  SourceType,
+  Voucher,
+  VoucherAttempt,
+  VoucherPool,
+} from "@/types/voucher";
 
 type Exec = Client | Transaction;
 
@@ -135,6 +145,54 @@ async function findOrCreateUser(
   return user;
 }
 
+export async function getOrCreateReferralIdentity(input: {
+  phone: string;
+  campaignSlug?: string;
+  sessionId: string;
+}) {
+  return withTx(async (tx) => {
+    const fallbackCampaignRow = input.campaignSlug
+      ? undefined
+      : await one(
+          tx,
+          `SELECT * FROM campaigns
+           WHERE status = 'active'
+           ORDER BY start_date DESC, created_at DESC
+           LIMIT 1`,
+        );
+    const campaign = input.campaignSlug
+      ? await getCampaignOrThrow(tx, input.campaignSlug)
+      : fallbackCampaignRow
+        ? mapCampaign(fallbackCampaignRow)
+        : undefined;
+
+    if (!campaign || campaign.status !== "active") {
+      throw new AppError(
+        "E-CAMPAIGN-404",
+        "No active campaign is available for referrals",
+        404,
+      );
+    }
+
+    const user = await findOrCreateUser(
+      tx,
+      campaign.id,
+      input.phone,
+      input.sessionId,
+    );
+    const query = new URLSearchParams({
+      campaign: campaign.slug,
+      ref: user.id,
+    });
+
+    return {
+      campaignSlug: campaign.slug,
+      referrerUserId: user.id,
+      visitPath: `/api/public/referral/visit?${query.toString()}`,
+    };
+  });
+}
+
 async function hasFinalVoucher(db: Exec, campaignId: string, userId: string) {
   return Boolean(await one(db, "SELECT 1 FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaignId, userId]));
 }
@@ -173,12 +231,14 @@ async function insertReferralReward(
   status: "granted" | "rejected",
   reason?: string
 ) {
+  const rewardId = id("ref");
   await run(
     db,
     `INSERT INTO referral_rewards (id, campaign_id, referrer_user_id, visitor_session_id, status, reason, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id("ref"), campaignId, referrerUserId, visitorSessionId, status, reason ?? null, isoNow()]
+    [rewardId, campaignId, referrerUserId, visitorSessionId, status, reason ?? null, isoNow()]
   );
+  return rewardId;
 }
 
 /**
@@ -217,7 +277,17 @@ export function recordReferralOpen(input: { campaignSlug: string; ref: string; v
     }
 
     try {
-      await insertReferralReward(tx, campaign.id, referrer.id, input.visitorSessionId, "granted");
+      const referralRewardId = await insertReferralReward(
+        tx,
+        campaign.id,
+        referrer.id,
+        input.visitorSessionId,
+        "granted",
+      );
+      await awardReferralLoyaltyPoints(tx, {
+        phone: referrer.phone,
+        referralRewardId,
+      });
     } catch (error) {
       if (isUniqueViolation(error)) {
         return { granted: false, reason: "already_processed" };
@@ -343,6 +413,64 @@ export async function listPublicCampaignCards(): Promise<CampaignCard[]> {
     businessName: String(r.business_name),
     businessLogo: String(r.business_logo),
     businessIndustry: String(r.business_industry)
+  }));
+}
+
+export type ClaimedVoucherRecord = ClaimedVoucher;
+
+/**
+ * All issued vouchers owned by a verified phone number. Users are scoped per
+ * campaign, so ownership is resolved by joining each voucher through its user.
+ */
+export async function listClaimedVouchersForPhone(
+  phone: string,
+): Promise<ClaimedVoucherRecord[]> {
+  const db = await getDb();
+  const rows = await all(
+    db,
+    `SELECT
+       v.*,
+       s.id AS joined_slot_id,
+       s.campaign_id AS joined_slot_campaign_id,
+       s.date AS joined_slot_date,
+       s.start_time AS joined_slot_start_time,
+       s.end_time AS joined_slot_end_time,
+       s.timezone AS joined_slot_timezone,
+       s.branch_id AS joined_slot_branch_id,
+       s.total_capacity AS joined_slot_total_capacity,
+       s.remaining_capacity AS joined_slot_remaining_capacity,
+       s.status AS joined_slot_status,
+       c.slug AS campaign_slug,
+       c.title AS campaign_title,
+       b.name AS business_name
+     FROM vouchers v
+     JOIN users u ON u.id = v.user_id
+     JOIN slots s ON s.id = v.slot_id
+     JOIN campaigns c ON c.id = v.campaign_id
+     JOIN businesses b ON b.id = c.business_id
+     WHERE u.phone = ?
+     ORDER BY v.issued_at DESC`,
+    [normalizePhone(phone)],
+  );
+  return rows.map((row) => ({
+    voucher: mapVoucher(row),
+    slot: {
+      id: String(row.joined_slot_id),
+      campaignId: String(row.joined_slot_campaign_id),
+      date: String(row.joined_slot_date),
+      startTime: String(row.joined_slot_start_time),
+      endTime: String(row.joined_slot_end_time),
+      timezone: String(row.joined_slot_timezone),
+      branchId: row.joined_slot_branch_id
+        ? String(row.joined_slot_branch_id)
+        : undefined,
+      totalCapacity: Number(row.joined_slot_total_capacity),
+      remainingCapacity: Number(row.joined_slot_remaining_capacity),
+      status: row.joined_slot_status as CampaignSlot["status"],
+    },
+    campaignSlug: String(row.campaign_slug),
+    campaignTitle: String(row.campaign_title),
+    businessName: String(row.business_name),
   }));
 }
 
@@ -897,11 +1025,39 @@ export async function resetHuntForPhone(input: { campaignSlug: string; phone: st
 
     await run(tx, "DELETE FROM reservations WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
     await run(tx, "DELETE FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
-    await run(tx, "DELETE FROM attempts WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
+    const attemptsCleared = await run(
+      tx,
+      "DELETE FROM attempts WHERE campaign_id = ? AND user_id = ?",
+      [campaign.id, user.id],
+    );
+    // A development reset represents a clean campaign run, including the bonus
+    // spins earned during the run being cleared.
+    await run(
+      tx,
+      "DELETE FROM referral_rewards WHERE campaign_id = ? AND referrer_user_id = ?",
+      [campaign.id, user.id],
+    );
+
+    const remainingAttempts = Number(
+      (
+        await one(
+          tx,
+          "SELECT COUNT(*) AS c FROM attempts WHERE campaign_id = ? AND user_id = ?",
+          [campaign.id, user.id],
+        )
+      )?.c ?? 0,
+    );
+    if (remainingAttempts !== 0) {
+      throw new AppError(
+        "E-RESET-INCOMPLETE",
+        "Voucher hunt attempts could not be cleared",
+        500,
+      );
+    }
 
     return {
       campaignSlug: campaign.slug,
-      attemptsCleared: attempts.length,
+      attemptsCleared,
       vouchersCleared: vouchers.length,
       poolsRestored
     };

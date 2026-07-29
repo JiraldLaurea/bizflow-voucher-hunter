@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { CustomerBottomNav } from "../_components/CustomerBottomNav";
+import { toDisplayPhone } from "@/lib/phone-display";
 import { getSignedInCustomerPhone } from "@/server/customer-auth";
 import { listActiveCampaigns } from "@/server/voucher-engine";
 import { MoreScreen } from "./MoreScreen";
@@ -7,7 +8,7 @@ import { MoreScreen } from "./MoreScreen";
 export const dynamic = "force-dynamic";
 
 // The global Account/More page. It needs one campaign to anchor the OTP session,
-// the dev pool list, and the hunt reset to — the rewards wallet itself is
+// the dev pool list, and the hunt reset to — the Loyalty Points wallet itself is
 // per-phone and network-wide, so any active campaign works. MoreScreen treats
 // that anchor purely as an API scope and never navigates to it.
 export default async function MorePage() {
@@ -37,12 +38,12 @@ export default async function MorePage() {
           <div className="more-tab-content">
             <div className="info-card">
               <h2>Account</h2>
-              <p className="muted">Signed in as {phone}</p>
+              <p className="muted">Signed in as {toDisplayPhone(phone)}</p>
             </div>
             <div className="info-card">
-              <h2>Rewards Wallet</h2>
+              <h2>Loyalty Points</h2>
               <p className="muted">
-                No active campaigns yet. Your rewards wallet unlocks once a
+                No active campaigns yet. Your Loyalty Points wallet unlocks once a
                 campaign is live and you verify your phone number.
               </p>
             </div>

@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       throw new AppError("E-DEV-ONLY", "Hunt reset is a development-only tool", 403);
     }
     await enforceRateLimit(request, "hunt/reset", { limit: 30, windowMs: 60_000 });
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const input = schema.parse(await request.json());
     return ok(await resetHuntForPhone({ ...input, phone }));
   } catch (error) {

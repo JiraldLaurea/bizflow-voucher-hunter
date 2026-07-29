@@ -10,7 +10,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const input = schema.parse(await request.json());
     return ok(
       await convertRewardCreditToVoucher({

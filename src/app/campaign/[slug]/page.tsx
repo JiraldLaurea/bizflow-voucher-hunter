@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getSignedInCustomerPhone } from "@/server/customer-auth";
+import { getOrCreateRewardWallet } from "@/server/rewards-network";
 import { getPublicCampaign } from "@/server/voucher-engine";
 import { PublicStepClient } from "./_components/PublicStepClient";
 
@@ -10,6 +11,7 @@ export default async function CampaignPage({ params }: { params: { slug: string 
   if (!phone) {
     redirect(`/signin?next=${encodeURIComponent(`/campaign/${params.slug}`)}`);
   }
+  await getOrCreateRewardWallet({ phone });
 
   try {
     const data = await getPublicCampaign(params.slug);

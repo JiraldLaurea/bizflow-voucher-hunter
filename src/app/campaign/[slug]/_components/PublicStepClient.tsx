@@ -32,6 +32,7 @@ import {
   type ClaimedVoucher,
 } from "@/lib/voucher-display";
 import { getVoucherPresentation } from "@/lib/voucher-presentation";
+import { toDisplayPhone } from "@/lib/phone-display";
 import type {
   Campaign,
   CampaignSlot,
@@ -2334,7 +2335,7 @@ export function PublicStepClient({
           <label className="field">
             <span>Mobile Number</span>
             <div className="field-readonly-value">
-              <span>{state.phone || "—"}</span>
+              <span>{state.phone ? toDisplayPhone(state.phone) : "—"}</span>
             </div>
           </label>
           <label className="field">

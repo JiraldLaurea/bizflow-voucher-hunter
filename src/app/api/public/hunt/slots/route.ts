@@ -13,7 +13,7 @@ const schema = z.object({
 // Returns the date/time slots at which the chosen candidate's benefit tier is offered.
 export async function GET(request: Request) {
   try {
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const { searchParams } = new URL(request.url);
     const input = schema.parse({
       campaignSlug: searchParams.get("campaignSlug"),

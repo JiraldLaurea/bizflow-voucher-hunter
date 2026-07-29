@@ -14,7 +14,7 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     await enforceRateLimit(request, "hunt/attempt", { limit: 20, windowMs: 60_000 });
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const input = schema.parse(await request.json());
     return ok(await generateCandidate({ ...input, phone }));
   } catch (error) {

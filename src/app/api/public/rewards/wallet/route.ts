@@ -12,7 +12,7 @@ const postSchema = z.object({
 // wallet no longer needs a separate verification step or a phone in the body.
 export async function POST(request: Request) {
   try {
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const input = postSchema.parse(await request.json().catch(() => ({})));
     return ok(
       await getOrCreateRewardWallet({
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const url = new URL(request.url);
     const walletSecret = z.string().min(16).parse(url.searchParams.get("walletSecret"));
     return ok(await rewardWalletSnapshot({ phone, walletSecret }));

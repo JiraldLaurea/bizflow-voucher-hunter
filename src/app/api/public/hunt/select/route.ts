@@ -27,7 +27,7 @@ const smsResponseBudgetMs = Number(process.env.SMS_RESPONSE_BUDGET_MS ?? 4000);
 export async function POST(request: Request) {
   try {
     await enforceRateLimit(request, "hunt/select", { limit: 15, windowMs: 60_000 });
-    const phone = await requireSignedInCustomerPhone();
+    const phone = await requireSignedInCustomerPhone(request);
     const input = schema.parse(await request.json());
     const result = await selectFinalVoucher({ ...input, phone });
     // Voucher issuance already succeeded; an SMS delivery failure is logged

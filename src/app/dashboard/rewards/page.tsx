@@ -33,9 +33,10 @@ export default async function RewardsNetworkPage() {
     <>
       <header className="admin-topbar">
         <div>
-          <h1>Rewards Network</h1>
+          <h1>Loyalty Points</h1>
           <p className="muted">
-            Customer QR wallets, 5% reward credits, voucher conversions, and partner settlement monitoring.
+            Customer LP wallets, 5% purchase awards, spending vouchers,
+            service fees, and partner settlements.
           </p>
         </div>
         <a className="button secondary rewards-audit-export" href="/api/dashboard/rewards/audit/export">
@@ -46,11 +47,12 @@ export default async function RewardsNetworkPage() {
       <div className="admin-grid rewards-dashboard-grid">
         {[
           ["Wallets", overview.summary.wallets],
-          ["Outstanding Credit", overview.summary.outstandingCredit],
-          ["Lifetime Earned", overview.summary.lifetimeEarned],
-          ["Converted to Vouchers", overview.summary.lifetimeConverted],
-          ["Pending Settlement", overview.summary.pendingSettlement],
-          ["Pending Redemptions", overview.summary.pendingSettlementCount],
+          ["Outstanding LP", overview.summary.outstandingCredit],
+          ["Lifetime LP Earned", overview.summary.lifetimeEarned],
+          ["Converted to LP Vouchers", overview.summary.lifetimeConverted],
+          ["Pending Partner Payout", overview.summary.pendingSettlement],
+          ["Pending Service Fees", overview.summary.pendingServiceFees],
+          ["Pending LP Payments", overview.summary.pendingSettlementCount],
           ["Held Reviews", overview.summary.heldReviewCount],
         ].map(([label, value]) => (
           <article className="card metric span-4" key={label}>
@@ -62,8 +64,8 @@ export default async function RewardsNetworkPage() {
         <section className="panel span-12 table-wrap">
           <div className="admin-topbar">
             <div>
-              <h2>Recent Reward Credits</h2>
-              <p className="muted">Credits issued when staff scan a customer wallet QR and enter the paid amount.</p>
+              <h2>Recent Loyalty Points</h2>
+              <p className="muted">LP issued when staff scan a customer wallet QR and enter the paid amount.</p>
             </div>
           </div>
           <table>
@@ -72,8 +74,8 @@ export default async function RewardsNetworkPage() {
                 <th>Date</th>
                 <th>Customer</th>
                 <th>Business</th>
-                <th>Purchase</th>
-                <th>5% Credit</th>
+                <th>Purchase (₱)</th>
+                <th>5% LP Earned</th>
                 <th>Staff</th>
                 <th>Fraud Monitor</th>
                 <th>Review</th>
@@ -82,7 +84,7 @@ export default async function RewardsNetworkPage() {
             <tbody>
               {overview.purchases.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>No reward credits yet.</td>
+                  <td colSpan={8}>No Loyalty Points purchases yet.</td>
                 </tr>
               ) : (
                 overview.purchases.map((purchase) => (
@@ -113,8 +115,8 @@ export default async function RewardsNetworkPage() {
         <section className="panel span-12 table-wrap">
           <div className="admin-topbar">
             <div>
-              <h2>Voucher Usage & GCash Settlement</h2>
-              <p className="muted">Partner-store voucher payments awaiting month-end verification and settlement.</p>
+              <h2>LP Usage & Partner Settlement</h2>
+              <p className="muted">LP payments settle during the first week of the following month, after the 10% service fee.</p>
             </div>
           </div>
           <table>
@@ -122,9 +124,11 @@ export default async function RewardsNetworkPage() {
               <tr>
                 <th>Voucher Payment Date</th>
                 <th>Customer Ref</th>
-                <th>Voucher</th>
+                <th>LP Voucher</th>
                 <th>Store / Branch</th>
-                <th>Settlement Amount</th>
+                <th>LP Spent</th>
+                <th>10% Service Fee (LP)</th>
+                <th>Partner Payout (90%)</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -132,7 +136,7 @@ export default async function RewardsNetworkPage() {
             <tbody>
               {overview.redemptions.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>No reward voucher payments yet.</td>
+                  <td colSpan={9}>No LP voucher payments yet.</td>
                 </tr>
               ) : (
                 overview.redemptions.map((redemption) => (
@@ -142,11 +146,15 @@ export default async function RewardsNetworkPage() {
                     <td>{redemption.voucherCode}</td>
                     <td>{redemption.businessName}</td>
                     <td>{redemption.amount}</td>
+                    <td>{redemption.serviceFee}</td>
+                    <td>{redemption.settlementAmount}</td>
                     <td><span className={settlementBadgeClass(redemption.settlementStatus)}>{redemption.settlementStatus}</span></td>
                     <td>
                       <SettlementRowActions
                         redemptionId={redemption.id}
                         settlementId={redemption.settlementId}
+                        settlementEligible={redemption.settlementEligible}
+                        settlementWindow={redemption.settlementWindow}
                         status={redemption.settlementStatus}
                       />
                     </td>

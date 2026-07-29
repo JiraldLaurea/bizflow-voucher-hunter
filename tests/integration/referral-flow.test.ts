@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { resetDb } from "@/server/db";
 import {
   generateCandidate,
+  getOrCreateReferralIdentity,
   getReferralSnapshot,
   recordReferralOpen,
   startHunt,
@@ -37,6 +38,33 @@ describe("referral share module", () => {
     });
     return state.user;
   }
+
+  it("creates a shareable identity from a signed-in phone and binds its device session", async () => {
+    const identity = await getOrCreateReferralIdentity({
+      campaignSlug: "july-dinner",
+      phone: "+639181234561",
+      sessionId: "referrer-session",
+    });
+
+    expect(identity).toMatchObject({
+      campaignSlug: "july-dinner",
+    });
+    expect(identity.referrerUserId).toMatch(/^usr_/);
+    expect(identity.visitPath).toContain(
+      `/api/public/referral/visit?campaign=july-dinner&ref=${identity.referrerUserId}`,
+    );
+
+    await expect(
+      recordReferralOpen({
+        campaignSlug: identity.campaignSlug,
+        ref: identity.referrerUserId,
+        visitorSessionId: "referrer-session",
+      }),
+    ).resolves.toMatchObject({
+      granted: false,
+      reason: "self_referral",
+    });
+  });
 
   it("grants 1 extra attempt for a valid, distinct-visitor referral open", async () => {
     const referrer = await startReferrer();

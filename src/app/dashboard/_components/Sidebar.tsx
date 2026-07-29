@@ -35,7 +35,7 @@ const nav = [
     icon: <FiGift aria-hidden="true" />,
   },
   {
-    label: "Rewards Network",
+    label: "Loyalty Points",
     href: "/dashboard/rewards",
     icon: <FiRepeat aria-hidden="true" />,
   },
@@ -55,7 +55,7 @@ const staffNav = nav.filter((item) =>
     "Dashboard",
     "Slots",
     "Vouchers",
-    "Rewards Network",
+    "Loyalty Points",
     "Staff Validation",
   ].includes(item.label),
 );
