@@ -348,8 +348,7 @@ export function MoreScreen({
                     <span className="muted">Available Loyalty Points</span>
                     <strong>{wallet.balance}</strong>
                     <small>
-                      LP has no fixed peso equivalent. Redeem it through
-                      participating partner offers.
+                      Redeem LP through participating partner offers.
                     </small>
                   </div>
                   <div className="loyalty-daily-card">

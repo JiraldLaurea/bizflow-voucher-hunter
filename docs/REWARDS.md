@@ -1,8 +1,8 @@
 # Loyalty Points (LP) — how it works
 
 This document describes the network-wide Loyalty Points system. LP is a
-program unit and is not equivalent to Philippine pesos. Its redemption value
-depends on the applicable participating-partner offer.
+program unit used through participating partner offers. The LP required for a
+reward is defined by the applicable offer.
 
 The campaign voucher hunt remains a separate system. A successful referral
 still grants an extra roulette spin and now also grants the referrer 10 LP,
