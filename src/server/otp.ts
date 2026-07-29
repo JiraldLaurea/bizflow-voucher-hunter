@@ -24,12 +24,52 @@ function requireValidPhone(phone: string) {
   return normalized;
 }
 
+/**
+ * Google Play review account.
+ *
+ * Play reviewers have no Philippine handset, so the SMS code never reaches them,
+ * and `devCode` is suppressed in production by design. Play's App access form
+ * demands "reusable login details that do not expire", so exactly one number is
+ * allowed to sign in with a fixed code instead.
+ *
+ * Configured entirely by env and inert unless BOTH vars are set:
+ *   REVIEW_ACCOUNT_PHONE – the number given to Play, any accepted PH format
+ *   REVIEW_ACCOUNT_OTP   – the 6-digit code given to Play
+ *
+ * Scope is deliberately narrow: this is an ordinary customer account with no
+ * elevated rights, and the bypass applies only to the one number. Unset both
+ * vars once review passes — see docs/PLAY_CONSOLE_ANSWERS.md §2.
+ */
+function reviewAccount(): { phone: string; code: string } | null {
+  const configuredPhone = process.env.REVIEW_ACCOUNT_PHONE?.trim();
+  const code = process.env.REVIEW_ACCOUNT_OTP?.trim();
+  if (!configuredPhone || !code || !/^\d{6}$/.test(code)) return null;
+  const phone = normalizePhone(configuredPhone);
+  return phone ? { phone, code } : null;
+}
+
+/** Constant-time compare, so a wrong guess leaks nothing about the real code. */
+function codeMatches(expected: string, provided: string) {
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(provided, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 /** Generates a 6-digit sign-in code, stores its hash, and sends it via SMS. */
 export async function requestSignInOtp(input: {
   phone: string;
 }): Promise<{ sent: boolean; expiresAt: string; devCode?: string }> {
   const db = await getDb();
   const phone = requireValidPhone(input.phone);
+
+  // No challenge row and no SMS for the review account: the number is not a real
+  // handset, so sending would only burn provider credit and log a failure. The
+  // client advances to the code screen on a successful response, which is what
+  // the reviewer needs.
+  if (reviewAccount()?.phone === phone) {
+    return { sent: true, expiresAt: new Date(Date.now() + OTP_TTL_MS).toISOString() };
+  }
+
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
   const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
   await run(
@@ -61,6 +101,17 @@ export async function verifySignInOtp(input: {
 }): Promise<{ phone: string }> {
   const db = await getDb();
   const phone = requireValidPhone(input.phone);
+
+  // The review account's fixed code is accepted without a stored challenge, and
+  // is never consumed — Play re-reviews on every update, so it must not expire.
+  const review = reviewAccount();
+  if (review && review.phone === phone) {
+    if (!codeMatches(review.code, input.code)) {
+      throw new AppError("E-OTP-MISMATCH", "Incorrect verification code", 400);
+    }
+    return { phone };
+  }
+
   const rows = await all(
     db,
     `SELECT * FROM otp_challenges

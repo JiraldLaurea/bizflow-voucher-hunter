@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { requestSignInOtp, verifySignInOtp } from "@/server/otp";
@@ -40,6 +40,77 @@ describe("sign-in OTP", () => {
     await verifySignInOtp({ phone, code: requested.devCode! });
     await expect(
       verifySignInOtp({ phone, code: requested.devCode! }),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+});
+
+// The Play review account signs in with a fixed code because Google's reviewers
+// cannot receive the SMS. See docs/PLAY_CONSOLE_ANSWERS.md §2.
+describe("Play review account", () => {
+  const reviewPhone = "+639171234567";
+  const reviewCode = "482913";
+
+  beforeEach(async () => {
+    await resetDb();
+    process.env.REVIEW_ACCOUNT_PHONE = "09171234567";
+    process.env.REVIEW_ACCOUNT_OTP = reviewCode;
+  });
+
+  afterEach(() => {
+    delete process.env.REVIEW_ACCOUNT_PHONE;
+    delete process.env.REVIEW_ACCOUNT_OTP;
+  });
+
+  it("accepts the fixed code without an SMS ever being requested", async () => {
+    const verified = await verifySignInOtp({
+      phone: reviewPhone,
+      code: reviewCode,
+    });
+    expect(verified.phone).toBe(reviewPhone);
+  });
+
+  it("matches the configured number in any accepted format", async () => {
+    const requested = await requestSignInOtp({ phone: "0917 123 4567" });
+    expect(requested.sent).toBe(true);
+    // No real code was generated, so nothing may leak back to the client.
+    expect(requested.devCode).toBeUndefined();
+  });
+
+  it("does not expire or consume the code across repeated reviews", async () => {
+    await verifySignInOtp({ phone: reviewPhone, code: reviewCode });
+    const second = await verifySignInOtp({ phone: reviewPhone, code: reviewCode });
+    expect(second.phone).toBe(reviewPhone);
+  });
+
+  it("rejects a wrong code for the review number", async () => {
+    await expect(
+      verifySignInOtp({ phone: reviewPhone, code: "000000" }),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("leaves every other number on the real SMS path", async () => {
+    const other = "+639998887777";
+    await expect(
+      verifySignInOtp({ phone: other, code: reviewCode }),
+    ).rejects.toBeInstanceOf(AppError);
+
+    const requested = await requestSignInOtp({ phone: other });
+    expect(requested.devCode).toMatch(/^\d{6}$/);
+    const verified = await verifySignInOtp({ phone: other, code: requested.devCode! });
+    expect(verified.phone).toBe(other);
+  });
+
+  it("is inert when the code is unset, even with the phone set", async () => {
+    delete process.env.REVIEW_ACCOUNT_OTP;
+    await expect(
+      verifySignInOtp({ phone: reviewPhone, code: reviewCode }),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("is inert when the code is not six digits", async () => {
+    process.env.REVIEW_ACCOUNT_OTP = "12345";
+    await expect(
+      verifySignInOtp({ phone: reviewPhone, code: "12345" }),
     ).rejects.toBeInstanceOf(AppError);
   });
 });
