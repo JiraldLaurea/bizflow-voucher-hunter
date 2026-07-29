@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -105,7 +106,14 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <div className="logo-tile small">%</div>
+        <Image
+          alt=""
+          className="logo-tile small"
+          height={36}
+          priority
+          src="/images/voucher-hunt-app-logo.png"
+          width={36}
+        />
         <div>
           <strong>Voucher Hunt</strong>
           <div style={{ fontSize: ".72rem", opacity: 0.76 }}>
