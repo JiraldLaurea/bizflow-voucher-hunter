@@ -80,6 +80,15 @@ export function resolveAssetUrl(src: string): string {
   return `${getApiBaseUrl()}${src.startsWith("/") ? src : `/${src}`}`;
 }
 
+/**
+ * The account-deletion instructions the backend serves. Play requires this to be
+ * reachable from inside the app as well as from the store listing, so the page
+ * is the single source of truth for both.
+ */
+export function buildDeleteAccountUrl() {
+  return `${getApiBaseUrl()}/delete-account`;
+}
+
 export function buildReferralLink(campaignSlug: string, referrerUserId: string) {
   const query = new URLSearchParams({
     campaign: campaignSlug,

@@ -132,7 +132,9 @@ export default function PrivacyPolicyPage() {
         </li>
         <li>
           <strong>Access or deletion.</strong> Contact us using the details below
-          to request a copy of your data or to have your account deleted.
+          to request a copy of your data. To close your account, see{" "}
+          <a href="/delete-account">Delete your account</a>, which sets out the
+          steps and what we keep afterwards.
         </li>
       </ul>
 

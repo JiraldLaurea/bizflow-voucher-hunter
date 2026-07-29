@@ -2,6 +2,7 @@ import { toDisplayPhone } from "@bizflow/shared";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,6 +15,7 @@ import {
 import QRCode from "react-native-qrcode-svg";
 
 import {
+  buildDeleteAccountUrl,
   buildReferralLink,
   convertRewardCredit,
   getReferralLinkIdentity,
@@ -141,6 +143,14 @@ export default function MoreScreen() {
       );
     } finally {
       setReferralBusy(false);
+    }
+  }
+
+  async function openDeleteAccount() {
+    try {
+      await WebBrowser.openBrowserAsync(buildDeleteAccountUrl());
+    } catch {
+      setError("Unable to open the account deletion page.");
     }
   }
 
@@ -457,6 +467,16 @@ export default function MoreScreen() {
       >
         Sign out
       </Button>
+      {/* Play requires an in-app route to account deletion for any app that lets
+          you create an account in-app. The instructions live on the web so the
+          store listing and the app can point at one page. */}
+      <Pressable
+        accessibilityRole="link"
+        onPress={() => void openDeleteAccount()}
+        style={styles.deleteAccount}
+      >
+        <Text style={styles.deleteAccountText}>Delete my account</Text>
+      </Pressable>
     </Screen>
   );
 }
@@ -468,6 +488,17 @@ function formatPoints(value: number) {
 }
 
 const styles = StyleSheet.create({
+  deleteAccount: {
+    alignItems: "center",
+    marginTop: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  deleteAccountText: {
+    color: colors.textMuted,
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+    textDecorationLine: "underline",
+  },
   accountCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
