@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getAttemptSlots, type PublicSlot } from "@/api/client";
+import { ApiError, getAttemptSlots, type PublicSlot } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, InlineError } from "@/components/FormControls";
 import { InfoCard, SelectedStrip, SlotRow, StepHeader } from "@/components/HuntUi";
@@ -18,7 +18,7 @@ import { colors, fonts, spacing } from "@/theme";
 export default function DateTimeScreen() {
   const router = useRouter();
   const { token } = useAuth();
-  const { flow, save, selectedAttempt, slug } = useHunt();
+  const { begin, flow, save, selectedAttempt, slug } = useHunt();
   const [slots, setSlots] = useState<PublicSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -37,13 +37,67 @@ export default function DateTimeScreen() {
       );
       setSlots(result.slots);
     } catch (caught) {
+      if (
+        caught instanceof ApiError &&
+        (caught.code === "E-USER-404" || caught.code === "E-ATTEMPT-404")
+      ) {
+        // Reconcile with the authoritative campaign session before discarding
+        // the selected voucher. A stale local attempt can coexist with a newer
+        // valid server attempt after a reset/reload or campaign switch.
+        try {
+          const snapshot = await begin();
+          const recoveredAttempt =
+            snapshot?.attempts.find(
+              (attempt) => attempt.id === flow.selectedAttemptId,
+            ) ??
+            snapshot?.attempts
+              .slice()
+              .reverse()
+              .find(
+                (attempt) =>
+                  attempt.status === "Candidate" || attempt.status === "Held",
+              );
+
+          if (snapshot?.voucher) {
+            router.replace({
+              pathname: "/campaign/[slug]/confirmation",
+              params: { slug },
+            });
+            return;
+          }
+
+          if (recoveredAttempt) {
+            save({
+              attempts: snapshot?.attempts ?? [],
+              selectedAttemptId: recoveredAttempt.id,
+              selectedSlotId: "",
+              selectedDate: "",
+            });
+            const recovered = await getAttemptSlots(
+              { campaignSlug: slug, attemptId: recoveredAttempt.id },
+              token,
+            );
+            setSlots(recovered.slots);
+            return;
+          }
+        } catch {
+          // With no recoverable authoritative attempt, restart at the reel.
+        }
+
+        setSlots([]);
+        setError(
+          "This voucher selection is no longer available. Return to the campaign and start a new hunt.",
+        );
+        return;
+      }
+      setSlots([]);
       setError(
         caught instanceof Error ? caught.message : "Unable to load time slots.",
       );
     } finally {
       setLoading(false);
     }
-  }, [flow.selectedAttemptId, slug, token]);
+  }, [begin, flow.selectedAttemptId, router, save, slug, token]);
 
   useEffect(() => {
     void load();
@@ -92,7 +146,7 @@ export default function DateTimeScreen() {
 
         {loading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
-        ) : slots.length === 0 ? (
+        ) : error ? null : slots.length === 0 ? (
           <InfoCard>
             <Text style={styles.infoText}>
               No time slots are available for this voucher right now.
