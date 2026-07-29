@@ -3,6 +3,10 @@
 What is prepared in the repo, what only you can do, and the exact Data Safety
 answers derived from an audit of the code.
 
+Console questionnaires (App access, Ads, Content rating, Target audience,
+Financial features, store listing copy) are answered item by item in
+[PLAY_CONSOLE_ANSWERS.md](PLAY_CONSOLE_ANSWERS.md).
+
 ---
 
 ## Blockers, in order
