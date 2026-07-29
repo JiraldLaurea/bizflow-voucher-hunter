@@ -76,7 +76,8 @@ The app uses a local **libSQL / SQLite** database, configured in `.env`:
 DATABASE_PATH=./data/bizflow.db
 ```
 
-(In production, `DATABASE_URL` for Turso/libSQL takes precedence.)
+(Production requires `DATABASE_URL` and `DATABASE_AUTH_TOKEN`; development and
+tests always use the local `DATABASE_PATH` so test data cannot touch production.)
 
 The schema is created and seeded automatically on first DB access. There are three ways to reset:
 

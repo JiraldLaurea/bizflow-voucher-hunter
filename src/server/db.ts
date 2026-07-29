@@ -20,11 +20,26 @@ type Row = any;
 export type Exec = Client | Transaction;
 
 /**
- * Connection target. Turso/libSQL in production via DATABASE_URL (libsql://...)
- * plus DATABASE_AUTH_TOKEN; a local file (file:./data/...) for dev and tests.
+ * Production and local development must never share a database:
+ * - production requires Turso/libSQL via DATABASE_URL + DATABASE_AUTH_TOKEN
+ * - development and tests always use DATABASE_PATH, even if a shell happens to
+ *   contain remote credentials
  */
 function resolveUrl() {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.NODE_ENV === "production") {
+    const remoteUrl = process.env.DATABASE_URL?.trim();
+    const remoteToken = process.env.DATABASE_AUTH_TOKEN?.trim();
+    if (!remoteUrl || !remoteToken) {
+      throw new Error(
+        "Production database is not configured. Set DATABASE_URL and DATABASE_AUTH_TOKEN.",
+      );
+    }
+    if (!remoteUrl.startsWith("libsql://") && !remoteUrl.startsWith("https://")) {
+      throw new Error("Production DATABASE_URL must point to Turso/libSQL.");
+    }
+    return remoteUrl;
+  }
+
   const p = process.env.DATABASE_PATH ?? "./data/bizflow.db";
   return `file:${p.replace(/\\/g, "/")}`;
 }
@@ -389,7 +404,15 @@ let readyPromise: Promise<void> | null = null;
 
 function rawClient(): Client {
   if (!client) {
-    client = createClient({ url: resolveUrl(), authToken: process.env.DATABASE_AUTH_TOKEN, intMode: "number" });
+    const url = resolveUrl();
+    client = createClient({
+      url,
+      authToken:
+        process.env.NODE_ENV === "production"
+          ? process.env.DATABASE_AUTH_TOKEN
+          : undefined,
+      intMode: "number",
+    });
   }
   return client;
 }
