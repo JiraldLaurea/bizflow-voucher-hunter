@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
 import {
@@ -74,6 +74,29 @@ describe("voucher engine (hunt-first flow)", () => {
     if (candidate.displayLabel === "90% OFF") {
       expect(slots).toHaveLength(1);
       expect(slots[0].startTime).toBe("14:00");
+    }
+  });
+
+  it("rolls demo inventory forward when every fixture slot is in the past", async () => {
+    vi.setSystemTime(new Date("2026-07-29T12:00:00+08:00"));
+    try {
+      await resetDb();
+      await startHunt({ ...base, name: "Jane Doe" });
+      const candidate = await generateCandidate({
+        ...base,
+        devPoolId: "pool_dinner_20",
+      });
+      const { slots } = await listSlotsForAttempt({
+        campaignSlug: base.campaignSlug,
+        phone: base.phone,
+        attemptId: candidate.id,
+      });
+
+      expect(slots.length).toBeGreaterThan(0);
+      expect(slots.every((slot) => slot.date >= "2026-07-29")).toBe(true);
+      expect(slots.some((slot) => slot.id.includes("_roll_20260729"))).toBe(true);
+    } finally {
+      vi.setSystemTime(new Date("2026-07-03T12:00:00+08:00"));
     }
   });
 

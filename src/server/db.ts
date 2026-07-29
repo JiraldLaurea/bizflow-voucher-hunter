@@ -477,12 +477,14 @@ async function init() {
     // databases; INSERT OR IGNORE alone would keep stale rows.
     await c.batch(DATA_TABLES.map((table) => `DELETE FROM ${table}`), "write");
     await seed(c);
+    await ensureDemoCampaignAvailability(c);
     await c.execute({ sql: "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", args: [SCHEMA_VERSION] });
     return;
   }
 
   // Same version: self-heal an empty or partially-seeded database.
   if (!(await hasCompleteSeed(c))) await seed(c);
+  await ensureDemoCampaignAvailability(c);
 }
 
 async function ensureStaffPinHashes(c: Client) {
@@ -931,6 +933,94 @@ async function seed(c: Client) {
   await c.batch(statements, "write");
 }
 
+function manilaDateString(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function addCalendarDays(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+/**
+ * Keeps the bundled demo campaigns useful after their original fixture dates
+ * pass without rewriting or deleting historical slots. Once a demo campaign
+ * has no upcoming inventory, a fresh dated copy of its fixture schedule is
+ * appended and the campaign window is extended. IDs include the rollover date,
+ * making concurrent serverless cold starts safely idempotent.
+ */
+async function ensureDemoCampaignAvailability(c: Client) {
+  const today = manilaDateString();
+
+  for (const campaign of seedData.campaigns) {
+    const upcoming = await c.execute({
+      sql: "SELECT COUNT(*) AS count FROM slots WHERE campaign_id = ? AND date >= ?",
+      args: [campaign.id, today],
+    });
+    if (Number((upcoming.rows[0] as Row).count) > 0) continue;
+
+    const fixtures = seedData.slots.filter(
+      (slot) => slot.campaignId === campaign.id,
+    );
+    if (fixtures.length === 0) continue;
+
+    const firstFixtureDate = fixtures
+      .map((slot) => slot.date)
+      .sort()[0];
+    const firstFixtureTime = new Date(`${firstFixtureDate}T00:00:00.000Z`).getTime();
+    const rolloverKey = today.replace(/-/g, "");
+    const rolledSlotIds = new Map<string, string>();
+    const statements: InStatement[] = [];
+
+    for (const fixture of fixtures) {
+      const fixtureTime = new Date(`${fixture.date}T00:00:00.000Z`).getTime();
+      const fixtureOffset = Math.round(
+        (fixtureTime - firstFixtureTime) / 86_400_000,
+      );
+      const rolledId = `${fixture.id}_roll_${rolloverKey}`;
+      rolledSlotIds.set(fixture.id, rolledId);
+      statements.push({
+        sql: INSERT_SLOT,
+        args: {
+          id: rolledId,
+          campaignId: fixture.campaignId,
+          date: addCalendarDays(today, fixtureOffset + 1),
+          startTime: fixture.startTime,
+          endTime: fixture.endTime,
+          timezone: fixture.timezone,
+          branchId: fixture.branchId ?? null,
+          totalCapacity: fixture.totalCapacity,
+          remainingCapacity: fixture.totalCapacity,
+          status: "active",
+        },
+      });
+    }
+
+    for (const mapping of seedData.poolSlots) {
+      const rolledSlotId = rolledSlotIds.get(mapping.slotId);
+      if (!rolledSlotId) continue;
+      statements.push({
+        sql: INSERT_POOL_SLOT,
+        args: { poolId: mapping.poolId, slotId: rolledSlotId },
+      });
+    }
+
+    statements.push({
+      sql: `UPDATE campaigns
+            SET start_date = ?, end_date = ?
+            WHERE id = ?`,
+      args: [today, addCalendarDays(today, 30), campaign.id],
+    });
+    await c.batch(statements, "write");
+  }
+}
+
 /** Wipe every table and re-seed. Used by tests and the admin reset action. */
 export async function resetDb() {
   await ensureReady();
@@ -940,6 +1030,7 @@ export async function resetDb() {
     "write"
   );
   await seed(c);
+  await ensureDemoCampaignAvailability(c);
   // Invalidate every customer sign-in: the reseed wipes the users their cookies
   // point at, so bump the epoch to force a fresh sign-in on any device.
   await bumpCustomerAuthEpoch(c);

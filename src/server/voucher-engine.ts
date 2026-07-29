@@ -634,9 +634,18 @@ export async function listSlotsForAttempt(input: { campaignSlug: string; phone: 
       db,
       `SELECT s.* FROM slots s
        JOIN pool_slots ps ON ps.slot_id = s.id
-       WHERE ps.pool_id = ? AND s.campaign_id = ?
+       WHERE ps.pool_id = ? AND s.campaign_id = ? AND s.date >= ?
        ORDER BY s.date, s.start_time`,
-      [attempt.poolId, campaign.id]
+      [
+        attempt.poolId,
+        campaign.id,
+        new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Manila",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date()),
+      ]
     )
   ).map(mapSlot);
   return {

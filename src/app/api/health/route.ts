@@ -1,5 +1,8 @@
 import { ok } from "@/server/errors";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export function GET() {
   return ok({
     status: "ok",
