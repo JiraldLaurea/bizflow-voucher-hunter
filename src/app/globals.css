@@ -5363,3 +5363,34 @@ th {
   font-size: 0.85rem;
   cursor: pointer;
 }
+
+/* Public legal pages (privacy policy). Plain readable prose column — these are
+   linked from the Play listing, so they are read outside the app shell. */
+.legal-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding-bottom: 64px;
+  line-height: 1.65;
+}
+
+.legal-page h1 {
+  font-size: 2rem;
+  margin-bottom: 4px;
+}
+
+.legal-page h2 {
+  margin-top: 32px;
+  margin-bottom: 8px;
+  font-size: 1.15rem;
+}
+
+.legal-page ul {
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.legal-page a {
+  color: var(--purple);
+  text-decoration: underline;
+}
