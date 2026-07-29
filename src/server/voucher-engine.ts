@@ -155,9 +155,11 @@ export async function getOrCreateReferralIdentity(input: {
       ? undefined
       : await one(
           tx,
+          // `campaigns` has no created_at column; id is the deterministic tiebreak.
+          // Matches how listPublicCampaignCards orders the directory.
           `SELECT * FROM campaigns
            WHERE status = 'active'
-           ORDER BY start_date DESC, created_at DESC
+           ORDER BY start_date DESC, id DESC
            LIMIT 1`,
         );
     const campaign = input.campaignSlug
