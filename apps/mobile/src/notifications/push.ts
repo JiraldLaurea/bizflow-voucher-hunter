@@ -1,9 +1,10 @@
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import { apiRequest } from "@/api/client";
+
+type NotificationsModule = typeof import("expo-notifications");
 
 /**
  * Push registration.
@@ -28,16 +29,33 @@ type PushDevice = {
   rewardsEnabled: boolean;
 };
 
-/** Foreground presentation: without this a notification arriving while the app
- *  is open is delivered silently and the customer never sees it. */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+let notificationsPromise: Promise<NotificationsModule | null> | null = null;
+let handlerConfigured = false;
+
+function isExpoGo() {
+  return Constants.appOwnership === "expo";
+}
+
+async function getNotifications(): Promise<NotificationsModule | null> {
+  if (isExpoGo()) return null;
+
+  notificationsPromise ??= import("expo-notifications").catch(() => null);
+  const notifications = await notificationsPromise;
+  if (!notifications || handlerConfigured) return notifications;
+
+  /** Foreground presentation: without this a notification arriving while the app
+   *  is open is delivered silently and the customer never sees it. */
+  notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+  handlerConfigured = true;
+  return notifications;
+}
 
 function projectId(): string | undefined {
   return (
@@ -53,6 +71,8 @@ function projectId(): string | undefined {
  */
 export async function acquirePushToken(): Promise<string | null> {
   try {
+    const Notifications = await getNotifications();
+    if (!Notifications) return null;
     if (!Device.isDevice) return null;
 
     if (Platform.OS === "android") {

@@ -1,6 +1,9 @@
-import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
+
+type NotificationResponse = import("expo-notifications").NotificationResponse;
+type NotificationsModule = typeof import("expo-notifications");
 
 /**
  * Routes a tapped notification to the screen its payload names.
@@ -37,6 +40,15 @@ export function resolveNotification(data: unknown): Destination | null {
   }
 }
 
+function isExpoGo() {
+  return Constants.appOwnership === "expo";
+}
+
+async function getNotifications(): Promise<NotificationsModule | null> {
+  if (isExpoGo()) return null;
+  return import("expo-notifications").catch(() => null);
+}
+
 /**
  * Handles taps on notifications, including the cold-start case where the app was
  * launched by the tap and the navigator is not mounted yet.
@@ -47,26 +59,36 @@ export function useNotificationRouting(ready: boolean) {
   const handledColdStart = useRef(false);
 
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
+    let mounted = true;
+    let subscription: { remove: () => void } | null = null;
+
+    void getNotifications().then((Notifications) => {
+      if (!mounted || !Notifications) return;
+
+      subscription = Notifications.addNotificationResponseReceivedListener(
+        (response: NotificationResponse) => {
+          const destination = resolveNotification(
+            response.notification.request.content.data,
+          );
+          if (destination) pending.current = destination;
+        },
+      );
+
+      // A tap that launched the app is not delivered to the listener above.
+      void Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (!mounted || !response || handledColdStart.current) return;
+        handledColdStart.current = true;
         const destination = resolveNotification(
           response.notification.request.content.data,
         );
         if (destination) pending.current = destination;
-      },
-    );
-
-    // A tap that launched the app is not delivered to the listener above.
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response || handledColdStart.current) return;
-      handledColdStart.current = true;
-      const destination = resolveNotification(
-        response.notification.request.content.data,
-      );
-      if (destination) pending.current = destination;
+      });
     });
 
-    return () => subscription.remove();
+    return () => {
+      mounted = false;
+      subscription?.remove();
+    };
   }, []);
 
   useEffect(() => {
