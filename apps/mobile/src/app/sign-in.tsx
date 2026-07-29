@@ -1,6 +1,7 @@
 import { isValidPhilippinePhone, normalizePhone, toDisplayPhone } from "@bizflow/shared";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -16,6 +17,7 @@ import { Screen } from "@/components/Screen";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 type Step = "phone" | "code";
+const RESEND_COOLDOWN_SECONDS = 60;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -31,8 +33,20 @@ export default function SignInScreen() {
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isCodeFocused, setIsCodeFocused] = useState(false);
+
+  useEffect(() => {
+    if (step !== "code" || resendSeconds <= 0) return;
+
+    const timer = setTimeout(() => {
+      setResendSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1_000);
+
+    return () => clearTimeout(timer);
+  }, [resendSeconds, step]);
 
   async function handleRequestCode() {
     setError(null);
@@ -50,11 +64,29 @@ export default function SignInScreen() {
       setVerifiedPhone(normalized);
       setDevCode(result.devCode ?? null);
       setCode("");
+      setResendSeconds(RESEND_COOLDOWN_SECONDS);
       setStep("code");
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleResendCode() {
+    if (isResending || resendSeconds > 0 || !verifiedPhone) return;
+
+    setError(null);
+    setIsResending(true);
+    try {
+      const result = await requestOtp(verifiedPhone);
+      setDevCode(result.devCode ?? null);
+      setCode("");
+      setResendSeconds(RESEND_COOLDOWN_SECONDS);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsResending(false);
     }
   }
 
@@ -80,6 +112,7 @@ export default function SignInScreen() {
     setStep("phone");
     setCode("");
     setDevCode(null);
+    setResendSeconds(0);
     setError(null);
   }
 
@@ -92,7 +125,11 @@ export default function SignInScreen() {
         <View style={styles.panel}>
           <View style={styles.centerContent}>
             <View style={styles.emblem} accessibilityElementsHidden>
-              <Text style={styles.emblemIcon}>🎁</Text>
+              <Image
+                resizeMode="contain"
+                source={require("../../assets/images/voucher-verification-emblem.png")}
+                style={styles.emblemImage}
+              />
             </View>
 
             <View style={styles.hero}>
@@ -106,6 +143,11 @@ export default function SignInScreen() {
                   ? "Enter your mobile number — we'll text you a code to verify it's yours."
                   : `Enter the 6-digit code sent to ${toDisplayPhone(verifiedPhone)}.`}
               </Text>
+              {step === "code" ? (
+                <Text style={styles.deliveryNote}>
+                  SMS delivery may take up to a minute. Please wait a moment.
+                </Text>
+              ) : null}
             </View>
 
             <View style={styles.form}>
@@ -196,6 +238,22 @@ export default function SignInScreen() {
                       <Text style={styles.demoCodeValue}>{devCode}</Text>
                     </View>
                   ) : null}
+                  <View style={styles.resendRow}>
+                    <Text style={styles.resendPrompt}>
+                      Didn&apos;t receive the code?
+                    </Text>
+                    <Button
+                      disabled={resendSeconds > 0 || isSubmitting}
+                      loading={isResending}
+                      loadingLabel="Resending..."
+                      onPress={() => void handleResendCode()}
+                      variant="tertiary"
+                    >
+                      {resendSeconds > 0
+                        ? `Resend in ${resendSeconds}s`
+                        : "Resend code"}
+                    </Button>
+                  </View>
                   {error ? <InlineError message={error} /> : null}
                   <Button
                     disabled={code.length !== 6}
@@ -243,14 +301,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.primarySoft,
     borderRadius: radius.pill,
-    height: 64,
+    height: 72,
     justifyContent: "center",
     marginBottom: spacing.lg,
-    width: 64,
+    width: 72,
     alignSelf: "center",
   },
-  emblemIcon: {
-    fontSize: 30,
+  emblemImage: {
+    height: 62,
+    width: 62,
   },
   hero: {
     alignItems: "center",
@@ -270,6 +329,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     maxWidth: 330,
+    textAlign: "center",
+  },
+  deliveryNote: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    maxWidth: 300,
     textAlign: "center",
   },
   form: {
@@ -345,6 +412,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: fonts.extrabold,
     letterSpacing: 2,
+  },
+  resendRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 28,
+  },
+  resendPrompt: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 13,
   },
   footnote: {
     color: colors.textMuted,
