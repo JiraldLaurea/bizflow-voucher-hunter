@@ -113,6 +113,11 @@ module.exports = {
         },
       ],
     ],
+    extra: {
+      eas: {
+        projectId: "fdf07bda-f818-426f-84a7-9f6083101b77",
+      },
+    },
     experiments: {
       typedRoutes: true,
       reactCompiler: true,

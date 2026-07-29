@@ -20,8 +20,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://REPLACE-WITH-DEPLOYED-DOMAIN",
-        "EXPO_PUBLIC_APP_LINK_HOST": "REPLACE-WITH-DEPLOYED-DOMAIN"
+        "EXPO_PUBLIC_API_BASE_URL": "https://bizflow-voucher-hunt.vercel.app",
+        "EXPO_PUBLIC_APP_LINK_HOST": "bizflow-voucher-hunt.vercel.app"
       }
     },
     "production": {
@@ -31,8 +31,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://REPLACE-WITH-DEPLOYED-DOMAIN",
-        "EXPO_PUBLIC_APP_LINK_HOST": "REPLACE-WITH-DEPLOYED-DOMAIN"
+        "EXPO_PUBLIC_API_BASE_URL": "https://bizflow-voucher-hunt.vercel.app",
+        "EXPO_PUBLIC_APP_LINK_HOST": "bizflow-voucher-hunt.vercel.app"
       }
     }
   },
