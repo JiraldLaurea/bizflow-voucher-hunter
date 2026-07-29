@@ -1,15 +1,8 @@
-import type { CampaignSlot, Voucher } from "@/types/voucher";
+import type { ClaimedVoucher, Voucher } from "@/types/voucher";
+export type { ClaimedVoucher } from "@/types/voucher";
 
 // Global wallet of vouchers claimed on this device (shared across campaigns).
 export const claimedVouchersStorageKey = "bizflow-claimed-vouchers";
-
-export type ClaimedVoucher = {
-  voucher: Voucher;
-  slot: CampaignSlot;
-  campaignSlug: string;
-  campaignTitle: string;
-  businessName: string;
-};
 
 export function formatDate(date: string) {
   return new Intl.DateTimeFormat("en-PH", {

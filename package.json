@@ -2,6 +2,10 @@
   "name": "bizflow-voucher-hunter",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,9 +16,13 @@
     "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
+    "mobile": "npm run start --workspace @voucher-hunt/mobile",
+    "mobile:android": "npm run android --workspace @voucher-hunt/mobile",
+    "mobile:typecheck": "npm run typecheck --workspace @voucher-hunt/mobile",
     "sms:logs": "node --env-file=.env scripts/sms-logs.mjs"
   },
   "dependencies": {
+    "@bizflow/shared": "*",
     "@fontsource/inter": "^5.2.8",
     "@libsql/client": "^0.17.4",
     "@types/qrcode": "^1.5.6",
