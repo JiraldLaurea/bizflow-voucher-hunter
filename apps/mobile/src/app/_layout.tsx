@@ -15,6 +15,7 @@ import { AuthProvider, useAuth } from "@/auth/AuthContext";
 import { LoyaltyAwardModal } from "@/components/LoyaltyAwardModal";
 import { OverlayProvider, useOverlay } from "@/components/OverlayHost";
 import { useDeepLinkGate } from "@/linking/useDeepLinkGate";
+import { useNotificationRouting } from "@/notifications/useNotificationRouting";
 import { colors } from "@/theme";
 
 void SplashScreen.preventAutoHideAsync();
@@ -42,6 +43,9 @@ function RootNavigator() {
   // Holds a shared campaign/voucher link across the sign-in gate so it is not lost
   // when a signed-out visitor is bounced to the OTP screen.
   useDeepLinkGate(token, ready);
+  // Tapping a notification routes to the screen its payload names, including
+  // when the tap is what launched the app.
+  useNotificationRouting(ready && Boolean(token));
 
   useEffect(() => {
     if (ready) {

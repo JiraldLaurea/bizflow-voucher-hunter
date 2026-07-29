@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { enforceRateLimit } from "@/server/rate-limit";
 import { AppError, fail, ok } from "@/server/errors";
+import { notifyReferralConverted } from "@/server/notifications";
 import { recordReferralOpen } from "@/server/voucher-engine";
 
 export const dynamic = "force-dynamic";
@@ -49,12 +50,21 @@ export async function GET(request: NextRequest) {
       limit: 15,
       windowMs: 60_000,
     });
-    await recordReferralOpen({
+    const outcome = await recordReferralOpen({
       campaignSlug: parsed.data.campaign,
       ref: parsed.data.ref,
       visitorSessionId,
     });
     recorded = true;
+    // Fire-and-forget, after the grant has committed. The visitor is mid-redirect;
+    // their referrer's notification must not delay or fail that.
+    if (outcome.granted && outcome.referrerPhone) {
+      void notifyReferralConverted({
+        phone: outcome.referrerPhone,
+        campaignSlug: outcome.campaignSlug ?? parsed.data.campaign,
+        loyaltyAwarded: Boolean(outcome.loyaltyAwarded),
+      });
+    }
   } catch {
     // The landing-page fallback will retry transient failures.
   }
@@ -84,13 +94,19 @@ export async function POST(request: NextRequest) {
       limit: 15,
       windowMs: 60_000,
     });
-    return ok(
-      await recordReferralOpen({
-        campaignSlug: input.campaign,
-        ref: input.ref,
-        visitorSessionId,
-      }),
-    );
+    const outcome = await recordReferralOpen({
+      campaignSlug: input.campaign,
+      ref: input.ref,
+      visitorSessionId,
+    });
+    if (outcome.granted && outcome.referrerPhone) {
+      void notifyReferralConverted({
+        phone: outcome.referrerPhone,
+        campaignSlug: outcome.campaignSlug ?? input.campaign,
+        loyaltyAwarded: Boolean(outcome.loyaltyAwarded),
+      });
+    }
+    return ok(outcome);
   } catch (error) {
     return fail(error);
   }

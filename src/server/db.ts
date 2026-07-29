@@ -232,6 +232,37 @@ CREATE TABLE IF NOT EXISTS customer_tokens (
   expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_customer_tokens_phone ON customer_tokens (phone, expires_at);
+CREATE TABLE IF NOT EXISTS push_devices (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL,
+  expo_push_token TEXT NOT NULL UNIQUE,
+  platform TEXT NOT NULL,
+  -- Per-category opt-out. Transactional categories stay on by default; the
+  -- customer can silence any of them from the app's More screen.
+  daily_enabled INTEGER NOT NULL DEFAULT 1,
+  reservation_enabled INTEGER NOT NULL DEFAULT 1,
+  rewards_enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_devices_phone ON push_devices (phone);
+CREATE TABLE IF NOT EXISTS push_logs (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL,
+  expo_push_token TEXT NOT NULL,
+  category TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  data TEXT,
+  status TEXT NOT NULL,
+  ticket_id TEXT,
+  failure_reason TEXT,
+  -- Idempotency key: one row per (category, subject, day) so a retried or
+  -- double-invoked scheduler cannot notify the same customer twice.
+  dedupe_key TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_push_logs_dedupe ON push_logs (dedupe_key) WHERE dedupe_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS rate_events (
   id TEXT PRIMARY KEY,
   bucket_key TEXT NOT NULL,
@@ -388,6 +419,8 @@ const DATA_TABLES = [
   "reward_purchases",
   "reward_wallets",
   "rate_events",
+  "push_logs",
+  "push_devices",
   "customer_tokens",
   "customer_sessions",
   "otp_challenges",
@@ -411,7 +444,7 @@ const DATA_TABLES = [
 // Bump when the seed or table shapes change so deployed databases refresh.
 // v2 = campaign-level pools + pool_slots tier→slot mapping. v3 = campaign titles.
 // v4 = Loyalty Points wallet/settlement tables.
-const SCHEMA_VERSION = "4";
+const SCHEMA_VERSION = "5";
 
 async function init() {
   const c = rawClient();

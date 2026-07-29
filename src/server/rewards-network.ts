@@ -68,7 +68,7 @@ export function loyaltyPointsToCentavos(value: unknown, fieldName = "LP amount")
   return moneyToCentavos(value, fieldName);
 }
 
-function manilaDateParts(date = new Date()) {
+export function manilaDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     day: "2-digit",
     month: "2-digit",

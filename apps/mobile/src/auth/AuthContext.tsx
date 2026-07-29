@@ -16,6 +16,11 @@ import {
   subscribeToUnauthorized,
   validateCustomerSession,
 } from "@/api/client";
+import {
+  acquirePushToken,
+  registerPushToken,
+  unregisterPushToken,
+} from "@/notifications/push";
 
 const TOKEN_KEY = "voucher_hunt_customer_token";
 const PHONE_KEY = "voucher_hunt_customer_phone";
@@ -166,12 +171,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
     ]);
     setPhone(nextPhone);
     setToken(nextToken);
+    // Prompt for notifications here rather than on first launch: the customer
+    // has just verified an OTP, so the ask lands in context instead of cold.
+    // Deliberately not awaited — sign-in must not wait on a permission dialog.
+    void (async () => {
+      const pushToken = await acquirePushToken();
+      if (pushToken) await registerPushToken(pushToken, nextToken);
+    })();
   }, []);
 
   const signOut = useCallback(async () => {
     const currentToken = token;
     try {
       if (currentToken) {
+        // Drop the device first, while the token still authorizes the call —
+        // otherwise this handset keeps receiving the previous owner's pushes.
+        const pushToken = await acquirePushToken();
+        if (pushToken) await unregisterPushToken(pushToken, currentToken);
         await revokeSession(currentToken);
       }
     } finally {

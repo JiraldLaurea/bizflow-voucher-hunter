@@ -278,6 +278,7 @@ export function recordReferralOpen(input: { campaignSlug: string; ref: string; v
       return { granted: false, reason: "daily_limit_reached" };
     }
 
+    let loyaltyAwarded = false;
     try {
       const referralRewardId = await insertReferralReward(
         tx,
@@ -286,7 +287,7 @@ export function recordReferralOpen(input: { campaignSlug: string; ref: string; v
         input.visitorSessionId,
         "granted",
       );
-      await awardReferralLoyaltyPoints(tx, {
+      loyaltyAwarded = await awardReferralLoyaltyPoints(tx, {
         phone: referrer.phone,
         referralRewardId,
       });
@@ -297,7 +298,15 @@ export function recordReferralOpen(input: { campaignSlug: string; ref: string; v
       throw error;
     }
     await addAnalytics(tx, campaign.id, "extra_attempt_granted", { referrerUserId: referrer.id }, referrer.id);
-    return { granted: true };
+    // The referrer is surfaced so the caller can notify them once this
+    // transaction has committed — a push is a network call and must not be made
+    // while holding a write transaction open.
+    return {
+      granted: true,
+      referrerPhone: referrer.phone,
+      campaignSlug: campaign.slug,
+      loyaltyAwarded,
+    };
   });
 }
 

@@ -24,6 +24,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { Button, Field, InlineError } from "@/components/FormControls";
 import { Icon } from "@/components/Icon";
 import { Screen } from "@/components/Screen";
+import { NotificationSettings } from "@/components/NotificationSettings";
 import { DevToolsPanel } from "@/dev/DevToolsPanel";
 import { getVisitorSessionId } from "@/hunt/session";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
@@ -447,6 +448,7 @@ export default function MoreScreen() {
       ) : null}
       {/* Sits directly above sign out, as it does on the web More page. Renders
           nothing outside development. */}
+      <NotificationSettings />
       <DevToolsPanel />
       <Button
         loading={isSigningOut}

@@ -54,6 +54,9 @@ module.exports = {
   expo: {
     name: "Voucher Hunt",
     slug: "voucher-hunt",
+    // Customer-visible version. `android.versionCode` is deliberately absent:
+    // eas.json sets `appVersionSource: "remote"`, so EAS owns the version code
+    // and bumps it per production build. Declaring it here would conflict.
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
@@ -100,6 +103,15 @@ module.exports = {
         },
       ],
       "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          // Android renders the notification icon as a white silhouette from the
+          // alpha channel, so the monochrome launcher layer is the right source.
+          icon: "./assets/images/android-icon-monochrome.png",
+          color: BRAND_PURPLE,
+        },
+      ],
     ],
     experiments: {
       typedRoutes: true,
