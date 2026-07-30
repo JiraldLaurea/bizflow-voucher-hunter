@@ -16,3 +16,11 @@ data/*.db-shm
 data/*.db-wal
 
 .vercel
+
+# Downloaded EAS build artifacts. Also keeps them out of the EAS upload: with no
+# .easignore, `eas build` falls back to this file, and 221MB of preview APKs was
+# being shipped to the build servers on every run.
+builds/
+
+# JetBrains IDE workspace settings.
+.idea/

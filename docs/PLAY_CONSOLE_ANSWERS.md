@@ -405,14 +405,24 @@ ends in a win" is deliberate — it forecloses the gambling reading. Do not
 describe Loyalty Points as cash, cashback, or a balance that can be withdrawn.
 Do not use clinical language for the beauty campaigns.
 
-### Graphic assets still needed
+### Graphic assets
+
+All in `apps/mobile/store-assets/google-play/`.
 
 | Asset | Spec | Status |
 |---|---|---|
-| App icon | 512×512 PNG, 32-bit, no transparency | Generate from `apps/mobile/assets/images/voucher-hunt-app-logo.png` |
-| Feature graphic | 1024×500 PNG or JPG, no alpha | **Not created** |
-| Phone screenshots | 2–8, 16:9 or 9:16, min 320 px | **Not captured** |
-| Tablet screenshots | — | Not needed; `supportsTablet: false` |
+| App icon | 512×512 PNG, no alpha | ✅ `app-icon-512x512.png` |
+| Feature graphic | 1024×500 PNG or JPG, no alpha | ✅ `feature-graphic-1024x500.png` |
+| Phone screenshots | 2–8, 9:16, ≥1080 px per side for promo | ✅ 4 in `screenshots/` |
+| Tablet screenshots | — | Not supplied; costs ranking on tablets, not eligibility |
+
+The screenshots were captured from a Pixel 7 Pro emulator, which is 1440×3120 —
+a 2.17:1 ratio that Play rejects. Each was scaled to 1080 wide and cropped to
+1080×1920 from the top, which costs only the status bar. **Do not pad to width
+instead**: side padding leaves full-bleed elements (the bottom tab bar, the
+roulette band) visibly short of the edge. Keeping both the screen title and the
+tab bar would need 2097px of the 2340 available, so the tab bar is dropped in
+favour of the title and primary CTA.
 
 The launcher icon can be regenerated at any size with
 `node apps/mobile/scripts/generate-brand-assets.js`.
