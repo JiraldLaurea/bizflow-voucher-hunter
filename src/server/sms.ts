@@ -27,6 +27,7 @@ export async function sendSms(phone: string, message: string): Promise<SmsResult
 }
 
 async function routeSms(provider: string, phone: string, message: string): Promise<SmsResult> {
+  if (provider === "smpp_worker") return sendViaSmppWorker(phone, message);
   if (provider === "smpp") return sendViaSmpp(phone, message);
   if (provider === "movider") return sendViaMovider(phone, message);
   if (provider === "twilio") return sendViaTwilio(phone, message);
@@ -46,7 +47,51 @@ async function routeSms(provider: string, phone: string, message: string): Promi
   return { success: true, providerMessageId: `mock_${Date.now()}` };
 }
 
-// ---- SMPP (direct SMSC / local Philippine aggregator) ----
+// ---- SMPP via the persistent worker (the hosted path) ----
+//
+// The SMSC whitelists one client IP and allows a single concurrent bind, so a
+// direct bind from a serverless function is never answered — it times out. The
+// bind lives in `server/smpp-worker.cjs` on a host with that IP instead, and
+// this relays to it over HTTP: stateless, fast, and no session to keep alive.
+//
+// Env: SMPP_WORKER_URL, SMPP_WORKER_API_TOKEN.
+async function sendViaSmppWorker(phone: string, message: string): Promise<SmsResult> {
+  const workerUrl = process.env.SMPP_WORKER_URL;
+  const apiToken = process.env.SMPP_WORKER_API_TOKEN;
+  if (!workerUrl || !apiToken) {
+    return {
+      success: false,
+      error: "SMPP worker is not configured (SMPP_WORKER_URL, SMPP_WORKER_API_TOKEN)",
+    };
+  }
+
+  try {
+    const response = await fetch(new URL("/messages", workerUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ to: phone, message }),
+      // The worker rebinds on a dropped session, which costs seconds. Cap the
+      // wait so a wedged worker cannot hold a request past its function budget.
+      signal: AbortSignal.timeout(getEnvNumber("SMPP_WORKER_TIMEOUT_MS", 20000)),
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      success?: boolean;
+      provider_message_id?: string;
+      error?: string;
+    } | null;
+    if (!response.ok || !payload?.success) {
+      return { success: false, error: payload?.error ?? `SMPP worker HTTP ${response.status}` };
+    }
+    return { success: true, providerMessageId: payload.provider_message_id };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ---- SMPP (direct bind; works only from a whitelisted IP, e.g. local dev) ----
 // Binds a long-lived SMPP session (reused across sends) and issues submit_sm.
 // Env vars: SMPP_HOST, SMPP_PORT (2775), SMPP_SYSTEM_ID, SMPP_PASSWORD,
 //   SMPP_BIND_TYPE (transceiver|transmitter), plus optional per-carrier sender
