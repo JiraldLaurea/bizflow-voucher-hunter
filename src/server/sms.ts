@@ -13,7 +13,20 @@ export type SmsResult = {
 
 export async function sendSms(phone: string, message: string): Promise<SmsResult> {
   const provider = process.env.SMS_PROVIDER ?? "mock";
+  const result = await routeSms(provider, phone, message);
 
+  // Callers decide whether a failed send should fail their request — the sign-in
+  // route, for one, deliberately does not. Without logging here the reason was
+  // discarded entirely, which is how a misconfigured provider stayed invisible.
+  if (!result.success) {
+    console.error(
+      `[SMS] provider=${provider} send failed: ${result.error ?? "unknown error"}`,
+    );
+  }
+  return result;
+}
+
+async function routeSms(provider: string, phone: string, message: string): Promise<SmsResult> {
   if (provider === "smpp") return sendViaSmpp(phone, message);
   if (provider === "movider") return sendViaMovider(phone, message);
   if (provider === "twilio") return sendViaTwilio(phone, message);
@@ -21,6 +34,14 @@ export async function sendSms(phone: string, message: string): Promise<SmsResult
   if (provider === "clicksend") return sendViaClickSend(phone, message);
 
   // Mock provider: logs the message and always succeeds. Used for local/demo.
+  // It reports success without sending anything, so an unrecognised provider in
+  // production looks healthy while every message is silently dropped. Warn loudly.
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      `[SMS MOCK] SMS_PROVIDER=${JSON.stringify(provider)} is not a real provider. ` +
+        "No message was sent. Set SMS_PROVIDER to one of: smpp, movider, twilio, infobip, clicksend.",
+    );
+  }
   console.log(`[SMS MOCK] To: ${phone}\n${message}\n`);
   return { success: true, providerMessageId: `mock_${Date.now()}` };
 }
