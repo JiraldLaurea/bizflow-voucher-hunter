@@ -102,6 +102,31 @@ Verified against `apps/mobile/package.json` — the dependency list holds no ad,
 attribution, or analytics SDK (Expo modules, React Native, and
 `react-native-qrcode-svg` only). Nothing in the app renders third-party content.
 
+### Advertising ID — a separate declaration
+
+App content → **Advertising ID** → *Does the app use an ad ID?* → **No**.
+
+This is not the same question as "contains ads", and it **blocks submission**
+until answered — the console reports it as "Incomplete ad ID declaration" and
+refuses to send the version for review.
+
+Answer from the merged manifest, not from the dependency list: an SDK can merge
+`com.google.android.gms.permission.AD_ID` in without the app declaring it, and
+Play blocks releases where the declaration and the manifest disagree. Confirm
+with:
+
+```bash
+aapt2 dump permissions <build>.apk
+```
+
+On the 1.0.0 build there is no `AD_ID` permission, so **No** is correct.
+`expo-notifications` uses Firebase Messaging, which does not add it; Firebase
+Analytics would. Re-check if an analytics or attribution SDK is ever added.
+
+The same dump confirms `READ_SMS` and `RECEIVE_SMS` are absent, which is the
+evidence for the §6 claim that the app never reads SMS — `blockedPermissions` in
+`app.config.js` strips them from the merged manifest.
+
 ---
 
 ## 4. Content rating
