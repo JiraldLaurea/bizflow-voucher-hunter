@@ -32,10 +32,10 @@ at an email address. An email-based process is accepted, but the address must be
 real and monitored. A self-serve in-app "delete my account" is stronger and
 avoids a review round-trip.
 
-**3. Privacy policy review.** `/privacy` is drafted and accurate to the code, but
-has not been reviewed by a lawyer, and still contains placeholders:
-`privacy@example.com`, and no operating entity name. Philippine Data Privacy Act
-obligations need confirming.
+**3. Privacy policy review.** `/privacy` is drafted and accurate to the code and
+now carries a real contact address, but it has not been reviewed by a lawyer and
+still names no operating entity. Philippine Data Privacy Act obligations need
+confirming.
 
 ---
 

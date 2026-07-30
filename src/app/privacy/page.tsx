@@ -16,10 +16,17 @@ export const metadata: Metadata = {
  *
  * DRAFT — the contents mirror what the code actually does (see docs/PLAY_RELEASE.md
  * for the audit), but this has NOT been reviewed by a lawyer. Philippine Data
- * Privacy Act obligations, the operating entity's legal name, and the contact
- * address all need to be confirmed before publishing.
+ * Privacy Act obligations and the operating entity's legal name still need to be
+ * confirmed before publishing.
  */
-const UPDATED = "29 July 2026";
+const UPDATED = "30 July 2026";
+
+/**
+ * Declared to Google Play as the account-deletion contact, so it must stay in
+ * step with `SUPPORT_EMAIL` in /delete-account and with the address on the store
+ * listing. Play reviewers do test it.
+ */
+const SUPPORT_EMAIL = "yangpspider@gmail.com";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -153,7 +160,7 @@ export default function PrivacyPolicyPage() {
       <h2>Contact</h2>
       <p>
         Questions, data access requests, and deletion requests:{" "}
-        <a href="mailto:privacy@example.com">privacy@example.com</a>.
+        <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
       </p>
     </main>
   );

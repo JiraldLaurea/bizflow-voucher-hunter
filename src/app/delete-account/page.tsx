@@ -22,8 +22,13 @@ export const metadata: Metadata = {
  * financial records has NOT been confirmed with a Philippine accountant or
  * lawyer. Confirm before publishing.
  */
-const UPDATED = "29 July 2026";
-const SUPPORT_EMAIL = "privacy@example.com";
+const UPDATED = "30 July 2026";
+
+/**
+ * The declared deletion mechanism on the Play Data safety form. Must stay in
+ * step with `SUPPORT_EMAIL` in /privacy and with the store listing address.
+ */
+const SUPPORT_EMAIL = "yangpspider@gmail.com";
 
 export default function DeleteAccountPage() {
   return (

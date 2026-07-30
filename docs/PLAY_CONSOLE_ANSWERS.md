@@ -28,10 +28,9 @@ The page is at [src/app/privacy/page.tsx](../src/app/privacy/page.tsx) —
 statically rendered and unauthenticated, so a reviewer reaches it without
 installing the app.
 
-**Before you paste this:** the page still contains `privacy@example.com` and
-names no operating entity. A reviewer following the contact address into a
-bounce is a rejection. Replace both, and confirm the Philippine Data Privacy Act
-wording, before submitting.
+The contact address is **yangpspider@gmail.com**, matching `/delete-account` and
+the store listing. Still outstanding on this page: it names no operating entity,
+and the Philippine Data Privacy Act wording is unreviewed.
 
 ---
 
@@ -180,17 +179,86 @@ password" — the customer app has no password; `STAFF_PASSWORD` and
 `ADMIN_SESSION_SECRET` belong to the web dashboards, which are outside the
 Android app's scope.
 
-| Data type | Collected | Shared | Required? | Purpose |
-|---|---|---|---|---|
-| Phone number | Yes | Yes — SMS provider | Required | Account management, app functionality |
-| Name | Yes | Yes — partner staff at redemption | Required to confirm a voucher | App functionality |
-| Email address | Yes | No | Optional | App functionality |
-| Device or other IDs | Yes — Expo push token | Yes — Expo push service | Optional (only if notifications allowed) | App functionality |
-| App interactions | Yes — vouchers, reservations, points, referral opens | No | Required | App functionality, fraud prevention |
+### Data types — the six boxes to tick
+
+In the order the form presents them. Everything not listed stays unticked.
+
+| Section | Tick |
+|---|---|
+| location | — |
+| **Personal Information** | **name**, **Email address**, **User ID**, **phone number** |
+| Financial Information | — (see the note on purchase history below) |
+| Health and Fitness | — |
+| message | — **nothing**, see the warning below |
+| Photos and videos | — |
+| audio file | — |
+| Files and docs | — |
+| calendar | — |
+| contact | — |
+| **App activity** | **App interactions** |
+| Web browsing | — |
+| App info and performance | — |
+| **Device or other IDs** | **Device or other IDs** |
+
+> **Never tick "SMS or MMS" under message.** It declares that the app reads the
+> device's messages. This app cannot: `READ_SMS` and `RECEIVE_SMS` are in
+> `blockedPermissions` and the customer types the code by hand. Ticking it
+> triggers a permissions review that the app's own manifest would fail.
+
+**Purchase history — a judgment call.** Recommended: leave it unticked. Play
+scopes the declaration to data collected *through the app*, and purchase amounts
+are entered by staff on the web dashboard; the app only displays the resulting
+points ledger. The counter-argument is that Google defines purchase history
+broadly ("information about purchases or transactions a user has made") and a
+reviewer sees exactly that in the app. Ticking it (collected / required / app
+functionality) is the conservative option and costs little.
+
+### Data handling — per-type answers
+
+Step 4 asks five questions per data type. All six answered:
+
+| Data type | Collected / Shared | Ephemeral? | Required? | Collection purposes | Sharing purposes |
+|---|---|---|---|---|---|
+| name | Collected **and** Shared | No | Required | App functionality, Account management | App functionality |
+| Email address | Collected only | No | **Users can choose** | App functionality, Account management | — |
+| User ID | Collected only | No | Required | App functionality, Account management, Fraud prevention & security | — |
+| phone number | Collected **and** Shared | No | Required | App functionality, Account management, Fraud prevention & security | App functionality |
+| App interactions | Collected only | No | Required | App functionality, Analytics, Fraud prevention & security | — |
+| Device or other IDs | Collected only | No | **Users can choose** | App functionality | — |
+
+**What counts as "shared".** Google excludes transfers to a *service provider
+processing on the developer's behalf*. The SMS provider, Expo's push service, and
+the hosting and database providers are all service providers, so none of them
+makes a field "shared". Partner businesses are **not** service providers — they
+are independent entities using the data for their own purposes — so the two
+fields their staff actually see are the only shared ones: the **name** on a
+reservation, and a **masked phone number** at a loyalty scan. The mask makes the
+phone borderline; declaring it is the safer side.
+
+**Ephemeral is No for everything** — each field is written to the database and
+outlives the request.
+
+**Optional fields.** Email is allowed empty by the schema and is only stored if
+entered. Device IDs are optional because no push token exists unless the user
+grants notification permission.
+
+**Analytics on App interactions** is deliberate: `analytics_events` feeds the
+partner dashboard metrics, which is analytics in Google's sense. This is
+unrelated to the "no analytics SDKs" point in §3, which is about third-party
+SDKs and still holds.
+
+**Never tick Advertising or marketing, or Developer communications**, on any
+type. There are no ads, and nothing in the code messages users for marketing —
+only transactional SMS, which is App functionality.
+
+On **User ID**: the app assigns an internal user id, and `buildReferralLink()`
+embeds it in the referral URL shared out of the app, so it does leave the device.
+Declared collected but **not** shared — user-initiated sharing is an explicit
+exception in Google's rules, and the link only travels when the user taps share.
 
 **Declare as NOT collected** (verified absent): location, contacts, SMS or call
-logs, photos or videos, files, calendar, health, financial account details,
-purchase history tied to a payment instrument, and any advertising identifier.
+logs, photos or videos, files, calendar, health, financial account details, and
+any advertising identifier.
 
 The deletion page is [src/app/delete-account/page.tsx](../src/app/delete-account/page.tsx)
 — unauthenticated and statically rendered, so a reviewer reaches it without the
@@ -199,13 +267,13 @@ what is retained, and for how long, which are Play's three stated requirements
 for this link. It is reachable in-app from *More → Delete my account*, which
 Play also expects of an app that creates accounts in-app.
 
-> **⚠ Two things on that page still need you.**
-> 1. `privacy@example.com` is a placeholder. The process is email-based, so
->    this address **is** the deletion mechanism — a bouncing address means the
->    declaration is false. Replace it, and monitor it.
-> 2. The **10-year** retention figure for settlement and audit records follows
->    Philippine tax practice but has not been confirmed by an accountant or
->    lawyer. Confirm it, or change it, before publishing.
+The declared contact is **yangpspider@gmail.com**. Because the process is
+email-based, that mailbox **is** the deletion mechanism — it has to be monitored,
+and a reviewer may well test it.
+
+> **⚠ One thing on that page still needs you.** The **10-year** retention figure
+> for settlement and audit records follows Philippine tax practice but has not
+> been confirmed by an accountant or lawyer. Confirm it, or change it.
 >
 > The process is a *request* process, not self-serve deletion. Play accepts
 > that. If you would rather ship self-serve deletion in-app, that is a larger
@@ -277,7 +345,7 @@ does not change this answer. Avoid the words "treatment", "therapy", or
 | App or game | **App** |
 | Category | **Shopping** (alternative: *Lifestyle*) |
 | Tags | Deals & coupons; Loyalty & rewards; Food & drink |
-| Email address | `«FILL IN: real monitored support address»` |
+| Email address | `yangpspider@gmail.com` — same as `/privacy` and `/delete-account` |
 | Phone | `«FILL IN»` — optional, but expected for a commerce app in PH |
 | Website | `https://bizflow-voucher-hunt.vercel.app` |
 
@@ -357,9 +425,9 @@ The launcher icon can be regenerated at any size with
 2. **Redeploy.** `/delete-account` and the privacy-policy link to it exist only
    in the repo; the live site still serves the old pages. The Data safety form
    rejects a 404, so this must land before §6 is submitted.
-3. Real support address, replacing `privacy@example.com` on **both**
-   `/privacy` and `/delete-account` — §1, §6, §10. This is now the only thing
-   that makes the deletion declaration false.
+3. ~~Real support address~~ — done; `yangpspider@gmail.com` on `/privacy` and
+   `/delete-account`. Use the same address in the store listing contact details
+   (§10) so the three agree.
 4. `REVIEW_ACCOUNT_PHONE` and `REVIEW_ACCOUNT_OTP` set on production — §2.
 5. Feature graphic and screenshots — §11.
 6. Then fill in the questionnaires, which are quick once 1–5 are done.
