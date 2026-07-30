@@ -24,6 +24,14 @@ const schema = z.object({
  */
 const smsResponseBudgetMs = Number(process.env.SMS_RESPONSE_BUDGET_MS ?? 4000);
 
+/**
+ * The response is capped at `smsResponseBudgetMs`, but the confirmation SMS keeps
+ * going after it — and a cold SMPP bind alone can outlast Vercel's default 10s
+ * ceiling, which would kill the instance mid-submit and lose the message. Matches
+ * the sign-in route so both SMS paths get the same budget.
+ */
+export const maxDuration = 30;
+
 export async function POST(request: Request) {
   try {
     await enforceRateLimit(request, "hunt/select", { limit: 15, windowMs: 60_000 });

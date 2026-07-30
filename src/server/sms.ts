@@ -30,6 +30,18 @@ export async function sendSms(phone: string, message: string): Promise<SmsResult
 // Env vars: SMPP_HOST, SMPP_PORT (2775), SMPP_SYSTEM_ID, SMPP_PASSWORD,
 //   SMPP_BIND_TYPE (transceiver|transmitter), plus optional per-carrier sender
 //   IDs and TON/NPI/timeout tuning (see .env.example).
+//
+// Timeout budget. SMPP assumes a persistent process that binds once at startup;
+// on serverless every cold instance pays the bind again, inside the request. The
+// defaults below are therefore sized to fit the routes' `maxDuration = 30`:
+//
+//   bind (connect + bind, whichever is slower)   12s
+//   submit_sm, per message part                   8s
+//   worst realistic single-part send             20s, leaving 10s of headroom
+//
+// They were 30s each, which allowed 60s of SMS work on a route Vercel kills at
+// 10s by default: the function died mid-bind and the caller saw an opaque 504
+// instead of an SMPP error. Raise these only alongside `maxDuration`.
 
 type SmppPdu = {
   command?: string;
@@ -111,13 +123,13 @@ function getSmppSession(options: { host: string; port: string; systemId: string;
     const timeout = setTimeout(() => {
       resetSmppSession();
       reject(new Error("SMPP bind timed out"));
-    }, getEnvNumber("SMPP_BIND_TIMEOUT_MS", 30000));
+    }, getEnvNumber("SMPP_BIND_TIMEOUT_MS", 12000));
 
     const session = smpp.connect(
       {
         url: `smpp://${options.host}:${options.port}`,
         auto_enquire_link_period: getEnvNumber("SMPP_ENQUIRE_LINK_MS", 10000),
-        connectTimeout: getEnvNumber("SMPP_CONNECT_TIMEOUT_MS", 30000),
+        connectTimeout: getEnvNumber("SMPP_CONNECT_TIMEOUT_MS", 12000),
         debug: process.env.SMPP_DEBUG === "true"
       },
       () => {
@@ -285,7 +297,7 @@ function submitOnePart(session: SmppSession, params: Record<string, unknown>): P
   return new Promise<SmppPdu>((resolve) => {
     const timeout = setTimeout(() => {
       resolve({ command_status: -1 }); // surfaces as a submit failure with an unknown status
-    }, getEnvNumber("SMPP_SUBMIT_TIMEOUT_MS", 30000));
+    }, getEnvNumber("SMPP_SUBMIT_TIMEOUT_MS", 8000));
     session.submit_sm(params, (pdu) => {
       clearTimeout(timeout);
       resolve(pdu);
