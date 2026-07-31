@@ -2732,6 +2732,12 @@ img.logo-tile {
   gap: 18px;
 }
 
+.dashboard-route-error {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
 .dashboard-route-loading-heading {
   display: grid;
   gap: 9px;
