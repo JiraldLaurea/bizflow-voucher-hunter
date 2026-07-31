@@ -1,4 +1,4 @@
-import { buildMapsUrl, buildTelUrl, isCoordinate } from "@bizflow/shared";
+import { buildDirectionsUrl, buildTelUrl, isCoordinate } from "@bizflow/shared";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
@@ -11,8 +11,8 @@ import {
   Text,
   View,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 
 import { Button, InlineError } from "@/components/FormControls";
 import { CampaignImage } from "@/components/CampaignImage";
@@ -23,6 +23,36 @@ import { useHunt } from "@/hunt/HuntContext";
 import { CAMPAIGN_MODE_LABELS, formatCampaignRange } from "@/lib/format";
 import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
+
+function buildEmbeddedMapsHtml(latitude: number, longitude: number) {
+  const query = encodeURIComponent(`${latitude},${longitude}`);
+  const mapUrl = `https://www.google.com/maps?q=${query}&z=16&output=embed`;
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <style>
+      html, body, iframe {
+        border: 0;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        padding: 0;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe
+      allowfullscreen
+      loading="eager"
+      referrerpolicy="no-referrer-when-downgrade"
+      src="${mapUrl}"
+    ></iframe>
+  </body>
+</html>`;
+}
 
 /** Step 1 — the campaign landing (`.campaign-landing-card` on the web). */
 export default function CampaignLandingScreen() {
@@ -144,13 +174,9 @@ export default function CampaignLandingScreen() {
           longitude: business.longitude,
         }
       : null;
-  const mapRegion = businessPin
-    ? {
-        ...businessPin,
-        latitudeDelta: 0.008,
-        longitudeDelta: 0.008,
-      }
-    : null;
+  const embeddedMapHtml = businessPin
+    ? buildEmbeddedMapsHtml(businessPin.latitude, businessPin.longitude)
+    : "";
 
   async function openExternal(url: string, failureKey: "venue.mapsError" | "venue.callError") {
     setVenueError("");
@@ -166,7 +192,7 @@ export default function CampaignLandingScreen() {
 
   const openMaps = () =>
     openExternal(
-      buildMapsUrl({
+      buildDirectionsUrl({
         address: business?.address,
         latitude: business?.latitude,
         longitude: business?.longitude,
@@ -209,18 +235,6 @@ export default function CampaignLandingScreen() {
             <Text style={styles.venueTitle}>{t("venue.title")}</Text>
             <Text style={styles.venueBusiness}>{business.name}</Text>
 
-            {business.address ? (
-              <View style={styles.venueRow}>
-                <View style={styles.venueIcon}>
-                  <Icon name="map-pin" size={16} />
-                </View>
-                <View style={styles.venueRowCopy}>
-                  <Text style={styles.venueLabel}>{t("venue.address")}</Text>
-                  <Text style={styles.venueValue}>{business.address}</Text>
-                </View>
-              </View>
-            ) : null}
-
             {business.contactNumber ? (
               <View style={styles.venueRow}>
                 <View style={styles.venueIcon}>
@@ -233,7 +247,19 @@ export default function CampaignLandingScreen() {
               </View>
             ) : null}
 
-            {businessPin && mapRegion ? (
+            {business.address ? (
+              <View style={styles.venueRow}>
+                <View style={styles.venueIcon}>
+                  <Icon name="map-pin" size={16} />
+                </View>
+                <View style={styles.venueRowCopy}>
+                  <Text style={styles.venueLabel}>{t("venue.address")}</Text>
+                  <Text style={styles.venueValue}>{business.address}</Text>
+                </View>
+              </View>
+            ) : null}
+
+            {businessPin && embeddedMapHtml ? (
               <Pressable
                 accessibilityHint={t("venue.viewFullMap")}
                 accessibilityLabel={`${business.name} ${t("venue.address")}`}
@@ -244,24 +270,24 @@ export default function CampaignLandingScreen() {
                   pressed && styles.mapPreviewPressed,
                 ]}
               >
-                <MapView
-                  initialRegion={mapRegion}
-                  mapType="standard"
+                <WebView
+                  cacheEnabled={false}
+                  javaScriptEnabled
+                  nestedScrollEnabled={false}
+                  onShouldStartLoadWithRequest={() => false}
+                  originWhitelist={["https://*"]}
                   pointerEvents="none"
-                  pitchEnabled={false}
-                  provider={PROVIDER_GOOGLE}
-                  rotateEnabled={false}
                   scrollEnabled={false}
+                  source={{
+                    baseUrl: "https://www.google.com",
+                    html: embeddedMapHtml,
+                  }}
                   style={styles.map}
-                  toolbarEnabled={false}
-                  zoomEnabled={false}
-                >
-                  <Marker
-                    coordinate={businessPin}
-                    description={business.address}
-                    title={business.name}
-                  />
-                </MapView>
+                />
+                {/* The embedded map's own links (place pins, attribution) can
+                    trigger navigation; this shield keeps every tap on the
+                    thumbnail routed to the Pressable instead of the WebView. */}
+                <View pointerEvents="box-only" style={styles.mapPreviewShield} />
                 <View style={styles.mapPreviewBadge}>
                   <Icon color={colors.ink} name="maximize-2" size={14} />
                   <Text style={styles.mapPreviewBadgeText}>
@@ -330,7 +356,7 @@ export default function CampaignLandingScreen() {
         </View>
       </ScrollView>
 
-      {business && businessPin && mapRegion ? (
+      {business && businessPin && embeddedMapHtml ? (
         <Modal
           animationType="slide"
           onRequestClose={() => setMapVisible(false)}
@@ -364,17 +390,17 @@ export default function CampaignLandingScreen() {
             </View>
 
             <View style={styles.fullMapBody}>
-              <MapView
-                initialRegion={mapRegion}
-                provider={PROVIDER_GOOGLE}
+              <WebView
+                cacheEnabled={false}
+                javaScriptEnabled
+                onShouldStartLoadWithRequest={() => false}
+                originWhitelist={["https://*"]}
+                source={{
+                  baseUrl: "https://www.google.com",
+                  html: embeddedMapHtml,
+                }}
                 style={styles.fullMap}
-              >
-                <Marker
-                  coordinate={businessPin}
-                  description={business.address}
-                  title={business.name}
-                />
-              </MapView>
+              />
 
               <View style={styles.fullMapCard}>
                 <View style={styles.fullMapLocation}>
@@ -540,6 +566,13 @@ const styles = StyleSheet.create({
     opacity: 0.86,
   },
   map: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  mapPreviewShield: {
     bottom: 0,
     left: 0,
     position: "absolute",

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildMapsUrl, buildTelUrl, hasPin } from "@bizflow/shared";
+import {
+  buildDirectionsUrl,
+  buildMapsUrl,
+  buildTelUrl,
+  hasPin,
+} from "@bizflow/shared";
 
 describe("buildMapsUrl", () => {
   it("prefers a dropped pin over the written address", () => {
@@ -41,6 +46,26 @@ describe("hasPin", () => {
     expect(hasPin({ latitude: 14.5, longitude: 121 })).toBe(true);
     expect(hasPin({ latitude: 14.5 })).toBe(false);
     expect(hasPin({})).toBe(false);
+  });
+});
+
+describe("buildDirectionsUrl", () => {
+  it("opens driving directions to a dropped pin from the current location", () => {
+    expect(
+      buildDirectionsUrl({
+        address: "123 Ayala Ave, Makati City",
+        latitude: 14.5547,
+        longitude: 121.0244,
+      }),
+    ).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=14.5547%2C121.0244&travelmode=driving&dir_action=navigate",
+    );
+  });
+
+  it("uses the address as the destination when no pin is available", () => {
+    expect(buildDirectionsUrl("123 Ayala Ave, Makati City")).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=123%20Ayala%20Ave%2C%20Makati%20City&travelmode=driving&dir_action=navigate",
+    );
   });
 });
 

@@ -27,6 +27,24 @@ export function buildMapsUrl(target: MapTarget | string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((address ?? "").trim())}`;
 }
 
+/**
+ * Google Maps directions link with the venue as the destination.
+ *
+ * The origin is intentionally omitted so Google Maps uses the device's
+ * current location. `dir_action=navigate` opens the route ready to navigate
+ * when a Maps app is installed, and falls back to Google Maps on the web.
+ */
+export function buildDirectionsUrl(target: MapTarget | string): string {
+  const destination =
+    typeof target === "string"
+      ? target.trim()
+      : isCoordinate(target.latitude) && isCoordinate(target.longitude)
+        ? `${target.latitude},${target.longitude}`
+        : (target.address ?? "").trim();
+
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving&dir_action=navigate`;
+}
+
 /** Guards against NaN and the nulls a database column can hand back. */
 export function isCoordinate(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);

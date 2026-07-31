@@ -5211,7 +5211,7 @@ th {
   word-break: break-word;
 }
 
-/* --- Business location picker (Leaflet) --- */
+/* --- Business location picker --- */
 .location-picker {
   display: grid;
   gap: 10px;
@@ -5269,11 +5269,44 @@ th {
   font-size: 0.82rem;
 }
 
-/* Leaflet paints its own stacking context; keep it under the modal chrome. */
-.location-picker-map .leaflet-container {
-  z-index: 0;
-  font: inherit;
+.google-location-map {
+  height: 100%;
+  width: 100%;
+}
+
+.location-picker-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
   background: var(--canvas);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.location-picker-error {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 7px;
+  padding: 24px;
+  background: #fff7ed;
+  color: #9a3412;
+  text-align: center;
+}
+
+.location-picker-error strong {
+  color: #7c2d12;
+}
+
+.location-picker-error span {
+  max-width: 560px;
+  font-size: 0.84rem;
+  line-height: 1.45;
 }
 
 .location-picker-empty {

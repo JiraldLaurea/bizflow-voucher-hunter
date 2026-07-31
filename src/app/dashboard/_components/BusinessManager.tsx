@@ -7,10 +7,11 @@ import { FiEdit2, FiPhone } from "react-icons/fi";
 import { api } from "@/lib/api-client";
 import type { Business, Campaign } from "@/types/voucher";
 import { AdminModal } from "./AdminModal";
-import type { Pin } from "./LocationPicker";
+import type { Pin } from "./GoogleLocationPicker";
 
 const LocationPicker = dynamic(
-  () => import("./LocationPicker").then((mod) => mod.LocationPicker),
+  () =>
+    import("./GoogleLocationPicker").then((mod) => mod.GoogleLocationPicker),
   {
     ssr: false,
     loading: () => <div className="location-picker-skeleton">Loading map...</div>,
