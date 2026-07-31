@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/FormControls";
 import { Icon } from "@/components/Icon";
+import { useTranslation } from "@/i18n/LanguageContext";
+import type { TranslationKey } from "@/i18n/translations";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 /**
@@ -12,23 +14,26 @@ import { colors, fonts, radius, spacing } from "@/theme";
  * dropped connection has to read as "you are offline", not as a generic failure
  * that looks like the campaign is broken.
  */
-export function describeError(error: unknown, fallback: string) {
+export function describeError(
+  error: unknown,
+  fallback: string,
+  t: (key: TranslationKey) => string,
+) {
   if (error instanceof ApiError) {
     if (error.code === "E-NETWORK") {
       return {
-        title: "You're offline",
-        message:
-          "Voucher Hunt needs a connection. Check your signal or Wi-Fi and try again.",
+        title: t("error.offlineTitle"),
+        message: t("error.offlineMessage"),
         offline: true,
       };
     }
     if (error.code === "E-MOBILE-CONFIG") {
-      return { title: "Setup needed", message: error.message, offline: false };
+      return { title: t("error.setupTitle"), message: error.message, offline: false };
     }
-    return { title: "Something went wrong", message: error.message, offline: false };
+    return { title: t("error.genericTitle"), message: error.message, offline: false };
   }
   return {
-    title: "Something went wrong",
+    title: t("error.genericTitle"),
     message: error instanceof Error ? error.message : fallback,
     offline: false,
   };
@@ -42,7 +47,8 @@ type ErrorStateProps = {
 
 /** Full-panel failure state with a retry, for screens whose content did not load. */
 export function ErrorState({ error, fallback, onRetry }: ErrorStateProps) {
-  const described = describeError(error, fallback);
+  const t = useTranslation();
+  const described = describeError(error, fallback, t);
 
   return (
     <View style={styles.card}>
@@ -58,7 +64,7 @@ export function ErrorState({ error, fallback, onRetry }: ErrorStateProps) {
       {onRetry ? (
         <View style={styles.action}>
           <Button variant="secondary" onPress={onRetry}>
-            Try again
+            {t("common.retry")}
           </Button>
         </View>
       ) : null}

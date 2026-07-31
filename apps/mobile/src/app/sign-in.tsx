@@ -157,7 +157,7 @@ export default function SignInScreen() {
                     autoComplete="tel"
                     autoFocus
                     keyboardType="phone-pad"
-                    label="Mobile Number"
+                    label={t("signIn.phoneLabel")}
                     maxLength={16}
                     onChangeText={(value) => {
                       setPhoneInput(value);
@@ -173,7 +173,7 @@ export default function SignInScreen() {
                   <Button
                     disabled={!isValidPhilippinePhone(phoneInput)}
                     loading={isSubmitting}
-                    loadingLabel="Sending code..."
+                    loadingLabel={t("signIn.sending")}
                     onPress={() => void handleRequestCode()}
                   >
                     Send Code  →
@@ -182,7 +182,7 @@ export default function SignInScreen() {
               ) : (
                 <>
                   <View style={styles.otpField}>
-                    <Text style={styles.otpLabel}>Verification Code</Text>
+                    <Text style={styles.otpLabel}>{t("signIn.codeLabel")}</Text>
                     <View style={styles.otpInputWrap}>
                       <View
                         accessibilityElementsHidden
@@ -256,7 +256,7 @@ export default function SignInScreen() {
                   <Button
                     disabled={code.length !== 6}
                     loading={isSubmitting}
-                    loadingLabel="Verifying..."
+                    loadingLabel={t("signIn.verifying")}
                     onPress={() => void handleVerifyCode()}
                   >
                     Verify & Continue  →

@@ -16,9 +16,11 @@ import { Icon } from "@/components/Icon";
 import { Screen } from "@/components/Screen";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { formatDate, formatTime } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 export default function VouchersScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const { token } = useAuth();
   const [vouchers, setVouchers] = useState<ClaimedVoucher[]>([]);
@@ -57,18 +59,18 @@ export default function VouchersScreen() {
     <Screen
       onRefresh={() => void load(true)}
       refreshing={refreshing}
-      subtitle="Your claimed rewards are securely saved to your account."
-      title="My Vouchers"
+      subtitle={t("vouchers.mySubtitle")}
+      title={t("vouchers.myTitle")}
     >
       {loading ? (
         <View style={styles.centerState}>
           <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={styles.stateCopy}>Loading your vouchers...</Text>
+          <Text style={styles.stateCopy}>{t("vouchers.loading")}</Text>
         </View>
       ) : error ? (
         <ErrorState
           error={error}
-          fallback="Unable to load your vouchers."
+          fallback={t("vouchers.loadError")}
           onRetry={() => void load()}
         />
       ) : vouchers.length === 0 ? (
@@ -76,7 +78,7 @@ export default function VouchersScreen() {
           <View style={styles.icon}>
             <Icon name="shopping-bag" size={26} />
           </View>
-          <Text style={styles.emptyTitle}>No claimed vouchers yet</Text>
+          <Text style={styles.emptyTitle}>{t("vouchers.emptyTitle")}</Text>
           <Text style={styles.copy}>
             Complete a voucher hunt and your confirmed reward will appear here.
           </Text>
@@ -85,7 +87,7 @@ export default function VouchersScreen() {
         <View style={styles.list}>
           {vouchers.map((claimed) => (
             <Pressable
-              accessibilityHint="Opens voucher details and QR code"
+              accessibilityHint={t("vouchers.openHint")}
               accessibilityRole="button"
               key={claimed.voucher.id}
               onPress={() =>

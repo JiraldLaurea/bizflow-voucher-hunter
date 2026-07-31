@@ -29,6 +29,7 @@ import {
   rouletteSequence,
 } from "@/hunt/sequence";
 import { UnlockCelebration } from "@/hunt/UnlockCelebration";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, spacing } from "@/theme";
 
 type Phase = "idle" | "searching" | "landing" | "selected";
@@ -42,6 +43,7 @@ const SETTLE_MS = 450;
  * spin is never what picks the voucher — it only has to land on it.
  */
 export default function RouletteScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const { token } = useAuth();
   const {
@@ -100,12 +102,12 @@ export default function RouletteScreen() {
       setWinner(draw.winner);
       setPhase("selected");
       // "Selected" reads as though the visitor picked it — the reel landed on it.
-      setMessage(`You won ${draw.winner.displayLabel}`);
+      setMessage(t("roulette.youWon", { label: draw.winner.displayLabel }));
       addAttempt(draw.attempt);
       // The web lets the win land for a beat before offering the confirm button.
       setTimeout(() => setCanConfirm(true), SETTLE_MS);
     },
-    [addAttempt],
+    [addAttempt, t],
   );
 
   useEffect(
@@ -176,7 +178,7 @@ export default function RouletteScreen() {
       setError("");
       // One message for the whole spin — changing it when the draw lands mid-spin
       // reads as a glitch.
-      setMessage("Tap the reel when you're ready to stop it.");
+      setMessage(t("roulette.spinningHint"));
       reel.current?.startSpin();
 
       try {
@@ -262,7 +264,7 @@ export default function RouletteScreen() {
           }
         }
         setError(
-          caught instanceof Error ? caught.message : "Unable to reveal your voucher.",
+          caught instanceof Error ? caught.message : t("roulette.revealError"),
         );
       } finally {
         if (drawAbort.current === controller) drawAbort.current = null;
@@ -285,6 +287,7 @@ export default function RouletteScreen() {
     runStop,
     sessionId,
     slug,
+    t,
     token,
   ]);
 
@@ -303,16 +306,16 @@ export default function RouletteScreen() {
   // A failed draw drops the phase back to idle with the reel stopped, so the
   // heading must not keep claiming it is spinning.
   const title = error
-    ? "Spin unavailable"
+    ? t("roulette.spinUnavailable")
     : winner
       ? "🎉 Voucher unlocked!"
       : phase === "landing"
-        ? "Slowing down..."
-        : "Spinning now...";
+        ? t("roulette.slowing")
+        : t("roulette.spinning");
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-      <StepHeader title="Voucher Roulette" />
+      <StepHeader title={t("roulette.title")} />
       <View style={styles.body}>
         <Text style={styles.lead}>
           Every voucher is in the reel — watch the arrow land on your prize!
@@ -320,7 +323,7 @@ export default function RouletteScreen() {
 
         <View style={styles.reelWrap}>
           <Pressable
-            accessibilityLabel={spinning ? "Tap to stop the voucher reel" : undefined}
+            accessibilityLabel={spinning ? t("roulette.tapToStopLabel") : undefined}
             accessibilityRole={spinning ? "button" : undefined}
             disabled={!spinning}
             onPress={handleTap}
@@ -356,7 +359,7 @@ export default function RouletteScreen() {
             <View style={styles.action}>
               <Button
                 loading={confirming}
-                loadingLabel="Confirming..."
+                loadingLabel={t("roulette.confirming")}
                 onPress={() => {
                   setConfirming(true);
                   router.push({

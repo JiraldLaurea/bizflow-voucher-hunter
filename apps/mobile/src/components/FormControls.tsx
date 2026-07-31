@@ -156,6 +156,8 @@ export function Select({
   label,
   onChange,
   options,
+  // Not translated: `Select` is only used by the dev-only DevToolsPanel, which
+  // is intentionally excluded from localisation.
   placeholder = "Select…",
   value,
 }: SelectProps) {

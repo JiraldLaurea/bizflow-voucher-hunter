@@ -8,27 +8,29 @@ import {
   updatePushPreferences,
   type PushPreferences,
 } from "@/notifications/push";
+import { useTranslation } from "@/i18n/LanguageContext";
+import type { TranslationKey } from "@/i18n/translations";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 const ROWS: {
   key: keyof PushPreferences;
-  label: string;
-  copy: string;
+  labelKey: TranslationKey;
+  copyKey: TranslationKey;
 }[] = [
   {
     key: "daily",
-    label: "Daily Loyalty Points",
-    copy: "A reminder to collect your 10 LP each day.",
+    labelKey: "notifications.dailyLp",
+    copyKey: "notifications.dailyCopy",
   },
   {
     key: "reservation",
-    label: "Booking reminders",
-    copy: "A nudge the day before a reserved visit.",
+    labelKey: "notifications.bookingReminders",
+    copyKey: "notifications.bookingCopy",
   },
   {
     key: "rewards",
-    label: "Points and referrals",
-    copy: "When LP lands or someone uses your link.",
+    labelKey: "notifications.rewards",
+    copyKey: "notifications.pointsCopy",
   },
 ];
 
@@ -40,6 +42,7 @@ const ROWS: {
  * cannot take effect would be misleading.
  */
 export function NotificationSettings() {
+  const t = useTranslation();
   const { token } = useAuth();
   const [preferences, setPreferences] = useState<PushPreferences | null>(null);
   const [saving, setSaving] = useState<keyof PushPreferences | null>(null);
@@ -79,7 +82,7 @@ export function NotificationSettings() {
     <View style={styles.card}>
       <View style={styles.heading}>
         <Icon name="bell" size={16} />
-        <Text style={styles.headingText}>Notifications</Text>
+        <Text style={styles.headingText}>{t("notifications.title")}</Text>
       </View>
       {ROWS.map((row, index) => (
         <View
@@ -87,8 +90,8 @@ export function NotificationSettings() {
           style={[styles.row, index === ROWS.length - 1 && styles.rowLast]}
         >
           <View style={styles.rowCopy}>
-            <Text style={styles.rowLabel}>{row.label}</Text>
-            <Text style={styles.rowHint}>{row.copy}</Text>
+            <Text style={styles.rowLabel}>{t(row.labelKey)}</Text>
+            <Text style={styles.rowHint}>{t(row.copyKey)}</Text>
           </View>
           <Switch
             disabled={saving === row.key}

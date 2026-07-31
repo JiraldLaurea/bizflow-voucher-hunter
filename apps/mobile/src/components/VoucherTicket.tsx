@@ -5,6 +5,7 @@ import { getVoucherPresentation, type VoucherPool } from "@bizflow/shared";
 import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, Text, View } from "react-native";
 
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, spacing } from "@/theme";
 import { rarityStyles } from "@/theme";
 
@@ -41,6 +42,7 @@ export function VoucherTicket({
   selected = false,
   width,
 }: VoucherTicketProps) {
+  const t = useTranslation();
   const presentation = getVoucherPresentation(benefit);
   const rarity = rarityStyles[presentation.rarity];
 
@@ -99,7 +101,7 @@ export function VoucherTicket({
         <Text style={[styles.detail, { color: rarity.text }]}>{detail}</Text>
         {code ? (
           <View style={styles.codeBlock}>
-            <Text style={[styles.codeLabel, { color: rarity.text }]}>Voucher code</Text>
+            <Text style={[styles.codeLabel, { color: rarity.text }]}>{t("voucher.code")}</Text>
             <Text style={[styles.code, { color: rarity.headingText }]}>{code}</Text>
           </View>
         ) : null}

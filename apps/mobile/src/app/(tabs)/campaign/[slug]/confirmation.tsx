@@ -9,10 +9,12 @@ import { StepHeader, SummaryList, SummaryRow } from "@/components/HuntUi";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { useHunt } from "@/hunt/HuntContext";
 import { formatDate, formatTime } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, palette, radius, spacing } from "@/theme";
 
 /** Step 7 — the issued voucher and the QR the outlet scans. */
 export default function ConfirmationScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const { flow } = useHunt();
   const issued = flow.issued;
@@ -20,10 +22,10 @@ export default function ConfirmationScreen() {
   if (!issued) {
     return (
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-        <StepHeader title="Confirmation" />
+        <StepHeader title={t("confirmation.stepTitle")} />
         <View style={styles.content}>
-          <Text style={styles.lead}>No voucher has been issued yet.</Text>
-          <Button onPress={() => router.replace("/")}>Back to campaigns</Button>
+          <Text style={styles.lead}>{t("confirmation.noVoucher")}</Text>
+          <Button onPress={() => router.replace("/")}>{t("confirmation.backToCampaigns")}</Button>
         </View>
       </SafeAreaView>
     );
@@ -31,7 +33,7 @@ export default function ConfirmationScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-      <StepHeader title="Confirmation" />
+      <StepHeader title={t("confirmation.stepTitle")} />
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -39,7 +41,7 @@ export default function ConfirmationScreen() {
         <View style={styles.check}>
           <Icon color={colors.success} name="check" size={38} />
         </View>
-        <Text style={styles.title}>Reservation Confirmed!</Text>
+        <Text style={styles.title}>{t("confirmation.reservationConfirmed")}</Text>
         <Text style={styles.lead}>
           Here&apos;s your voucher code. Show this QR code at the outlet.
         </Text>
@@ -47,7 +49,7 @@ export default function ConfirmationScreen() {
         <VoucherTicket
           benefit={issued.voucher}
           code={issued.voucher.voucherCode}
-          detail="Your confirmed reward"
+          detail={t("confirmation.yourReward")}
         />
 
         {/* The QR encodes the voucher's `qrToken`, which is what the staff
@@ -62,13 +64,13 @@ export default function ConfirmationScreen() {
         </View>
 
         <SummaryList>
-          <SummaryRow icon="calendar" label="Date" value={formatDate(issued.slot.date)} />
+          <SummaryRow icon="calendar" label={t("common.date")} value={formatDate(issued.slot.date)} />
           <SummaryRow
             icon="clock"
-            label="Time"
+            label={t("common.time")}
             value={formatTime(issued.slot.startTime)}
           />
-          <SummaryRow icon="check-circle" label="Status" value={issued.voucher.status} />
+          <SummaryRow icon="check-circle" label={t("confirmation.status")} value={issued.voucher.status} />
         </SummaryList>
 
         <View style={styles.action}>

@@ -19,6 +19,7 @@ import { CampaignImage } from "@/components/CampaignImage";
 import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { CAMPAIGN_MODE_LABELS } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 /** `.chip.mode-*` — one tint per industry, matching the web directory cards. */
@@ -46,6 +47,7 @@ function formatRange(start: string, end: string) {
 
 /** Port of the web `CampaignDirectory`. */
 export default function HomeScreen() {
+  const t = useTranslation();
   const { token } = useAuth();
   const router = useRouter();
   const [cards, setCards] = useState<CampaignCard[]>([]);
@@ -122,7 +124,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View>
-          <Text style={styles.title}>Find a voucher hunt</Text>
+          <Text style={styles.title}>{t("home.title")}</Text>
           <Text style={styles.subtitle}>
             Search active campaigns and pick one to start hunting.
           </Text>
@@ -131,9 +133,9 @@ export default function HomeScreen() {
         <View style={styles.search}>
           <Icon color={colors.textMuted} name="search" size={17} />
           <TextInput
-            accessibilityLabel="Search campaigns"
+            accessibilityLabel={t("home.searchLabel")}
             onChangeText={setQuery}
-            placeholder="Search campaign, business, or location"
+            placeholder={t("home.searchPlaceholder")}
             placeholderTextColor={colors.textMuted}
             selectionColor={colors.primary}
             style={styles.searchInput}
@@ -174,15 +176,15 @@ export default function HomeScreen() {
         ) : error ? (
           <ErrorState
             error={error}
-            fallback="Unable to load campaigns."
+            fallback={t("home.loadError")}
             onRetry={() => void load()}
           />
         ) : filtered.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
               {cards.length === 0
-                ? "No active campaigns yet. Create one from the Admin Dashboard."
-                : "No campaigns match your search."}
+                ? t("home.emptyNoCampaigns")
+                : t("home.empty")}
             </Text>
           </View>
         ) : (
@@ -215,7 +217,7 @@ export default function HomeScreen() {
                       <View style={styles.cardLocationRow}>
                         <Icon name="map-pin" size={14} />
                         <Text style={styles.cardLocation}>
-                          {campaign.location ?? "Location to be announced"}
+                          {campaign.location ?? t("home.locationTba")}
                         </Text>
                       </View>
                     </View>
@@ -239,7 +241,7 @@ export default function HomeScreen() {
                       {formatRange(campaign.startDate, campaign.endDate)}
                     </Text>
                     <View style={styles.cardCtaRow}>
-                      <Text style={styles.cardCta}>Hunt now</Text>
+                      <Text style={styles.cardCta}>{t("home.huntNow")}</Text>
                       <Icon name="arrow-right" size={15} />
                     </View>
                   </View>

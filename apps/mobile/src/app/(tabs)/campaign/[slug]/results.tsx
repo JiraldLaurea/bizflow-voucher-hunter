@@ -17,10 +17,12 @@ import { InfoCard, StepHeader } from "@/components/HuntUi";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { useHunt } from "@/hunt/HuntContext";
 import { voucherDetail } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, spacing } from "@/theme";
 
 /** Step 4 — the revealed candidates, one per spin the visitor has taken. */
 export default function ResultsScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const {
     campaign,
@@ -61,7 +63,7 @@ export default function ResultsScreen() {
       return;
     }
     if (!flow.userId) {
-      setShareError("Your referral link is still being prepared. Please try again.");
+      setShareError(t("results.linkNotReady"));
       return;
     }
 
@@ -69,13 +71,13 @@ export default function ResultsScreen() {
     try {
       const link = buildReferralLink(slug, flow.userId);
       await Share.share({
-        title: "Voucher Hunt",
-        message: `Open my Voucher Hunt link and help me unlock another spin: ${link}`,
+        title: t("results.shareTitle"),
+        message: t("results.shareMessage", { link }),
       });
       refreshReferralState();
     } catch (caught) {
       setShareError(
-        caught instanceof Error ? caught.message : "Unable to share your link.",
+        caught instanceof Error ? caught.message : t("results.shareError"),
       );
     } finally {
       setSharing(false);
@@ -84,12 +86,12 @@ export default function ResultsScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-      <StepHeader title="Voucher Results" />
+      <StepHeader title={t("results.stepTitle")} />
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>Your Voucher Options</Text>
+        <Text style={styles.title}>{t("results.title")}</Text>
         <Text style={styles.lead}>
           Pick the voucher you want to continue with. Extra spins add more options
           here.
@@ -97,7 +99,7 @@ export default function ResultsScreen() {
 
         {flow.attempts.length === 0 ? (
           <InfoCard>
-            <Text style={styles.infoText}>No voucher result yet.</Text>
+            <Text style={styles.infoText}>{t("results.noResult")}</Text>
             <Button
               onPress={() =>
                 router.replace({ pathname: "/campaign/[slug]", params: { slug } })
@@ -127,7 +129,7 @@ export default function ResultsScreen() {
                   <VoucherTicket
                     benefit={attempt}
                     detail={voucherDetail(attempt)}
-                    footnote="Min. spend applies"
+                    footnote={t("results.minSpend")}
                     selected={selected}
                   />
                 </Pressable>
@@ -137,13 +139,13 @@ export default function ResultsScreen() {
             <View style={styles.shareBlock}>
               <Button
                 loading={sharing}
-                loadingLabel="Opening share sheet..."
+                loadingLabel={t("results.openingShare")}
                 variant="secondary"
                 onPress={() => void handleShareOrSpin()}
               >
                 {flow.bonusAttempts > 0
-                  ? `Spin again (${flow.bonusAttempts} available)`
-                  : "Share to unlock another spin"}
+                  ? t("results.spinAgain", { count: flow.bonusAttempts })
+                  : t("results.shareToUnlock")}
               </Button>
               {shareError ? <InlineError message={shareError} /> : null}
               <Text style={styles.shareHint}>

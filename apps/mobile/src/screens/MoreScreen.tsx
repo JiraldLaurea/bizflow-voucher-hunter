@@ -321,7 +321,7 @@ export default function MoreScreen() {
 
             <Field
               keyboardType="decimal-pad"
-              label="LP amount to convert"
+              label={t("loyalty.convertLabel")}
               onChangeText={setConvertAmount}
               placeholder="50.00"
               value={convertAmount}

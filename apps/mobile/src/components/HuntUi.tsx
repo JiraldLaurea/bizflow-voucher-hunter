@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Icon, type IconName } from "@/components/Icon";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 /** `.summary-list` — a bordered, hairline-divided stack of label/value rows. */
@@ -100,11 +101,12 @@ export function StepHeader({
   onBack?: () => void;
   title: string;
 }) {
+  const t = useTranslation();
   return (
     <View style={styles.stepBar}>
       {onBack ? (
         <Pressable
-          accessibilityLabel="Back"
+          accessibilityLabel={t("common.back")}
           accessibilityRole="button"
           hitSlop={10}
           onPress={onBack}
@@ -145,6 +147,7 @@ export function SelectedStrip({
   label: string;
   onChange: () => void;
 }) {
+  const t = useTranslation();
   return (
     <View style={styles.selectedStrip}>
       <View style={styles.selectedStripSummary}>
@@ -152,14 +155,14 @@ export function SelectedStrip({
           <Icon name="tag" size={16} />
         </View>
         <View style={styles.selectedStripCopy}>
-          <Text style={styles.selectedStripEyebrow}>Selected voucher</Text>
+          <Text style={styles.selectedStripEyebrow}>{t("hunt.selectedVoucher")}</Text>
           <Text style={styles.selectedStripLabel} numberOfLines={1}>
             {label}
           </Text>
         </View>
       </View>
       <Pressable
-        accessibilityLabel="Change selected voucher"
+        accessibilityLabel={t("hunt.changeVoucherLabel")}
         accessibilityRole="button"
         hitSlop={8}
         onPress={onChange}
@@ -169,7 +172,7 @@ export function SelectedStrip({
         ]}
       >
         <Icon name="repeat" size={14} />
-        <Text style={styles.selectedStripActionText}>Change</Text>
+        <Text style={styles.selectedStripActionText}>{t("hunt.change")}</Text>
       </Pressable>
     </View>
   );

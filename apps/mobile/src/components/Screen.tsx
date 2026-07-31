@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 type ScreenProps = PropsWithChildren<{
@@ -59,6 +60,7 @@ export function Screen({
 }
 
 export function BrandMark() {
+  const t = useTranslation();
   return (
     <View style={styles.brand}>
       <View style={styles.brandIcon}>
@@ -66,7 +68,7 @@ export function BrandMark() {
       </View>
       <View>
         <Text style={styles.brandName}>Voucher Hunt</Text>
-        <Text style={styles.brandCaption}>Rewards worth finding</Text>
+        <Text style={styles.brandCaption}>{t("brand.caption")}</Text>
       </View>
     </View>
   );

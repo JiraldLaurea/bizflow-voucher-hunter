@@ -10,10 +10,12 @@ import { ErrorState } from "@/components/ErrorState";
 import { StepHeader } from "@/components/HuntUi";
 import { useHunt } from "@/hunt/HuntContext";
 import { CAMPAIGN_MODE_LABELS, formatCampaignRange } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 /** Step 1 — the campaign landing (`.campaign-landing-card` on the web). */
 export default function CampaignLandingScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const {
     begin,
@@ -69,7 +71,7 @@ export default function CampaignLandingScreen() {
       // from this response instead of always spending another base spin.
       const started = await begin();
       if (!started) {
-        throw new Error("Your campaign session is not ready yet.");
+        throw new Error(t("campaign.sessionNotReady"));
       }
       if (started.voucher) {
         router.push({
@@ -89,7 +91,7 @@ export default function CampaignLandingScreen() {
       router.push({ pathname: "/campaign/[slug]/roulette", params: { slug } });
     } catch (caught) {
       setActionError(
-        caught instanceof Error ? caught.message : "Unable to start the hunt.",
+        caught instanceof Error ? caught.message : t("campaign.startError"),
       );
     } finally {
       setBusy(false);
@@ -107,11 +109,11 @@ export default function CampaignLandingScreen() {
   if (!campaign) {
     return (
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-        <StepHeader onBack={() => router.back()} title="Campaign" />
+        <StepHeader onBack={() => router.back()} title={t("campaign.stepTitle")} />
         <View style={styles.content}>
           <ErrorState
             error={error}
-            fallback="This campaign is unavailable."
+            fallback={t("campaign.unavailable")}
             onRetry={reload}
           />
         </View>
@@ -142,7 +144,7 @@ export default function CampaignLandingScreen() {
               <Icon name="map-pin" size={14} />
             </View>
             <Text style={styles.metaText}>
-              {details.location ?? "Location to be announced"}
+              {details.location ?? t("home.locationTba")}
             </Text>
           </View>
           <View style={styles.metaRow}>
@@ -157,15 +159,15 @@ export default function CampaignLandingScreen() {
         </View>
 
         <View style={styles.actionIntro}>
-          <Text style={styles.actionTitle}>Ready to hunt?</Text>
+          <Text style={styles.actionTitle}>{t("campaign.readyTitle")}</Text>
           <Text style={styles.actionCopy}>
             Spin the voucher roulette, then pick your date &amp; time.
           </Text>
         </View>
 
         <View style={styles.ruleCard}>
-          <RuleRow icon="clock" text="One roulette spin reveals one voucher result" />
-          <RuleRow icon="shield" text="Higher discounts unlock fewer time slots" last />
+          <RuleRow icon="clock" text={t("campaign.ruleOneSpin")} />
+          <RuleRow icon="shield" text={t("campaign.ruleHigherDiscount")} last />
         </View>
 
         {actionError ? <InlineError message={actionError} /> : null}
@@ -173,10 +175,10 @@ export default function CampaignLandingScreen() {
         <View style={styles.action}>
           <Button
             loading={busy}
-            loadingLabel="Searching for vouchers..."
+            loadingLabel={t("campaign.searching")}
             onPress={startHunt}
           >
-            {canResume ? "Continue" : "Let's Hunt!"}
+            {canResume ? t("campaign.continue") : t("campaign.startHunt")}
           </Button>
         </View>
       </ScrollView>

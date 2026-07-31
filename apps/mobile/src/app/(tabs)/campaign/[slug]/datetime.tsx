@@ -9,6 +9,7 @@ import { Button, InlineError } from "@/components/FormControls";
 import { InfoCard, SelectedStrip, SlotRow, StepHeader } from "@/components/HuntUi";
 import { useHunt } from "@/hunt/HuntContext";
 import { formatDate, formatTime } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, spacing } from "@/theme";
 
 /**
@@ -16,6 +17,7 @@ import { colors, fonts, spacing } from "@/theme";
  * the campaign's full slot list: a higher-value voucher is offered at fewer times.
  */
 export default function DateTimeScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const { token } = useAuth();
   const { begin, flow, save, selectedAttempt, slug } = useHunt();
@@ -86,18 +88,18 @@ export default function DateTimeScreen() {
 
         setSlots([]);
         setError(
-          "This voucher selection is no longer available. Return to the campaign and start a new hunt.",
+          t("datetime.selectionExpired"),
         );
         return;
       }
       setSlots([]);
       setError(
-        caught instanceof Error ? caught.message : "Unable to load time slots.",
+        caught instanceof Error ? caught.message : t("datetime.loadError"),
       );
     } finally {
       setLoading(false);
     }
-  }, [begin, flow.selectedAttemptId, router, save, slug, token]);
+  }, [begin, flow.selectedAttemptId, router, save, slug, t, token]);
 
   useEffect(() => {
     void load();
@@ -106,10 +108,10 @@ export default function DateTimeScreen() {
   if (!flow.selectedAttemptId) {
     return (
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-        <StepHeader onBack={() => router.back()} title="Date & Time" />
+        <StepHeader onBack={() => router.back()} title={t("datetime.stepTitle")} />
         <View style={styles.content}>
           <InfoCard>
-            <Text style={styles.infoText}>Reveal and pick a voucher first.</Text>
+            <Text style={styles.infoText}>{t("datetime.revealFirst")}</Text>
             <Button
               onPress={() =>
                 router.replace({ pathname: "/campaign/[slug]", params: { slug } })
@@ -127,7 +129,7 @@ export default function DateTimeScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-      <StepHeader onBack={() => router.back()} title="Date & Time" />
+      <StepHeader onBack={() => router.back()} title={t("datetime.stepTitle")} />
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -169,9 +171,9 @@ export default function DateTimeScreen() {
                         low={low}
                         note={
                           soldOut
-                            ? "Fully booked"
+                            ? t("datetime.fullyBooked")
                             : low
-                              ? `Only ${slot.remainingCapacity} spots left`
+                              ? t("datetime.spotsLeft", { count: slot.remainingCapacity })
                               : `${slot.remainingCapacity} spots available`
                         }
                         onPress={() =>

@@ -9,6 +9,7 @@ import Animated, {
 
 import { Button } from "@/components/FormControls";
 import { Icon } from "@/components/Icon";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 type Props = {
@@ -19,6 +20,7 @@ type Props = {
 
 /** Daily LP acknowledgement shown only when the server created a new award. */
 export function LoyaltyAwardModal({ balance, onConfirm, points }: Props) {
+  const t = useTranslation();
   const entrance = useSharedValue(0);
 
   useEffect(() => {
@@ -65,12 +67,12 @@ export function LoyaltyAwardModal({ balance, onConfirm, points }: Props) {
             <Icon name="star" size={18} />
           </View>
           <View style={styles.balanceCopy}>
-            <Text style={styles.balanceLabel}>Current LP balance</Text>
+            <Text style={styles.balanceLabel}>{t("loyalty.currentBalance")}</Text>
             <Text style={styles.balanceValue}>{balance}</Text>
           </View>
         </View>
 
-        <Button onPress={onConfirm}>Continue</Button>
+        <Button onPress={onConfirm}>{t("common.continue")}</Button>
       </Animated.View>
     </View>
   );

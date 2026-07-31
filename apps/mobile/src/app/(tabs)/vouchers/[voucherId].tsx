@@ -18,9 +18,11 @@ import { Button, InlineError } from "@/components/FormControls";
 import { Icon } from "@/components/Icon";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { formatDate, formatTime, voucherDetail } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 export default function VoucherDetailScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{ voucherId: string }>();
   const voucherId = Array.isArray(params.voucherId)
@@ -38,16 +40,16 @@ export default function VoucherDetailScreen() {
     try {
       const vouchers = await listClaimedVouchers(token);
       const match = vouchers.find((item) => item.voucher.id === voucherId);
-      if (!match) throw new Error("This voucher could not be found.");
+      if (!match) throw new Error(t("vouchers.notFound"));
       setClaimed(match);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Unable to load this voucher.",
+        caught instanceof Error ? caught.message : t("vouchers.loadOneError"),
       );
     } finally {
       setLoading(false);
     }
-  }, [token, voucherId]);
+  }, [t, token, voucherId]);
 
   useEffect(() => {
     void load();
@@ -57,7 +59,7 @@ export default function VoucherDetailScreen() {
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
       <View style={styles.header}>
         <Pressable
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("vouchers.goBack")}
           accessibilityRole="button"
           hitSlop={12}
           onPress={() => router.back()}
@@ -65,7 +67,7 @@ export default function VoucherDetailScreen() {
         >
           <Icon color={colors.ink} name="chevron-left" size={26} />
         </Pressable>
-        <Text style={styles.headerTitle}>Voucher Details</Text>
+        <Text style={styles.headerTitle}>{t("vouchers.detailsTitle")}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -75,7 +77,7 @@ export default function VoucherDetailScreen() {
         </View>
       ) : error || !claimed ? (
         <View style={styles.errorState}>
-          <InlineError message={error || "This voucher could not be found."} />
+          <InlineError message={error || t("vouchers.notFound")} />
           <Button variant="secondary" onPress={() => void load()}>
             Try again
           </Button>
@@ -109,16 +111,16 @@ export default function VoucherDetailScreen() {
           </Text>
 
           <View style={styles.details}>
-            <DetailRow label="Date" value={formatDate(claimed.slot.date)} />
+            <DetailRow label={t("common.date")} value={formatDate(claimed.slot.date)} />
             <DetailRow
-              label="Time"
+              label={t("common.time")}
               value={`${formatTime(claimed.slot.startTime)} – ${formatTime(
                 claimed.slot.endTime,
               )}`}
             />
-            <DetailRow label="Status" value={claimed.voucher.status} />
+            <DetailRow label={t("vouchers.status")} value={claimed.voucher.status} />
             <DetailRow
-              label="Expires"
+              label={t("vouchers.expires")}
               value={new Intl.DateTimeFormat("en-PH", {
                 dateStyle: "medium",
                 timeStyle: "short",

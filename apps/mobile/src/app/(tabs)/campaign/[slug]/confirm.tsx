@@ -11,10 +11,12 @@ import { StepHeader, SummaryList, SummaryRow } from "@/components/HuntUi";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { useHunt } from "@/hunt/HuntContext";
 import { formatDate, formatTime } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, spacing } from "@/theme";
 
 /** Step 6 — name/email/guests, then issue the final voucher. */
 export default function ConfirmScreen() {
+  const t = useTranslation();
   const router = useRouter();
   const { phone, token } = useAuth();
   const { campaign, flow, save, selectedAttempt, sessionId, slotById, slug } = useHunt();
@@ -45,7 +47,7 @@ export default function ConfirmScreen() {
       router.replace({ pathname: "/campaign/[slug]/confirmation", params: { slug } });
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Unable to reserve your voucher.",
+        caught instanceof Error ? caught.message : t("confirm.reserveError"),
       );
     } finally {
       setBusy(false);
@@ -54,7 +56,7 @@ export default function ConfirmScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-      <StepHeader onBack={() => router.back()} title="Confirm & Details" />
+      <StepHeader onBack={() => router.back()} title={t("confirm.stepTitle")} />
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -66,27 +68,27 @@ export default function ConfirmScreen() {
 
         {selectedAttempt ? (
           <View style={styles.ticket}>
-            <VoucherTicket benefit={selectedAttempt} detail="Selected voucher" />
+            <VoucherTicket benefit={selectedAttempt} detail={t("confirm.selectedVoucher")} />
           </View>
         ) : (
-          <InlineError message="Select a voucher candidate first." />
+          <InlineError message={t("confirm.selectFirst")} />
         )}
 
         <Field
           autoCapitalize="words"
-          label="Full Name"
+          label={t("confirm.fullName")}
           onChangeText={(value) => save({ name: value })}
-          placeholder="Jane Doe"
+          placeholder={t("confirm.fullNamePlaceholder")}
           value={flow.name}
         />
         <ReadOnlyField
-          label="Mobile Number"
+          label={t("confirm.mobileNumber")}
           value={phone ? toDisplayPhone(phone) : "—"}
         />
         <Field
           autoCapitalize="none"
           keyboardType="email-address"
-          label="Email (Optional)"
+          label={t("confirm.emailOptional")}
           onChangeText={(value) => save({ email: value })}
           placeholder="jane@example.com"
           value={flow.email}
@@ -94,7 +96,7 @@ export default function ConfirmScreen() {
         {isRestaurant ? (
           <Field
             keyboardType="number-pad"
-            label="Guests"
+            label={t("confirm.guests")}
             onChangeText={(value) => save({ guestCount: value })}
             value={flow.guestCount}
           />
@@ -103,18 +105,18 @@ export default function ConfirmScreen() {
         <SummaryList>
           <SummaryRow
             icon="calendar"
-            label="Date"
-            value={slot ? formatDate(slot.date) : "No slot"}
+            label={t("common.date")}
+            value={slot ? formatDate(slot.date) : t("confirm.noSlot")}
           />
           <SummaryRow
             icon="clock"
-            label="Time"
-            value={slot ? formatTime(slot.startTime) : "No slot"}
+            label={t("common.time")}
+            value={slot ? formatTime(slot.startTime) : t("confirm.noSlot")}
           />
           <SummaryRow
             icon="tag"
-            label="Category"
-            value={isRestaurant ? "Restaurant" : "Online Shop"}
+            label={t("confirm.category")}
+            value={isRestaurant ? t("confirm.restaurant") : t("confirm.onlineShop")}
           />
         </SummaryList>
 
@@ -124,7 +126,7 @@ export default function ConfirmScreen() {
           <Button
             disabled={!selectedAttempt || !flow.selectedSlotId || !flow.name.trim()}
             loading={busy}
-            loadingLabel="Reserving..."
+            loadingLabel={t("confirm.reserving")}
             onPress={issue}
           >
             Confirm &amp; Reserve

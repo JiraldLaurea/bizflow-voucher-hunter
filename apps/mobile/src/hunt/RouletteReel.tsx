@@ -22,6 +22,7 @@ import Animated, {
 
 import type { RoulettePreview } from "@/api/client";
 import { VoucherTicket } from "@/components/VoucherTicket";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { voucherDetail } from "@/lib/format";
 import { colors, fonts, radius, spacing } from "@/theme";
 
@@ -332,6 +333,7 @@ export const RouletteReel = forwardRef<RouletteReelHandle, Props>(
 
 /** `.roulette-tap-hint` — the pulsing pill that tells you the reel is stoppable. */
 export function TapHint({ visible = true }: { visible?: boolean }) {
+  const t = useTranslation();
   const pulse = useSharedValue(0);
 
   useEffect(() => {
@@ -360,7 +362,7 @@ export function TapHint({ visible = true }: { visible?: boolean }) {
       pointerEvents="none"
     >
       <Animated.View style={[styles.tapHint, hintStyle]}>
-        <Text style={styles.tapHintText}>Tap to stop</Text>
+        <Text style={styles.tapHintText}>{t("roulette.tapToStop")}</Text>
       </Animated.View>
     </View>
   );
