@@ -13,7 +13,14 @@ import {
 import type { Business, Campaign } from "@/types/voucher";
 import { AdminModal } from "./AdminModal";
 
-const emptyBusiness = { name: "", logoText: "", industry: "restaurant", staffPin: "" };
+const emptyBusiness = {
+  name: "",
+  logoText: "",
+  industry: "restaurant",
+  staffPin: "",
+  address: "",
+  contactNumber: "",
+};
 const emptyCampaign = {
   businessId: "",
   slug: "",
@@ -267,6 +274,28 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
                           value={business.staffPin}
                           onChange={(event) => setBusiness({ ...business, staffPin: event.target.value })}
                         />
+                      </label>
+                      <label className="field">
+                        <span>Address</span>
+                        <input
+                          placeholder="123 Ayala Ave, Makati City"
+                          value={business.address}
+                          onChange={(event) => setBusiness({ ...business, address: event.target.value })}
+                        />
+                        <small className="muted">
+                          Shown on the campaign page; tapping it opens Google Maps.
+                        </small>
+                      </label>
+                      <label className="field">
+                        <span>Contact number</span>
+                        <input
+                          placeholder="+63 2 8123 4567"
+                          value={business.contactNumber}
+                          onChange={(event) =>
+                            setBusiness({ ...business, contactNumber: event.target.value })
+                          }
+                        />
+                        <small className="muted">Customers can tap to call.</small>
                       </label>
                     </div>
                   ) : (

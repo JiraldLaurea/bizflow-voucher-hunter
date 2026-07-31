@@ -6,6 +6,7 @@
 
 export * from "./types";
 export * from "./campaign-image";
+export * from "./maps";
 export * from "./phone";
 export * from "./phone-display";
 export * from "./voucher-presentation";

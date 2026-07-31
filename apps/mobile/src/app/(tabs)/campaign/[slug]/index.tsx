@@ -1,6 +1,15 @@
+import { buildMapsUrl, buildTelUrl } from "@bizflow/shared";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Button, InlineError } from "@/components/FormControls";
@@ -17,6 +26,7 @@ import { colors, fonts, radius, shadow, spacing } from "@/theme";
 export default function CampaignLandingScreen() {
   const t = useTranslation();
   const router = useRouter();
+  const [venueError, setVenueError] = useState("");
   const {
     begin,
     campaign,
@@ -121,7 +131,23 @@ export default function CampaignLandingScreen() {
     );
   }
 
-  const { campaign: details } = campaign;
+  const { business, campaign: details } = campaign;
+
+  async function openExternal(url: string, failureKey: "venue.mapsError" | "venue.callError") {
+    setVenueError("");
+    try {
+      // openURL rejects when nothing can handle the URL — no maps app and no
+      // browser, or a device with no dialer — so surface that rather than
+      // leaving a tap that silently does nothing.
+      await Linking.openURL(url);
+    } catch {
+      setVenueError(t(failureKey));
+    }
+  }
+
+  const openMaps = (address: string) => openExternal(buildMapsUrl(address), "venue.mapsError");
+  const callBusiness = (contactNumber: string) =>
+    openExternal(buildTelUrl(contactNumber), "venue.callError");
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -135,7 +161,7 @@ export default function CampaignLandingScreen() {
         <View style={styles.landingCard}>
           <CampaignImage campaign={details} showCategory />
           <View style={styles.landingBody}>
-          <Text style={styles.eyebrow}>SELECTED CAMPAIGN</Text>
+          <Text style={styles.eyebrow}>{t("campaign.selectedEyebrow")}</Text>
           <Text style={styles.campaignTitle}>{details.title}</Text>
           <Text style={styles.business}>{campaign.business?.name ?? ""}</Text>
           <Text style={styles.offer}>{details.offerMessage}</Text>
@@ -158,11 +184,60 @@ export default function CampaignLandingScreen() {
           </View>
         </View>
 
+        {business && (business.address || business.contactNumber) ? (
+          <View style={styles.venueCard}>
+            <Text style={styles.venueTitle}>{t("venue.title")}</Text>
+            <Text style={styles.venueBusiness}>{business.name}</Text>
+
+            {business.address ? (
+              <Pressable
+                accessibilityHint={t("venue.openInMaps")}
+                accessibilityRole="link"
+                onPress={() => void openMaps(business.address as string)}
+                style={({ pressed }) => [
+                  styles.venueRow,
+                  pressed && styles.venueRowPressed,
+                ]}
+              >
+                <View style={styles.venueIcon}>
+                  <Icon name="map-pin" size={16} />
+                </View>
+                <View style={styles.venueRowCopy}>
+                  <Text style={styles.venueLabel}>{t("venue.address")}</Text>
+                  <Text style={styles.venueLink}>{business.address}</Text>
+                </View>
+                <Icon name="external-link" size={14} />
+              </Pressable>
+            ) : null}
+
+            {business.contactNumber ? (
+              <Pressable
+                accessibilityHint={t("venue.call")}
+                accessibilityRole="link"
+                onPress={() => void callBusiness(business.contactNumber as string)}
+                style={({ pressed }) => [
+                  styles.venueRow,
+                  pressed && styles.venueRowPressed,
+                ]}
+              >
+                <View style={styles.venueIcon}>
+                  <Icon name="phone" size={16} />
+                </View>
+                <View style={styles.venueRowCopy}>
+                  <Text style={styles.venueLabel}>{t("venue.contact")}</Text>
+                  <Text style={styles.venueLink}>{business.contactNumber}</Text>
+                </View>
+                <Icon name="external-link" size={14} />
+              </Pressable>
+            ) : null}
+
+            {venueError ? <InlineError message={venueError} /> : null}
+          </View>
+        ) : null}
+
         <View style={styles.actionIntro}>
           <Text style={styles.actionTitle}>{t("campaign.readyTitle")}</Text>
-          <Text style={styles.actionCopy}>
-            Spin the voucher roulette, then pick your date &amp; time.
-          </Text>
+          <Text style={styles.actionCopy}>{t("campaign.readySubtitle")}</Text>
         </View>
 
         <View style={styles.ruleCard}>
@@ -265,6 +340,59 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     marginTop: spacing.sm,
+  },
+  venueCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    ...shadow.soft,
+  },
+  venueTitle: {
+    color: colors.ink,
+    fontFamily: fonts.bold,
+    fontSize: 16,
+  },
+  venueBusiness: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    marginBottom: spacing.sm,
+    marginTop: 2,
+  },
+  venueRow: {
+    alignItems: "center",
+    borderTopColor: colors.borderSoft,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingVertical: spacing.md,
+  },
+  venueRowPressed: {
+    opacity: 0.6,
+  },
+  venueIcon: {
+    alignItems: "center",
+    width: 20,
+  },
+  venueRowCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  venueLabel: {
+    color: colors.textMuted,
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  venueLink: {
+    color: colors.primary,
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+    lineHeight: 20,
   },
   metaRow: {
     alignItems: "center",

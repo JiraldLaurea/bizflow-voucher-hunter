@@ -1,4 +1,5 @@
 import type {
+  Business,
   Campaign,
   CampaignCard,
   CampaignSlot,
@@ -210,7 +211,7 @@ export type PublicSlot = CampaignSlot & { remainingPoolQuantity: number };
 
 export type PublicCampaign = {
   campaign: Campaign;
-  business?: { id: string; name: string; logoText: string; industry: string };
+  business?: Business;
   slots: PublicSlot[];
 };
 

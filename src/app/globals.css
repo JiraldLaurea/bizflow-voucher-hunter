@@ -5085,6 +5085,19 @@ th {
   opacity: 0.55;
 }
 
+.business-details-form {
+  display: grid;
+  gap: 14px;
+  max-width: 520px;
+  margin-top: 14px;
+}
+
+.business-details-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .live-sms-toggle {
   display: flex;
   flex-direction: column;

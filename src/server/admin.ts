@@ -12,6 +12,15 @@ export type CreateBusinessInput = {
   logoText: string;
   industry: Business["industry"];
   staffPin: string;
+  address?: string;
+  contactNumber?: string;
+};
+
+/** Venue details only. The staff PIN is rotated through its own flow, not here. */
+export type UpdateBusinessInput = {
+  name?: string;
+  address?: string;
+  contactNumber?: string;
 };
 
 export async function listBusinesses(): Promise<Business[]> {
@@ -28,14 +37,60 @@ export async function createBusiness(input: CreateBusinessInput): Promise<Busine
     id: id("biz"),
     name: input.name,
     logoText: input.logoText,
-    industry: input.industry
+    industry: input.industry,
+    address: input.address?.trim() || undefined,
+    contactNumber: input.contactNumber?.trim() || undefined
   };
   await run(
     db,
-    "INSERT INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)",
-    { ...business, staffPin: hashStaffPin(input.staffPin) }
+    `INSERT INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number)
+     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber)`,
+    {
+      ...business,
+      staffPin: hashStaffPin(input.staffPin),
+      address: business.address ?? null,
+      contactNumber: business.contactNumber ?? null
+    }
   );
   return business;
+}
+
+/**
+ * Updates the venue details a customer sees on the campaign page.
+ *
+ * Only the supplied fields change, so clearing one field does not blank the
+ * others. An empty string clears a value; `undefined` leaves it alone.
+ */
+export async function updateBusiness(
+  businessId: string,
+  input: UpdateBusinessInput
+): Promise<Business> {
+  const db = await getDb();
+  const existing = await one(db, "SELECT * FROM businesses WHERE id = ?", [businessId]);
+  if (!existing) throw new AppError("E-BUSINESS-404", "Business not found", 404);
+
+  const assignments: string[] = [];
+  const args: Record<string, string | null> = { id: businessId };
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) throw new AppError("E-BUSINESS-NAME", "Business name cannot be empty", 422);
+    assignments.push("name = @name");
+    args.name = name;
+  }
+  if (input.address !== undefined) {
+    assignments.push("address = @address");
+    args.address = input.address.trim() || null;
+  }
+  if (input.contactNumber !== undefined) {
+    assignments.push("contact_number = @contactNumber");
+    args.contactNumber = input.contactNumber.trim() || null;
+  }
+
+  if (assignments.length > 0) {
+    await run(db, `UPDATE businesses SET ${assignments.join(", ")} WHERE id = @id`, args);
+  }
+  const updated = await one(db, "SELECT * FROM businesses WHERE id = ?", [businessId]);
+  return mapBusiness(updated);
 }
 
 export async function listCampaigns(): Promise<Campaign[]> {

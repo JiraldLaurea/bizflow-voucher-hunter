@@ -10,6 +10,10 @@ export type Business = {
   name: string;
   logoText: string;
   industry: CampaignMode;
+  /** Street address of the venue. Shown on the campaign page and used to build a maps link. */
+  address?: string;
+  /** Public contact number for the venue, dialled straight from the campaign page. */
+  contactNumber?: string;
 };
 
 export type Campaign = {
@@ -52,6 +56,9 @@ export type CampaignCard = {
   businessName: string;
   businessLogo: string;
   businessIndustry: string;
+  /** Venue details, carried from the business so the campaign page can show where to go. */
+  businessAddress?: string;
+  businessContactNumber?: string;
 };
 
 export type VoucherPool = {

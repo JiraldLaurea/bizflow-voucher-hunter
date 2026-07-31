@@ -9,7 +9,9 @@ const schema = z.object({
   name: z.string().min(1),
   logoText: z.string().min(1).max(4),
   industry: z.enum(["restaurant", "online_shop", "beauty", "pet", "retail", "other"]),
-  staffPin: z.string().regex(/^\d{4,6}$/, "staffPin must be 4 to 6 digits")
+  staffPin: z.string().regex(/^\d{4,6}$/, "staffPin must be 4 to 6 digits"),
+  address: z.string().max(300).optional(),
+  contactNumber: z.string().max(40).optional()
 });
 
 export async function GET(request: Request) {

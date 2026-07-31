@@ -50,7 +50,9 @@ CREATE TABLE IF NOT EXISTS businesses (
   name TEXT NOT NULL,
   logo_text TEXT NOT NULL,
   industry TEXT NOT NULL,
-  staff_pin TEXT NOT NULL
+  staff_pin TEXT NOT NULL,
+  address TEXT,
+  contact_number TEXT
 );
 CREATE TABLE IF NOT EXISTS campaigns (
   id TEXT PRIMARY KEY,
@@ -600,7 +602,12 @@ async function ensureSmsSchema(c: Client) {
     ["sms_logs", "delivery_receipt", "TEXT"],
     ["sms_logs", "delivered_at", "TEXT"],
     // Campaign directory location (added without a destructive schema-version bump).
-    ["campaigns", "location", "TEXT"]
+    ["campaigns", "location", "TEXT"],
+    // Venue details shown on the campaign page. They belong to the business, not
+    // the campaign: one venue runs many campaigns, and copying the address onto
+    // each one guarantees they drift apart.
+    ["businesses", "address", "TEXT"],
+    ["businesses", "contact_number", "TEXT"]
   ];
   for (const [table, column, definition] of smsColumnAdds) {
     if (!(await hasColumn(c, table, column))) {
@@ -1093,7 +1100,9 @@ export const mapBusiness = (r: Row): Business => ({
   id: r.id,
   name: r.name,
   logoText: r.logo_text,
-  industry: r.industry
+  industry: r.industry,
+  address: r.address ?? undefined,
+  contactNumber: r.contact_number ?? undefined
 });
 
 export const mapCampaign = (r: Row): Campaign => ({

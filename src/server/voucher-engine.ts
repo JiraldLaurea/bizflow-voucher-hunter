@@ -407,6 +407,9 @@ export type CampaignCard = {
   businessLogo: string;
   /** The business's industry — the meaningful "category" for the directory card. */
   businessIndustry: string;
+  /** Venue details, so the campaign page can show where to go and how to call. */
+  businessAddress?: string;
+  businessContactNumber?: string;
 };
 
 /** Active campaigns joined with their business, for the public directory grid. */
@@ -414,7 +417,8 @@ export async function listPublicCampaignCards(): Promise<CampaignCard[]> {
   const db = await getDb();
   const rows = await all(
     db,
-    `SELECT c.*, b.name AS business_name, b.logo_text AS business_logo, b.industry AS business_industry
+    `SELECT c.*, b.name AS business_name, b.logo_text AS business_logo, b.industry AS business_industry,
+            b.address AS business_address, b.contact_number AS business_contact_number
      FROM campaigns c JOIN businesses b ON b.id = c.business_id
      WHERE c.status = 'active'
      ORDER BY c.start_date DESC`
@@ -423,7 +427,11 @@ export async function listPublicCampaignCards(): Promise<CampaignCard[]> {
     campaign: mapCampaign(r),
     businessName: String(r.business_name),
     businessLogo: String(r.business_logo),
-    businessIndustry: String(r.business_industry)
+    businessIndustry: String(r.business_industry),
+    businessAddress: r.business_address ? String(r.business_address) : undefined,
+    businessContactNumber: r.business_contact_number
+      ? String(r.business_contact_number)
+      : undefined
   }));
 }
 
