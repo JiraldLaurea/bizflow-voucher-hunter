@@ -399,6 +399,32 @@ img.logo-tile {
   box-shadow: none;
 }
 
+/*
+ * Dashboard buttons are controls in a dense table UI, not the full-width CTAs
+ * the customer flow uses -- where 46px and weight 700 mirror the mobile app and
+ * should stay. Scoped to .admin-shell so shrinking one does not shrink the other.
+ */
+.admin-shell .button {
+  min-height: 36px;
+  width: fit-content;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: 0 4px 10px rgba(92, 61, 255, 0.14);
+}
+
+.admin-shell .button.secondary {
+  box-shadow: none;
+}
+
+/* Modal footers place their actions in a row; keep them from stretching. */
+.admin-shell .modal-footer .button {
+  flex: 0 0 auto;
+}
+
 .button.tertiary {
   background: transparent;
   color: var(--purple);
