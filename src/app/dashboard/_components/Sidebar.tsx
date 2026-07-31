@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
 import {
   FiBriefcase,
   FiCheckSquare,
@@ -93,22 +93,6 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
-  const navigationLocked = useRef(false);
-
-  useEffect(() => {
-    navigationLocked.current = false;
-    setPendingHref(null);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!pendingHref) return;
-    const recovery = window.setTimeout(() => {
-      navigationLocked.current = false;
-      setPendingHref(null);
-    }, 10_000);
-    return () => window.clearTimeout(recovery);
-  }, [pendingHref]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -140,27 +124,15 @@ export function Sidebar({
         ? staffNav
         : nav.filter((item) => item.href !== "/dashboard/settings" || role === "super_admin")
       ).map((item) => (
-        <a
+        <Link
           aria-current={isNavActive(pathname, item.href) ? "page" : undefined}
-          className={`nav-item ${isNavActive(pathname, item.href) ? "active" : ""} ${pendingHref === item.href ? "pending" : ""}`}
+          className={`nav-item ${isNavActive(pathname, item.href) ? "active" : ""}`}
           href={item.href}
           key={item.label}
-          onClick={(event) => {
-            if (isNavActive(pathname, item.href)) return;
-            if (navigationLocked.current) {
-              event.preventDefault();
-              return;
-            }
-            navigationLocked.current = true;
-            setPendingHref(item.href);
-          }}
         >
           <span className="nav-item-icon">{item.icon}</span>
           <span className="nav-item-label">{item.label}</span>
-          {pendingHref === item.href ? (
-            <span aria-label="Loading page" className="nav-item-spinner" role="status" />
-          ) : null}
-        </a>
+        </Link>
       ))}
       <div className="sidebar-account">
         <div className="sidebar-account-copy">

@@ -350,6 +350,10 @@ img.logo-tile {
   padding: 14px;
 }
 
+.panel + .panel {
+  margin-top: 18px;
+}
+
 .mini-rule {
   display: grid;
   grid-template-columns: 28px 1fr;
@@ -2135,20 +2139,6 @@ img.logo-tile {
   flex: 1;
 }
 
-.nav-item.pending {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.nav-item-spinner {
-  width: 13px;
-  height: 13px;
-  flex: 0 0 13px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: hunt-spinner-rotate 700ms linear infinite;
-}
-
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.08);
 }
@@ -2788,7 +2778,6 @@ img.logo-tile {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nav-item-spinner,
   .dashboard-loading-line,
   .dashboard-loading-card,
   .dashboard-loading-panel {
