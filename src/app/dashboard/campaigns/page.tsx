@@ -1,5 +1,4 @@
 import { listBusinesses, listCampaigns } from "@/server/admin";
-import { BusinessDetailsForm } from "../_components/BusinessDetailsForm";
 import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
 import { NewCampaignForm } from "../_components/NewCampaignForm";
 import { EditCampaignImageForm } from "../_components/EditCampaignImageForm";
@@ -36,21 +35,6 @@ export default async function CampaignsPage() {
   const campaigns = await listCampaigns();
 
   return (
-    <>
-    <section className="panel">
-      <div className="admin-topbar">
-        <div>
-          <h2>Business Details</h2>
-          <p className="muted">
-            The address and contact number shown to customers on the campaign page.
-            These belong to the business, so every campaign it runs shows the same
-            venue.
-          </p>
-        </div>
-      </div>
-      <BusinessDetailsForm businesses={businesses} />
-    </section>
-
     <section className="panel table-wrap">
       <div className="admin-topbar">
         <div>
@@ -111,6 +95,5 @@ export default async function CampaignsPage() {
         </tbody>
       </table>
     </section>
-    </>
   );
 }

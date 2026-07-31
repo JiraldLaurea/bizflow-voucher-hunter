@@ -5085,17 +5085,10 @@ th {
   opacity: 0.55;
 }
 
-.business-details-form {
-  display: grid;
-  gap: 14px;
-  max-width: 520px;
-  margin-top: 14px;
-}
-
-.business-details-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.business-logo-text {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .live-sms-toggle {

@@ -4,6 +4,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
+  FiBriefcase,
   FiCheckSquare,
   FiClock,
   FiFlag,
@@ -24,6 +25,11 @@ const nav = [
     label: "Campaigns",
     href: "/dashboard/campaigns",
     icon: <FiFlag aria-hidden="true" />,
+  },
+  {
+    label: "Businesses",
+    href: "/dashboard/businesses",
+    icon: <FiBriefcase aria-hidden="true" />,
   },
   {
     label: "Slots",
