@@ -178,7 +178,7 @@ export default function CampaignLandingScreen() {
               <Icon name="map-pin" size={14} />
             </View>
             <Text style={styles.metaText}>
-              {details.location ?? t("home.locationTba")}
+              {business?.address ?? details.location ?? t("home.locationTba")}
             </Text>
           </View>
           <View style={styles.metaRow}>
@@ -198,46 +198,60 @@ export default function CampaignLandingScreen() {
             <Text style={styles.venueBusiness}>{business.name}</Text>
 
             {business.address ? (
-              <Pressable
-                accessibilityHint={t("venue.openInMaps")}
-                accessibilityRole="link"
-                onPress={() => void openMaps()}
-                style={({ pressed }) => [
-                  styles.venueRow,
-                  pressed && styles.venueRowPressed,
-                ]}
-              >
+              <View style={styles.venueRow}>
                 <View style={styles.venueIcon}>
                   <Icon name="map-pin" size={16} />
                 </View>
                 <View style={styles.venueRowCopy}>
                   <Text style={styles.venueLabel}>{t("venue.address")}</Text>
-                  <Text style={styles.venueLink}>{business.address}</Text>
+                  <Text style={styles.venueValue}>{business.address}</Text>
                 </View>
-                <Icon name="external-link" size={14} />
-              </Pressable>
+              </View>
             ) : null}
 
             {business.contactNumber ? (
-              <Pressable
-                accessibilityHint={t("venue.call")}
-                accessibilityRole="link"
-                onPress={() => void callBusiness(business.contactNumber as string)}
-                style={({ pressed }) => [
-                  styles.venueRow,
-                  pressed && styles.venueRowPressed,
-                ]}
-              >
+              <View style={styles.venueRow}>
                 <View style={styles.venueIcon}>
                   <Icon name="phone" size={16} />
                 </View>
                 <View style={styles.venueRowCopy}>
                   <Text style={styles.venueLabel}>{t("venue.contact")}</Text>
-                  <Text style={styles.venueLink}>{business.contactNumber}</Text>
+                  <Text style={styles.venueValue}>{business.contactNumber}</Text>
                 </View>
-                <Icon name="external-link" size={14} />
-              </Pressable>
+              </View>
             ) : null}
+
+            <View style={styles.venueActions}>
+              {business.address ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => void openMaps()}
+                  style={({ pressed }) => [
+                    styles.venueAction,
+                    pressed && styles.venueActionPressed,
+                  ]}
+                >
+                  <Icon color={colors.primary} name="navigation" size={15} />
+                  <Text style={styles.venueActionText}>{t("venue.directions")}</Text>
+                </Pressable>
+              ) : null}
+              {business.contactNumber ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => void callBusiness(business.contactNumber as string)}
+                  style={({ pressed }) => [
+                    styles.venueAction,
+                    styles.venueActionPrimary,
+                    pressed && styles.venueActionPressed,
+                  ]}
+                >
+                  <Icon color={colors.surface} name="phone" size={15} />
+                  <Text style={[styles.venueActionText, styles.venueActionTextPrimary]}>
+                    {t("venue.callButton")}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
 
             {venueError ? <InlineError message={venueError} /> : null}
           </View>
@@ -378,9 +392,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: spacing.md,
   },
-  venueRowPressed: {
-    opacity: 0.6,
-  },
   venueIcon: {
     alignItems: "center",
     width: 20,
@@ -396,11 +407,45 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     textTransform: "uppercase",
   },
-  venueLink: {
-    color: colors.primary,
+  venueValue: {
+    color: colors.ink,
     fontFamily: fonts.semibold,
     fontSize: 14,
     lineHeight: 20,
+  },
+  venueActions: {
+    borderTopColor: colors.borderSoft,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    paddingTop: spacing.md,
+  },
+  venueAction: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  venueActionPrimary: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  venueActionPressed: {
+    opacity: 0.7,
+  },
+  venueActionText: {
+    color: colors.primary,
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+  },
+  venueActionTextPrimary: {
+    color: colors.surface,
   },
   metaRow: {
     alignItems: "center",
