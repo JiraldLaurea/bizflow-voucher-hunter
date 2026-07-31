@@ -58,14 +58,17 @@ export function BusinessManager({
               shown to customers on every campaign the business runs.
             </p>
           </div>
-          <button
-            className="button"
-            onClick={() => setCreating(true)}
-            type="button"
-          >
-            <FiPlus aria-hidden="true" /> New Business
-          </button>
         </div>
+
+        {/* Below the heading and left-aligned, matching the New Campaign trigger
+            on the campaigns page rather than sitting in the top-right. */}
+        <button
+          className="button admin-form-toggle"
+          onClick={() => setCreating(true)}
+          type="button"
+        >
+          <FiPlus aria-hidden="true" /> New Business
+        </button>
 
         <table className="admin-table">
           <thead>
@@ -118,9 +121,9 @@ export function BusinessManager({
                       )}
                     </td>
                     <td>{count}</td>
-                    <td>
+                    <td className="business-actions">
                       <button
-                        className="button secondary"
+                        className="campaign-edit-image-button"
                         onClick={() => setEditing(business)}
                         type="button"
                       >
