@@ -16,6 +16,9 @@ const schema = z.object({
   name: z.string().min(1).max(120).optional(),
   address: z.string().max(300).optional(),
   contactNumber: z.string().max(40).optional(),
+  // nullable so clearing the pin is expressible; omitting them leaves it alone.
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
 });
 
 export async function PATCH(

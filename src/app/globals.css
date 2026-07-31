@@ -5111,6 +5111,154 @@ th {
   opacity: 0.55;
 }
 
+/* --- Business location picker (Leaflet) --- */
+.location-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.location-picker-search {
+  display: flex;
+  gap: 8px;
+}
+
+.location-picker-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.location-picker-search-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 1px solid #cbd3e1;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--purple);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.location-picker-search-button:hover:not(:disabled) {
+  border-color: #bcb2ee;
+  background: var(--purple-soft);
+}
+.location-picker-search-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.location-picker-map,
+.location-picker-skeleton {
+  position: relative;
+  height: 260px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+.location-picker-skeleton {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* Leaflet paints its own stacking context; keep it under the modal chrome. */
+.location-picker-map .leaflet-container {
+  z-index: 0;
+  font: inherit;
+  background: var(--canvas);
+}
+
+.location-picker-empty {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 500;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(11, 29, 58, 0.82);
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.location-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.78rem;
+}
+
+.location-picker-coords {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.location-picker-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--navy);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.location-picker-clear:hover {
+  border-color: #f0b4b4;
+  color: #b91c1c;
+}
+
+.location-picker-notice {
+  margin: 0;
+  color: #7a2d0b;
+  font-size: 0.78rem;
+}
+
+/* Marker: a div icon, so no bundled image asset is involved. */
+.location-pin {
+  position: relative;
+}
+.location-pin-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--purple);
+  box-shadow: 0 2px 6px rgba(11, 29, 58, 0.35);
+}
+.location-pin-stem {
+  position: absolute;
+  top: 19px;
+  left: 9px;
+  width: 4px;
+  height: 11px;
+  border-radius: 0 0 2px 2px;
+  background: var(--purple);
+}
+
 .business-actions {
   text-align: right;
   white-space: nowrap;

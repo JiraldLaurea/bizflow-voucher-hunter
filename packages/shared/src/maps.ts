@@ -1,13 +1,39 @@
+export type MapTarget = {
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+};
+
 /**
- * Google Maps links for a venue address.
+ * Google Maps link for a venue.
  *
- * Uses the documented Maps URL scheme rather than a lat/lng deep link: we only
- * ever have a written address, and this form resolves it the same way a search
- * would. It also works everywhere — the Maps app when installed, the browser
- * otherwise — which a `geo:` or `comgooglemaps://` URI would not.
+ * Coordinates win when a pin has been dropped: a written address is only as
+ * good as the geocoder's guess, and "123 Ayala Ave" resolves to several places.
+ * The address string is the fallback for venues pinned before this existed.
+ *
+ * Uses the documented Maps URL scheme rather than a `geo:` or
+ * `comgooglemaps://` URI, so it opens the Maps app when installed and the
+ * browser otherwise.
  */
-export function buildMapsUrl(address: string): string {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`;
+export function buildMapsUrl(target: MapTarget | string): string {
+  if (typeof target === "string") {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(target.trim())}`;
+  }
+
+  const { address, latitude, longitude } = target;
+  if (isCoordinate(latitude) && isCoordinate(longitude)) {
+    return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((address ?? "").trim())}`;
+}
+
+/** Guards against NaN and the nulls a database column can hand back. */
+export function isCoordinate(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+export function hasPin(target: MapTarget): boolean {
+  return isCoordinate(target.latitude) && isCoordinate(target.longitude);
 }
 
 /**

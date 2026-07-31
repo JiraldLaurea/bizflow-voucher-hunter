@@ -1,11 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiEdit2, FiMapPin, FiPhone, FiPlus } from "react-icons/fi";
+import { FiEdit2, FiPhone } from "react-icons/fi";
 import { api } from "@/lib/api-client";
 import type { Business, Campaign } from "@/types/voucher";
 import { AdminModal } from "./AdminModal";
+import type { Pin } from "./LocationPicker";
+
+const LocationPicker = dynamic(
+  () => import("./LocationPicker").then((mod) => mod.LocationPicker),
+  {
+    ssr: false,
+    loading: () => <div className="location-picker-skeleton">Loading map...</div>,
+  },
+);
 
 const INDUSTRIES = [
   ["restaurant", "Restaurant"],
@@ -67,7 +77,7 @@ export function BusinessManager({
           onClick={() => setCreating(true)}
           type="button"
         >
-          <FiPlus aria-hidden="true" /> New Business
+          New Business
         </button>
 
         <table className="admin-table">
@@ -170,6 +180,7 @@ function CreateBusinessModal({
   onCreated: () => void;
 }) {
   const [draft, setDraft] = useState(emptyDraft);
+  const [pin, setPin] = useState<Pin | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -180,7 +191,11 @@ function CreateBusinessModal({
     try {
       await api("/api/businesses", {
         method: "POST",
-        body: JSON.stringify(draft),
+        body: JSON.stringify({
+          ...draft,
+          latitude: pin?.latitude,
+          longitude: pin?.longitude,
+        }),
       });
       onCreated();
     } catch (caught) {
@@ -259,6 +274,8 @@ function CreateBusinessModal({
             onContactNumber={(contactNumber) =>
               setDraft({ ...draft, contactNumber })
             }
+            onPin={setPin}
+            pin={pin}
           />
         </div>
 
@@ -290,6 +307,11 @@ function EditBusinessModal({
   const [contactNumber, setContactNumber] = useState(
     business.contactNumber ?? "",
   );
+  const [pin, setPin] = useState<Pin | null>(
+    business.latitude !== undefined && business.longitude !== undefined
+      ? { latitude: business.latitude, longitude: business.longitude }
+      : null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -300,7 +322,15 @@ function EditBusinessModal({
     try {
       await api(`/api/businesses/${business.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ name, address, contactNumber }),
+        // null rather than undefined, so clearing the pin actually clears it:
+        // an omitted field means "leave it alone".
+        body: JSON.stringify({
+          name,
+          address,
+          contactNumber,
+          latitude: pin ? pin.latitude : null,
+          longitude: pin ? pin.longitude : null,
+        }),
       });
       onSaved();
     } catch (caught) {
@@ -332,6 +362,8 @@ function EditBusinessModal({
             contactNumber={contactNumber}
             onAddress={setAddress}
             onContactNumber={setContactNumber}
+            onPin={setPin}
+            pin={pin}
           />
 
           {/* Category and staff PIN are absent on purpose: the category drives
@@ -358,28 +390,24 @@ function VenueFields({
   contactNumber,
   onAddress,
   onContactNumber,
+  onPin,
+  pin,
 }: {
   address: string;
   contactNumber: string;
   onAddress: (value: string) => void;
   onContactNumber: (value: string) => void;
+  onPin: (pin: Pin | null) => void;
+  pin: Pin | null;
 }) {
   return (
     <>
-      <label className="field">
-        <span>
-          <FiMapPin aria-hidden="true" /> Address
-        </span>
-        <input
-          onChange={(event) => onAddress(event.target.value)}
-          placeholder="123 Ayala Ave, Makati City"
-          value={address}
-        />
-        <small className="muted">
-          Shown on the campaign page; customers tap it to open Google Maps.
-          Write it as you would search for it.
-        </small>
-      </label>
+      <LocationPicker
+        address={address}
+        onAddressChange={onAddress}
+        onPinChange={onPin}
+        pin={pin}
+      />
 
       <label className="field">
         <span>
@@ -387,10 +415,12 @@ function VenueFields({
         </span>
         <input
           onChange={(event) => onContactNumber(event.target.value)}
-          placeholder="+63 2 8123 4567"
+          // Local format rather than +63: the international prefix reads as
+          // something you must type. Both are accepted.
+          placeholder="09123456789"
           value={contactNumber}
         />
-        <small className="muted">Customers tap to call.</small>
+        <small className="muted">Customers tap to call. +63 also works.</small>
       </label>
     </>
   );

@@ -14,6 +14,8 @@ export type CreateBusinessInput = {
   staffPin: string;
   address?: string;
   contactNumber?: string;
+  latitude?: number;
+  longitude?: number;
 };
 
 /** Venue details only. The staff PIN is rotated through its own flow, not here. */
@@ -21,6 +23,9 @@ export type UpdateBusinessInput = {
   name?: string;
   address?: string;
   contactNumber?: string;
+  /** null clears the pin; undefined leaves it as it was. */
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 export async function listBusinesses(): Promise<Business[]> {
@@ -39,17 +44,21 @@ export async function createBusiness(input: CreateBusinessInput): Promise<Busine
     logoText: input.logoText,
     industry: input.industry,
     address: input.address?.trim() || undefined,
-    contactNumber: input.contactNumber?.trim() || undefined
+    contactNumber: input.contactNumber?.trim() || undefined,
+    latitude: input.latitude ?? undefined,
+    longitude: input.longitude ?? undefined
   };
   await run(
     db,
-    `INSERT INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number)
-     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber)`,
+    `INSERT INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number, latitude, longitude)
+     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber, @latitude, @longitude)`,
     {
       ...business,
       staffPin: hashStaffPin(input.staffPin),
       address: business.address ?? null,
-      contactNumber: business.contactNumber ?? null
+      contactNumber: business.contactNumber ?? null,
+      latitude: business.latitude ?? null,
+      longitude: business.longitude ?? null
     }
   );
   return business;
@@ -70,7 +79,7 @@ export async function updateBusiness(
   if (!existing) throw new AppError("E-BUSINESS-404", "Business not found", 404);
 
   const assignments: string[] = [];
-  const args: Record<string, string | null> = { id: businessId };
+  const args: Record<string, string | number | null> = { id: businessId };
   if (input.name !== undefined) {
     const name = input.name.trim();
     if (!name) throw new AppError("E-BUSINESS-NAME", "Business name cannot be empty", 422);
@@ -84,6 +93,14 @@ export async function updateBusiness(
   if (input.contactNumber !== undefined) {
     assignments.push("contact_number = @contactNumber");
     args.contactNumber = input.contactNumber.trim() || null;
+  }
+
+  // Latitude and longitude move together: a pin is one thing, and letting one
+  // half change alone would leave a coordinate that points nowhere.
+  if (input.latitude !== undefined || input.longitude !== undefined) {
+    assignments.push("latitude = @latitude", "longitude = @longitude");
+    args.latitude = input.latitude ?? null;
+    args.longitude = input.longitude ?? null;
   }
 
   if (assignments.length > 0) {

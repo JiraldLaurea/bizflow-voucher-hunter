@@ -52,7 +52,9 @@ CREATE TABLE IF NOT EXISTS businesses (
   industry TEXT NOT NULL,
   staff_pin TEXT NOT NULL,
   address TEXT,
-  contact_number TEXT
+  contact_number TEXT,
+  latitude REAL,
+  longitude REAL
 );
 CREATE TABLE IF NOT EXISTS campaigns (
   id TEXT PRIMARY KEY,
@@ -607,7 +609,12 @@ async function ensureSmsSchema(c: Client) {
     // the campaign: one venue runs many campaigns, and copying the address onto
     // each one guarantees they drift apart.
     ["businesses", "address", "TEXT"],
-    ["businesses", "contact_number", "TEXT"]
+    ["businesses", "contact_number", "TEXT"],
+    // Pin dropped on the map in the dashboard. Kept alongside the written
+    // address rather than replacing it: the address is what a customer reads,
+    // the coordinates are what a map link should actually open.
+    ["businesses", "latitude", "REAL"],
+    ["businesses", "longitude", "REAL"]
   ];
   for (const [table, column, definition] of smsColumnAdds) {
     if (!(await hasColumn(c, table, column))) {
@@ -1102,7 +1109,9 @@ export const mapBusiness = (r: Row): Business => ({
   logoText: r.logo_text,
   industry: r.industry,
   address: r.address ?? undefined,
-  contactNumber: r.contact_number ?? undefined
+  contactNumber: r.contact_number ?? undefined,
+  latitude: r.latitude ?? undefined,
+  longitude: r.longitude ?? undefined
 });
 
 export const mapCampaign = (r: Row): Campaign => ({

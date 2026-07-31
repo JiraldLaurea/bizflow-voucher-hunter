@@ -145,7 +145,15 @@ export default function CampaignLandingScreen() {
     }
   }
 
-  const openMaps = (address: string) => openExternal(buildMapsUrl(address), "venue.mapsError");
+  const openMaps = () =>
+    openExternal(
+      buildMapsUrl({
+        address: business?.address,
+        latitude: business?.latitude,
+        longitude: business?.longitude,
+      }),
+      "venue.mapsError",
+    );
   const callBusiness = (contactNumber: string) =>
     openExternal(buildTelUrl(contactNumber), "venue.callError");
 
@@ -193,7 +201,7 @@ export default function CampaignLandingScreen() {
               <Pressable
                 accessibilityHint={t("venue.openInMaps")}
                 accessibilityRole="link"
-                onPress={() => void openMaps(business.address as string)}
+                onPress={() => void openMaps()}
                 style={({ pressed }) => [
                   styles.venueRow,
                   pressed && styles.venueRowPressed,

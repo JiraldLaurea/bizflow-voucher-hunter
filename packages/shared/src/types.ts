@@ -14,6 +14,9 @@ export type Business = {
   address?: string;
   /** Public contact number for the venue, dialled straight from the campaign page. */
   contactNumber?: string;
+  /** Pin dropped on the map in the dashboard; preferred over the address when opening a map. */
+  latitude?: number;
+  longitude?: number;
 };
 
 export type Campaign = {
