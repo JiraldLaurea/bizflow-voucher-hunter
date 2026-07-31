@@ -13,6 +13,7 @@ import {
   FiLogOut,
   FiRepeat,
   FiSettings,
+  FiUsers,
 } from "react-icons/fi";
 
 const nav = [
@@ -42,6 +43,11 @@ const nav = [
     icon: <FiGift aria-hidden="true" />,
   },
   {
+    label: "Users",
+    href: "/dashboard/users",
+    icon: <FiUsers aria-hidden="true" />,
+  },
+  {
     label: "Loyalty Points",
     href: "/dashboard/rewards",
     icon: <FiRepeat aria-hidden="true" />,
@@ -62,6 +68,7 @@ const staffNav = nav.filter((item) =>
     "Dashboard",
     "Slots",
     "Vouchers",
+    "Users",
     "Loyalty Points",
     "Staff Validation",
   ].includes(item.label),

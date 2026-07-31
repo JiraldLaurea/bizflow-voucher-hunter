@@ -1,9 +1,9 @@
-import { listCampaignsWithIndustry } from "@/server/admin";
+import { listBusinesses, listCampaignsWithIndustry } from "@/server/admin";
 import { dashboardMetrics } from "@/server/voucher-engine";
 import { NewSlotForm } from "../_components/NewSlotForm";
 import { ChangeRequestActions } from "../_components/ChangeRequestActions";
-import { selectCampaign } from "../_components/selectCampaign";
-import { CampaignSelector } from "../_components/CampaignSelector";
+import { selectScope } from "../_components/selectCampaign";
+import { ScopeSelector } from "../_components/ScopeSelector";
 import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { filterCampaignsForSession } from "@/server/auth";
@@ -15,11 +15,13 @@ import {
 export default async function SlotsPage({
   searchParams,
 }: {
-  searchParams: { campaign?: string };
+  searchParams: { business?: string; campaign?: string };
 }) {
   const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
   const campaigns = filterCampaignsForSession(session!, await listCampaignsWithIndustry());
-  const selectedCampaign = selectCampaign(campaigns, searchParams.campaign);
+  const businesses = await listBusinesses();
+  const scope = selectScope(businesses, campaigns, searchParams);
+  const selectedCampaign = scope.campaign;
   const isBusinessScoped = session?.role === "staff";
   const slotRequests =
     isBusinessScoped && selectedCampaign && session
@@ -45,7 +47,13 @@ export default async function SlotsPage({
 
   return (
     <>
-      <CampaignSelector campaigns={campaigns} selected={selectedCampaign?.slug} />
+      <ScopeSelector
+        businesses={businesses}
+        campaigns={campaigns}
+        selectedBusinessId={scope.business?.id}
+        selectedCampaignSlug={selectedCampaign?.slug}
+        showBusiness={session?.role !== "staff"}
+      />
       <section className="panel table-wrap">
         <div className="admin-topbar">
           <div>

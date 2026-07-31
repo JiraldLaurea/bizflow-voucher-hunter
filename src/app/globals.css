@@ -5111,6 +5111,84 @@ th {
   opacity: 0.55;
 }
 
+/* --- Scope selector (business + campaign) --- */
+.scope-selector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.scope-selector-business-icon {
+  color: var(--purple);
+  background: var(--purple-soft);
+}
+
+/* --- Users --- */
+.customer-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.customer-search input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.customer-link {
+  color: var(--navy);
+  text-decoration: none;
+}
+.customer-link:hover strong {
+  color: var(--purple);
+  text-decoration: underline;
+}
+
+.customer-phone {
+  font-size: 0.74rem;
+}
+
+.customer-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--purple);
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.customer-back:hover {
+  text-decoration: underline;
+}
+
+.customer-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.customer-stat {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+.customer-stat span {
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.customer-stat strong {
+  font-size: 0.96rem;
+  word-break: break-word;
+}
+
 /* --- Business location picker (Leaflet) --- */
 .location-picker {
   display: grid;

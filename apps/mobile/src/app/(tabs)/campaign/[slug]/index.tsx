@@ -1,15 +1,17 @@
-import { buildMapsUrl, buildTelUrl } from "@bizflow/shared";
+import { buildMapsUrl, buildTelUrl, isCoordinate } from "@bizflow/shared";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Button, InlineError } from "@/components/FormControls";
@@ -39,6 +41,7 @@ export default function CampaignLandingScreen() {
   } = useHunt();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [mapVisible, setMapVisible] = useState(false);
 
   // The landing screen stays mounted in the tab navigator. Re-read the
   // authoritative hunt state whenever it becomes active so its CTA cannot show
@@ -132,6 +135,22 @@ export default function CampaignLandingScreen() {
   }
 
   const { business, campaign: details } = campaign;
+  const businessPin =
+    business &&
+    isCoordinate(business.latitude) &&
+    isCoordinate(business.longitude)
+      ? {
+          latitude: business.latitude,
+          longitude: business.longitude,
+        }
+      : null;
+  const mapRegion = businessPin
+    ? {
+        ...businessPin,
+        latitudeDelta: 0.008,
+        longitudeDelta: 0.008,
+      }
+    : null;
 
   async function openExternal(url: string, failureKey: "venue.mapsError" | "venue.callError") {
     setVenueError("");
@@ -175,14 +194,6 @@ export default function CampaignLandingScreen() {
           <Text style={styles.offer}>{details.offerMessage}</Text>
           <View style={styles.metaRow}>
             <View style={styles.metaIcon}>
-              <Icon name="map-pin" size={14} />
-            </View>
-            <Text style={styles.metaText}>
-              {business?.address ?? details.location ?? t("home.locationTba")}
-            </Text>
-          </View>
-          <View style={styles.metaRow}>
-            <View style={styles.metaIcon}>
               <Icon name="calendar" size={14} />
             </View>
             <Text style={styles.metaText}>
@@ -192,7 +203,8 @@ export default function CampaignLandingScreen() {
           </View>
         </View>
 
-        {business && (business.address || business.contactNumber) ? (
+        {business &&
+        (business.address || business.contactNumber || businessPin) ? (
           <View style={styles.venueCard}>
             <Text style={styles.venueTitle}>{t("venue.title")}</Text>
             <Text style={styles.venueBusiness}>{business.name}</Text>
@@ -221,8 +233,46 @@ export default function CampaignLandingScreen() {
               </View>
             ) : null}
 
+            {businessPin && mapRegion ? (
+              <Pressable
+                accessibilityHint={t("venue.viewFullMap")}
+                accessibilityLabel={`${business.name} ${t("venue.address")}`}
+                accessibilityRole="button"
+                onPress={() => setMapVisible(true)}
+                style={({ pressed }) => [
+                  styles.mapPreview,
+                  pressed && styles.mapPreviewPressed,
+                ]}
+              >
+                <MapView
+                  initialRegion={mapRegion}
+                  mapType="standard"
+                  pointerEvents="none"
+                  pitchEnabled={false}
+                  provider={PROVIDER_GOOGLE}
+                  rotateEnabled={false}
+                  scrollEnabled={false}
+                  style={styles.map}
+                  toolbarEnabled={false}
+                  zoomEnabled={false}
+                >
+                  <Marker
+                    coordinate={businessPin}
+                    description={business.address}
+                    title={business.name}
+                  />
+                </MapView>
+                <View style={styles.mapPreviewBadge}>
+                  <Icon color={colors.ink} name="maximize-2" size={14} />
+                  <Text style={styles.mapPreviewBadgeText}>
+                    {t("venue.viewFullMap")}
+                  </Text>
+                </View>
+              </Pressable>
+            ) : null}
+
             <View style={styles.venueActions}>
-              {business.address ? (
+              {business.address || businessPin ? (
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => void openMaps()}
@@ -279,11 +329,88 @@ export default function CampaignLandingScreen() {
           </Button>
         </View>
       </ScrollView>
+
+      {business && businessPin && mapRegion ? (
+        <Modal
+          animationType="slide"
+          onRequestClose={() => setMapVisible(false)}
+          presentationStyle="fullScreen"
+          visible={mapVisible}
+        >
+          <SafeAreaView style={styles.fullMapSafeArea}>
+            <View style={styles.fullMapHeader}>
+              <View style={styles.fullMapHeaderCopy}>
+                <Text numberOfLines={1} style={styles.fullMapTitle}>
+                  {business.name}
+                </Text>
+                {business.address ? (
+                  <Text numberOfLines={1} style={styles.fullMapSubtitle}>
+                    {business.address}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                accessibilityLabel={t("common.close")}
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={() => setMapVisible(false)}
+                style={({ pressed }) => [
+                  styles.fullMapClose,
+                  pressed && styles.venueActionPressed,
+                ]}
+              >
+                <Icon color={colors.ink} name="x" size={21} />
+              </Pressable>
+            </View>
+
+            <View style={styles.fullMapBody}>
+              <MapView
+                initialRegion={mapRegion}
+                provider={PROVIDER_GOOGLE}
+                style={styles.fullMap}
+              >
+                <Marker
+                  coordinate={businessPin}
+                  description={business.address}
+                  title={business.name}
+                />
+              </MapView>
+
+              <View style={styles.fullMapCard}>
+                <View style={styles.fullMapLocation}>
+                  <View style={styles.venueIcon}>
+                    <Icon name="map-pin" size={17} />
+                  </View>
+                  <View style={styles.fullMapLocationCopy}>
+                    <Text style={styles.fullMapBusiness}>{business.name}</Text>
+                    {business.address ? (
+                      <Text style={styles.fullMapAddress}>{business.address}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => void openMaps()}
+                  style={({ pressed }) => [
+                    styles.fullMapDirections,
+                    pressed && styles.venueActionPressed,
+                  ]}
+                >
+                  <Icon color={colors.surface} name="navigation" size={15} />
+                  <Text style={styles.fullMapDirectionsText}>
+                    {t("venue.directions")}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </SafeAreaView>
+        </Modal>
+      ) : null}
     </SafeAreaView>
   );
 }
 
-/** `.mini-rule` — an icon column beside a single line of copy. */
+/** An icon column beside a single line of campaign-rule copy. */
 function RuleRow({
   icon,
   last = false,
@@ -399,6 +526,45 @@ const styles = StyleSheet.create({
   venueRowCopy: {
     flex: 1,
     gap: 2,
+  },
+  mapPreview: {
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    height: 170,
+    marginTop: spacing.sm,
+    overflow: "hidden",
+    position: "relative",
+  },
+  mapPreviewPressed: {
+    opacity: 0.86,
+  },
+  map: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  mapPreviewBadge: {
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.94)",
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    position: "absolute",
+    bottom: 10,
+    right: 10,
+    ...shadow.soft,
+  },
+  mapPreviewBadgeText: {
+    color: colors.ink,
+    fontFamily: fonts.semibold,
+    fontSize: 11,
   },
   venueLabel: {
     color: colors.textMuted,
@@ -521,5 +687,101 @@ const styles = StyleSheet.create({
   },
   action: {
     marginTop: spacing.sm,
+  },
+  fullMapSafeArea: {
+    backgroundColor: colors.surface,
+    flex: 1,
+  },
+  fullMapHeader: {
+    alignItems: "center",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  fullMapHeaderCopy: {
+    flex: 1,
+  },
+  fullMapTitle: {
+    color: colors.ink,
+    fontFamily: fonts.bold,
+    fontSize: 17,
+  },
+  fullMapSubtitle: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  fullMapClose: {
+    alignItems: "center",
+    backgroundColor: colors.page,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  fullMapBody: {
+    flex: 1,
+    position: "relative",
+  },
+  fullMap: {
+    backgroundColor: "#eef1f4",
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  fullMapCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    bottom: spacing.lg,
+    gap: spacing.md,
+    left: spacing.lg,
+    padding: spacing.md,
+    position: "absolute",
+    right: spacing.lg,
+    ...shadow.soft,
+  },
+  fullMapLocation: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  fullMapLocationCopy: {
+    flex: 1,
+  },
+  fullMapBusiness: {
+    color: colors.ink,
+    fontFamily: fonts.bold,
+    fontSize: 15,
+  },
+  fullMapAddress: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  fullMapDirections: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "center",
+    paddingVertical: 11,
+  },
+  fullMapDirectionsText: {
+    color: colors.surface,
+    fontFamily: fonts.semibold,
+    fontSize: 14,
   },
 });

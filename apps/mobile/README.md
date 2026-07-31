@@ -21,6 +21,36 @@ EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:3000
 Do not put secrets in `EXPO_PUBLIC_*` variables. The API base URL is public
 configuration.
 
+## Configure Google Maps
+
+The embedded business map uses the native Google Maps SDK. Expo Go carries
+Expo's own Android Maps credential and cannot use this project's key, so test
+the map in a development build:
+
+1. In Google Cloud, enable **Maps SDK for Android**.
+2. Create an Android-restricted API key for package
+   `com.voucherhunt.mobile` and the signing certificate SHA-1.
+3. Add the key to `apps/mobile/.env`:
+
+   ```env
+   GOOGLE_MAPS_API_KEY=your_restricted_android_maps_key
+   ```
+
+4. Rebuild the native development app once:
+
+   ```bash
+   cd apps/mobile
+   npx expo run:android
+   ```
+
+After that build, keep Metro running with `npx expo start --dev-client`.
+JavaScript and UI edits continue to update through Fast Refresh; rebuild only
+when native dependencies or native configuration change.
+
+For EAS builds, configure the same variable in the relevant EAS environment.
+Use the SHA-1 of that environment's signing certificate in the Google Cloud key
+restriction.
+
 ## Run
 
 From the repository root:

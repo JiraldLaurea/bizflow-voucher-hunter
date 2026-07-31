@@ -14,6 +14,9 @@
 const BRAND_PURPLE = "#5c3dff";
 
 const appLinkHost = process.env.EXPO_PUBLIC_APP_LINK_HOST?.trim();
+// Restricted Android Maps SDK key. It is embedded in the native manifest at
+// build time and must be constrained to this app's package and certificate.
+const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
 
 /**
  * Android intent filters.
@@ -107,6 +110,16 @@ module.exports = {
       ],
       "expo-secure-store",
       "expo-localization",
+      ...(googleMapsApiKey
+        ? [
+            [
+              "react-native-maps",
+              {
+                androidGoogleMapsApiKey: googleMapsApiKey,
+              },
+            ],
+          ]
+        : []),
       [
         "expo-notifications",
         {
