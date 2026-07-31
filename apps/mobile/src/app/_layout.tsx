@@ -14,6 +14,7 @@ import { useEffect } from "react";
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
 import { LoyaltyAwardModal } from "@/components/LoyaltyAwardModal";
 import { OverlayProvider, useOverlay } from "@/components/OverlayHost";
+import { LanguageProvider, useLanguage } from "@/i18n/LanguageContext";
 import { useDeepLinkGate } from "@/linking/useDeepLinkGate";
 import { useNotificationRouting } from "@/notifications/useNotificationRouting";
 import { colors } from "@/theme";
@@ -39,7 +40,10 @@ function RootNavigator() {
     Inter_800ExtraBold,
     Inter_900Black,
   });
-  const ready = !isLoading && fontsLoaded;
+  const { isLoading: isLanguageLoading } = useLanguage();
+  // Also gate on the language: rendering before the stored choice is read
+  // would flash English and then switch.
+  const ready = !isLoading && fontsLoaded && !isLanguageLoading;
   // Holds a shared campaign/voucher link across the sign-in gate so it is not lost
   // when a signed-out visitor is bounced to the OTP screen.
   useDeepLinkGate(token, ready);
@@ -104,10 +108,12 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <OverlayProvider>
-        <RootNavigator />
-      </OverlayProvider>
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <OverlayProvider>
+          <RootNavigator />
+        </OverlayProvider>
+      </AuthProvider>
+    </LanguageProvider>
   );
 }

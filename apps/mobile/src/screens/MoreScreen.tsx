@@ -25,14 +25,17 @@ import {
 import { useAuth } from "@/auth/AuthContext";
 import { Button, Field, InlineError } from "@/components/FormControls";
 import { Icon } from "@/components/Icon";
+import { LanguagePicker } from "@/components/LanguagePicker";
 import { Screen } from "@/components/Screen";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { DevToolsPanel } from "@/dev/DevToolsPanel";
 import { getVisitorSessionId } from "@/hunt/session";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 export default function MoreScreen() {
   const { phone, signOut, token } = useAuth();
+  const t = useTranslation();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [wallet, setWallet] = useState<RewardWalletSnapshot | null>(null);
   const [walletBusy, setWalletBusy] = useState(true);
@@ -51,12 +54,14 @@ export default function MoreScreen() {
       setWallet(await getOrCreateRewardWallet(token));
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Unable to load Loyalty Points.",
+        caught instanceof Error ? caught.message : t("loyalty.loadError"),
       );
     } finally {
       setWalletBusy(false);
     }
-  }, [token]);
+    // `t` changes identity when the language does, which is what we want: a
+    // reload after switching should surface errors in the new language.
+  }, [t, token]);
 
   useFocusEffect(
     useCallback(() => {
@@ -67,7 +72,7 @@ export default function MoreScreen() {
   async function handleConvert() {
     if (!token || !wallet) return;
     if (!convertAmount.trim()) {
-      setError("Enter an amount to convert.");
+      setError(t("loyalty.amountRequired"));
       return;
     }
     setWalletBusy(true);
@@ -79,13 +84,13 @@ export default function MoreScreen() {
         token,
       );
       setConvertAmount("");
-      setNotice("Loyalty Points converted into an LP voucher.");
+      setNotice(t("loyalty.converted"));
       setWallet(await getOrCreateRewardWallet(token));
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Unable to convert Loyalty Points.",
+          : t("loyalty.convertError"),
       );
     } finally {
       setWalletBusy(false);
@@ -98,7 +103,7 @@ export default function MoreScreen() {
     try {
       await signOut();
     } catch {
-      setError("Your local session could not be cleared. Please try again.");
+      setError(t("more.signOutError"));
     } finally {
       setIsSigningOut(false);
     }
@@ -108,10 +113,10 @@ export default function MoreScreen() {
     try {
       await Clipboard.setStringAsync(value);
       setError("");
-      setNotice(`${label} copied.`);
+      setNotice(t("loyalty.copiedLabel", { label }));
     } catch {
       setNotice("");
-      setError(`Unable to copy ${label.toLowerCase()}.`);
+      setError(t("loyalty.copyError", { label: label.toLowerCase() }));
     }
   }
 
@@ -129,17 +134,17 @@ export default function MoreScreen() {
       );
       await Share.share({
         message:
-          `Try Voucher Hunt with my link. Open it to join and help me earn 10 LP:\n${link}`,
-        title: "Voucher Hunt referral",
+          t("loyalty.referralShareMessage", { link }),
+        title: t("loyalty.referralShareTitle"),
       });
       setNotice(
-        "Referral link shared. You’ll earn 10 LP when one new user opens it.",
+        t("loyalty.referralShared"),
       );
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Unable to create your referral link.",
+          : t("loyalty.referralError"),
       );
     } finally {
       setReferralBusy(false);
@@ -150,39 +155,36 @@ export default function MoreScreen() {
     try {
       await WebBrowser.openBrowserAsync(buildDeleteAccountUrl());
     } catch {
-      setError("Unable to open the account deletion page.");
+      setError(t("more.deleteAccountError"));
     }
   }
 
   return (
-    <Screen subtitle="Manage your Loyalty Points and account." title="More">
+    <Screen subtitle={t("more.subtitle")} title={t("more.title")}>
       <View style={styles.accountCard}>
-        <Text style={styles.sectionTitle}>Account</Text>
+        <Text style={styles.sectionTitle}>{t("more.account")}</Text>
         <Text style={styles.accountCopy}>
           {phone
-            ? `Signed in as ${toDisplayPhone(phone)}`
-            : "You are not signed in."}
+            ? t("more.signedInAs", { phone: toDisplayPhone(phone) })
+            : t("more.notSignedIn")}
         </Text>
       </View>
 
       <View style={styles.walletCard}>
         <View style={styles.sectionHeading}>
           <View style={styles.sectionText}>
-            <Text style={styles.sectionTitle}>Loyalty Points</Text>
-            <Text style={styles.sectionCopy}>
-              Earn 5% LP on eligible purchases and redeem it through
-              participating partner offers.
-            </Text>
+            <Text style={styles.sectionTitle}>{t("loyalty.title")}</Text>
+            <Text style={styles.sectionCopy}>{t("loyalty.subtitle")}</Text>
           </View>
           <View style={styles.creditPill}>
-            <Text style={styles.creditPillText}>Earn 5% LP</Text>
+            <Text style={styles.creditPillText}>{t("loyalty.earnPill")}</Text>
           </View>
         </View>
 
         {walletBusy && !wallet ? (
           <View style={styles.walletLoading}>
             <ActivityIndicator color={colors.primary} size="large" />
-            <Text style={styles.muted}>Unlocking your wallet...</Text>
+            <Text style={styles.muted}>{t("loyalty.unlocking")}</Text>
           </View>
         ) : wallet ? (
           <>
@@ -192,36 +194,32 @@ export default function MoreScreen() {
               start={{ x: 0, y: 0 }}
               style={styles.balanceCard}
             >
-              <Text style={styles.balanceLabel}>Available Loyalty Points</Text>
+              <Text style={styles.balanceLabel}>{t("loyalty.available")}</Text>
               <Text style={styles.balance}>{wallet.balance}</Text>
-              <Text style={styles.balanceHint}>
-                Redeem LP through participating partner offers.
-              </Text>
+              <Text style={styles.balanceHint}>{t("loyalty.balanceHint")}</Text>
             </LinearGradient>
 
             <View style={styles.dailyCard}>
               <View style={styles.dailyHeading}>
                 <View style={styles.dailyHeadingCopy}>
-                  <Text style={styles.dailyTitle}>Earn LP every day</Text>
+                  <Text style={styles.dailyTitle}>{t("loyalty.dailyTitle")}</Text>
                   <Text style={styles.dailyCaption}>
-                    Up to {wallet.dailyStatus.monthlyPotential} in 30 days
+                    {t("loyalty.dailyCaptionUpTo", { amount: wallet.dailyStatus.monthlyPotential })}
                   </Text>
                 </View>
                 <Text style={styles.dailyTotal}>
-                  {wallet.dailyStatus.earnedToday} today
+                  {t("loyalty.dailyToday", { amount: wallet.dailyStatus.earnedToday })}
                 </Text>
               </View>
               <View style={styles.dailyRow}>
                 <Icon color={colors.primary} name="check-circle" size={18} />
                 <View style={styles.dailyRowCopy}>
-                  <Text style={styles.dailyRowTitle}>
-                    Use Voucher Hunt today
-                  </Text>
+                  <Text style={styles.dailyRowTitle}>{t("loyalty.dailyUseApp")}</Text>
                   <Text style={styles.dailyCaption}>
                     {wallet.dailyStatus.appUsePoints}
                   </Text>
                 </View>
-                <Text style={styles.dailyEarned}>Earned</Text>
+                <Text style={styles.dailyEarned}>{t("loyalty.earned")}</Text>
               </View>
               <View style={styles.dailyRow}>
                 <Icon
@@ -234,18 +232,16 @@ export default function MoreScreen() {
                   size={18}
                 />
                 <View style={styles.dailyRowCopy}>
-                  <Text style={styles.dailyRowTitle}>
-                    Refer one new user today
-                  </Text>
+                  <Text style={styles.dailyRowTitle}>{t("loyalty.dailyReferral")}</Text>
                   <Text style={styles.dailyCaption}>
                     {wallet.dailyStatus.referralPoints}
                   </Text>
                 </View>
                 {wallet.dailyStatus.referralAwarded ? (
-                  <Text style={styles.dailyEarned}>Earned</Text>
+                  <Text style={styles.dailyEarned}>{t("loyalty.earned")}</Text>
                 ) : (
                   <Pressable
-                    accessibilityLabel="Share your daily referral link"
+                    accessibilityLabel={t("loyalty.shareReferralLabel")}
                     accessibilityRole="button"
                     disabled={referralBusy}
                     onPress={() => void shareDailyReferral()}
@@ -261,7 +257,7 @@ export default function MoreScreen() {
                       <Icon color={colors.primary} name="share-2" size={14} />
                     )}
                     <Text style={styles.referralButtonText}>
-                      {referralBusy ? "Preparing" : "Share"}
+                      {referralBusy ? t("loyalty.preparing") : t("loyalty.share")}
                     </Text>
                   </Pressable>
                 )}
@@ -294,7 +290,7 @@ export default function MoreScreen() {
                   size={16}
                 />
                 <Text style={styles.secondaryButtonText}>
-                  {tokenVisible ? "Hide wallet token" : "Show wallet token"}
+                  {tokenVisible ? t("loyalty.hideWalletToken") : t("loyalty.showWalletToken")}
                 </Text>
               </Pressable>
               {tokenVisible ? (
@@ -303,12 +299,12 @@ export default function MoreScreen() {
                     {wallet.wallet.walletToken}
                   </Text>
                   <Pressable
-                    accessibilityLabel="Copy wallet token"
+                    accessibilityLabel={t("loyalty.copyWalletToken")}
                     accessibilityRole="button"
                     onPress={() =>
                       void copyToClipboard(
                         wallet.wallet.walletToken,
-                        "Wallet token",
+                        t("loyalty.walletToken"),
                       )
                     }
                     style={({ pressed }) => [
@@ -317,7 +313,7 @@ export default function MoreScreen() {
                     ]}
                   >
                     <Icon color={colors.ink} name="copy" size={15} />
-                    <Text style={styles.copyButtonText}>Copy</Text>
+                    <Text style={styles.copyButtonText}>{t("loyalty.copy")}</Text>
                   </Pressable>
                 </View>
               ) : null}
@@ -333,7 +329,7 @@ export default function MoreScreen() {
             <Button
               disabled={!convertAmount.trim()}
               loading={walletBusy}
-              loadingLabel="Converting..."
+              loadingLabel={t("loyalty.converting")}
               onPress={() => void handleConvert()}
             >
               Create LP Voucher
@@ -341,7 +337,7 @@ export default function MoreScreen() {
 
             {wallet.vouchers.length > 0 ? (
               <View style={styles.rewardSection}>
-                <Text style={styles.rewardTitle}>Your LP vouchers</Text>
+                <Text style={styles.rewardTitle}>{t("loyalty.rewardsTitle")}</Text>
                 <View style={styles.rewardList}>
                   {wallet.vouchers.slice(0, 3).map((voucher) => {
                     const expanded = voucher.id === expandedVoucherId;
@@ -452,12 +448,13 @@ export default function MoreScreen() {
       {error && !wallet ? (
         <View style={styles.retry}>
           <Button variant="secondary" onPress={() => void loadWallet()}>
-            Retry wallet
+            {t("loyalty.retryWallet")}
           </Button>
         </View>
       ) : null}
       {/* Sits directly above sign out, as it does on the web More page. Renders
           nothing outside development. */}
+      <LanguagePicker />
       <NotificationSettings />
       <DevToolsPanel />
       <Button
@@ -465,7 +462,7 @@ export default function MoreScreen() {
         onPress={() => void handleSignOut()}
         variant="secondary"
       >
-        Sign out
+        {t("more.signOut")}
       </Button>
       {/* Play requires an in-app route to account deletion for any app that lets
           you create an account in-app. The instructions live on the web so the
@@ -475,7 +472,7 @@ export default function MoreScreen() {
         onPress={() => void openDeleteAccount()}
         style={styles.deleteAccount}
       >
-        <Text style={styles.deleteAccountText}>Delete my account</Text>
+        <Text style={styles.deleteAccountText}>{t("more.deleteAccount")}</Text>
       </Pressable>
     </Screen>
   );

@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import { ApiError, requestOtp, verifyOtp } from "@/api/client";
+import { useTranslation } from "@/i18n/LanguageContext";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, Field, InlineError } from "@/components/FormControls";
 import { Screen } from "@/components/Screen";
@@ -27,6 +28,7 @@ function getErrorMessage(error: unknown): string {
 
 export default function SignInScreen() {
   const { completeSignIn } = useAuth();
+  const t = useTranslation();
   const [step, setStep] = useState<Step>("phone");
   const [phoneInput, setPhoneInput] = useState("");
   const [verifiedPhone, setVerifiedPhone] = useState("");
@@ -51,7 +53,7 @@ export default function SignInScreen() {
   async function handleRequestCode() {
     setError(null);
     if (!isValidPhilippinePhone(phoneInput)) {
-      setError("Enter a valid Philippine mobile number, such as 09171234567.");
+      setError(t("signIn.invalidPhone"));
       return;
     }
 
@@ -93,7 +95,7 @@ export default function SignInScreen() {
   async function handleVerifyCode() {
     setError(null);
     if (!/^\d{6}$/.test(code)) {
-      setError("Enter the complete 6-digit verification code.");
+      setError(t("signIn.invalidCode"));
       return;
     }
 
@@ -140,13 +142,11 @@ export default function SignInScreen() {
               </Text>
               <Text style={styles.subtitle}>
                 {step === "phone"
-                  ? "Enter your mobile number — we'll text you a code to verify it's yours."
-                  : `Enter the 6-digit code sent to ${toDisplayPhone(verifiedPhone)}.`}
+                  ? t("signIn.subtitlePhone")
+                  : t("signIn.subtitleCode", { phone: toDisplayPhone(verifiedPhone) })}
               </Text>
               {step === "code" ? (
-                <Text style={styles.deliveryNote}>
-                  SMS delivery may take up to a minute. Please wait a moment.
-                </Text>
+                <Text style={styles.deliveryNote}>{t("signIn.deliveryNote")}</Text>
               ) : null}
             </View>
 
@@ -234,18 +234,16 @@ export default function SignInScreen() {
                   </View>
                   {devCode ? (
                     <View style={styles.demoCode}>
-                      <Text style={styles.demoCodeLabel}>Local demo code</Text>
+                      <Text style={styles.demoCodeLabel}>{t("signIn.demoCode")}</Text>
                       <Text style={styles.demoCodeValue}>{devCode}</Text>
                     </View>
                   ) : null}
                   <View style={styles.resendRow}>
-                    <Text style={styles.resendPrompt}>
-                      Didn&apos;t receive the code?
-                    </Text>
+                    <Text style={styles.resendPrompt}>{t("signIn.resendPrompt")}</Text>
                     <Button
                       disabled={resendSeconds > 0 || isSubmitting}
                       loading={isResending}
-                      loadingLabel="Resending..."
+                      loadingLabel={t("signIn.resending")}
                       onPress={() => void handleResendCode()}
                       variant="tertiary"
                     >

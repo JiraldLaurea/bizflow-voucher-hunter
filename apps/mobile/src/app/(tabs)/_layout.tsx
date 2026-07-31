@@ -3,6 +3,7 @@ import { Tabs } from "expo-router";
 import { StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useTranslation } from "@/i18n/LanguageContext";
 import { colors, fonts } from "@/theme";
 
 /**
@@ -27,6 +28,7 @@ function TabIcon({
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const t = useTranslation();
   // A fixed bar height puts the labels under the gesture pill on devices with
   // gesture navigation, so the inset is added to the bar rather than assumed away.
   const bottomInset = insets.bottom;
@@ -48,21 +50,21 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: t("tab.home"),
           tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="home" />,
         }}
       />
       <Tabs.Screen
         name="vouchers"
         options={{
-          title: "Vouchers",
+          title: t("tab.vouchers"),
           tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="shopping-bag" />,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
-          title: "More",
+          title: t("tab.more"),
           tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="more-horizontal" />,
         }}
       />
