@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import { FiBriefcase, FiChevronDown } from "react-icons/fi";
+import { FiChevronDown } from "react-icons/fi";
 import { campaignCategoryIcon } from "@/lib/campaign-category";
 import type { Business, Campaign } from "@/types/voucher";
 
@@ -73,8 +73,10 @@ export function ScopeSelector({
     <div className="scope-selector">
       {showBusinessPicker ? (
         <label className="campaign-page-selector">
-          <span className="campaign-page-selector-icon scope-selector-business-icon">
-            <FiBriefcase aria-hidden="true" />
+          <span
+            className={`campaign-page-selector-icon mode-${business?.industry ?? "other"}`}
+          >
+            {campaignCategoryIcon(business?.industry ?? "other")}
           </span>
           <span className="campaign-page-selector-copy">
             <small>Business</small>

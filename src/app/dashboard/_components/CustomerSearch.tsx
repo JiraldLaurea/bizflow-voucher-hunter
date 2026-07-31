@@ -18,19 +18,24 @@ export function CustomerSearch({ initialQuery }: { initialQuery: string }) {
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const trimmed = query.trim();
-    router.push(trimmed ? `/dashboard/users?q=${encodeURIComponent(trimmed)}` : "/dashboard/users");
+    router.push(
+      trimmed ? `/dashboard/users?q=${encodeURIComponent(trimmed)}` : "/dashboard/users",
+    );
   }
 
   return (
     <form className="customer-search" onSubmit={submit}>
-      <input
-        aria-label="Search customers by name or number"
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search by name or mobile number"
-        value={query}
-      />
+      <div className="customer-search-field">
+        <FiSearch aria-hidden="true" className="customer-search-icon" />
+        <input
+          aria-label="Search customers by name or number"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by name or mobile number"
+          value={query}
+        />
+      </div>
       <button className="button" type="submit">
-        <FiSearch aria-hidden="true" /> Search
+        Search
       </button>
       {initialQuery ? (
         <button
