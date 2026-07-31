@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { FiArrowLeft } from "react-icons/fi";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import { toDisplayPhone } from "@/lib/phone-display";
 import { AppError } from "@/server/errors";
 import { getCustomer } from "@/server/customers";
 
@@ -72,9 +73,9 @@ export default async function CustomerDetailPage({
           <Link className="customer-back" href="/dashboard/users">
             <FiArrowLeft aria-hidden="true" /> All users
           </Link>
-          <h1>{summary.name || summary.phone}</h1>
+          <h1>{summary.name || toDisplayPhone(summary.phone)}</h1>
           <p className="muted">
-            {summary.name ? `${summary.phone} · ` : ""}
+            {summary.name ? `${toDisplayPhone(summary.phone)} · ` : ""}
             First seen {formatDate(summary.firstSeenAt)}
           </p>
         </div>
@@ -84,7 +85,7 @@ export default async function CustomerDetailPage({
         <div className="customer-stats">
           <div className="customer-stat">
             <span className="muted">Mobile number</span>
-            <strong>{summary.phone}</strong>
+            <strong>{toDisplayPhone(summary.phone)}</strong>
           </div>
           <div className="customer-stat">
             <span className="muted">Email</span>

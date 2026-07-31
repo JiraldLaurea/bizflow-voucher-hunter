@@ -18,6 +18,7 @@ import {
   run,
   withTx
 } from "@/server/db";
+import { toDisplayPhone } from "@/lib/phone-display";
 import { normalizePhone } from "@/server/phone";
 import { awardReferralLoyaltyPoints } from "@/server/rewards-network";
 import { sendSms, type SmsResult } from "@/server/sms";
@@ -1165,7 +1166,7 @@ export async function exportCampaignCsv(campaignId: string) {
   const leadsSection = csvSection(
     "LEADS",
     ["user_id", "name", "phone", "email", "created_at"],
-    users.map((user) => [user.id, user.name ?? "", user.phone, user.email ?? "", user.createdAt])
+    users.map((user) => [user.id, user.name ?? "", toDisplayPhone(user.phone), user.email ?? "", user.createdAt])
   );
 
   const vouchersSection = csvSection(
@@ -1176,7 +1177,7 @@ export async function exportCampaignCsv(campaignId: string) {
       const slot = slotsById.get(voucher.slotId);
       return [
         voucher.voucherCode,
-        user?.phone ?? "",
+        user?.phone ? toDisplayPhone(user.phone) : "",
         user?.name ?? "",
         voucher.displayLabel,
         voucher.status,
@@ -1198,7 +1199,7 @@ export async function exportCampaignCsv(campaignId: string) {
       const slot = attempt.slotId ? slotsById.get(attempt.slotId) : undefined;
       return [
         attempt.id,
-        user?.phone ?? "",
+        user?.phone ? toDisplayPhone(user.phone) : "",
         attempt.attemptNumber,
         attempt.sourceType,
         attempt.displayLabel,
@@ -1218,7 +1219,7 @@ export async function exportCampaignCsv(campaignId: string) {
       const user = voucher ? usersById.get(voucher.userId) : undefined;
       return [
         voucher?.voucherCode ?? "",
-        user?.phone ?? "",
+        user?.phone ? toDisplayPhone(user.phone) : "",
         redemption.staffName,
         redemption.purchaseAmount ?? "",
         redemption.note ?? "",

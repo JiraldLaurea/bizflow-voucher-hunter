@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import { toDisplayPhone } from "@/lib/phone-display";
 import { listCustomers } from "@/server/customers";
 import { CustomerSearch } from "../_components/CustomerSearch";
 
@@ -78,10 +79,10 @@ export default async function UsersPage({
                       className="customer-link"
                       href={`/dashboard/users/${encodeURIComponent(customer.phone)}`}
                     >
-                      <strong>{customer.name || customer.phone}</strong>
+                      <strong>{customer.name || toDisplayPhone(customer.phone)}</strong>
                     </Link>
                     {customer.name ? (
-                      <div className="muted customer-phone">{customer.phone}</div>
+                      <div className="muted customer-phone">{toDisplayPhone(customer.phone)}</div>
                     ) : null}
                   </td>
                   <td>{customer.campaignCount}</td>
