@@ -46,7 +46,11 @@ function isExpoGo() {
 
 async function getNotifications(): Promise<NotificationsModule | null> {
   if (isExpoGo()) return null;
-  return import("expo-notifications").catch(() => null);
+  try {
+    return await import("expo-notifications");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -59,11 +63,21 @@ export function useNotificationRouting(ready: boolean) {
   const handledColdStart = useRef(false);
 
   useEffect(() => {
+    if (!ready) return;
+
     let mounted = true;
     let subscription: { remove: () => void } | null = null;
 
-    void getNotifications().then((Notifications) => {
-      if (!mounted || !Notifications) return;
+    void (async () => {
+      const Notifications = await getNotifications();
+      if (
+        !mounted ||
+        !Notifications ||
+        typeof Notifications.addNotificationResponseReceivedListener !==
+          "function"
+      ) {
+        return;
+      }
 
       subscription = Notifications.addNotificationResponseReceivedListener(
         (response: NotificationResponse) => {
@@ -75,21 +89,29 @@ export function useNotificationRouting(ready: boolean) {
       );
 
       // A tap that launched the app is not delivered to the listener above.
-      void Notifications.getLastNotificationResponseAsync().then((response) => {
-        if (!mounted || !response || handledColdStart.current) return;
+      if (
+        typeof Notifications.getLastNotificationResponseAsync !== "function"
+      ) {
+        return;
+      }
+      const response = await Notifications.getLastNotificationResponseAsync();
+      if (mounted && response && !handledColdStart.current) {
         handledColdStart.current = true;
         const destination = resolveNotification(
           response.notification.request.content.data,
         );
         if (destination) pending.current = destination;
-      });
+      }
+    })().catch(() => {
+      // Notification support is optional. A missing or incompatible native
+      // module must never interrupt sign-in or navigation.
     });
 
     return () => {
       mounted = false;
       subscription?.remove();
     };
-  }, []);
+  }, [ready]);
 
   useEffect(() => {
     if (!ready) return;

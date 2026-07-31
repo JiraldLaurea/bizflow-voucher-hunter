@@ -175,8 +175,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // has just verified an OTP, so the ask lands in context instead of cold.
     // Deliberately not awaited — sign-in must not wait on a permission dialog.
     void (async () => {
-      const pushToken = await acquirePushToken();
-      if (pushToken) await registerPushToken(pushToken, nextToken);
+      try {
+        const pushToken = await acquirePushToken();
+        if (pushToken) await registerPushToken(pushToken, nextToken);
+      } catch {
+        // Push registration is optional. Never surface a rejected background
+        // promise after a customer has successfully signed in.
+      }
     })();
   }, []);
 

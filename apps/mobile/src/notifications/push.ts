@@ -39,7 +39,13 @@ function isExpoGo() {
 async function getNotifications(): Promise<NotificationsModule | null> {
   if (isExpoGo()) return null;
 
-  notificationsPromise ??= import("expo-notifications").catch(() => null);
+  notificationsPromise ??= (async () => {
+    try {
+      return await import("expo-notifications");
+    } catch {
+      return null;
+    }
+  })();
   const notifications = await notificationsPromise;
   if (!notifications || handlerConfigured) return notifications;
 
