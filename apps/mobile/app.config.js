@@ -97,7 +97,10 @@ module.exports = {
       [
         "expo-splash-screen",
         {
-          backgroundColor: BRAND_PURPLE,
+          // White, not the brand purple: the splash artwork carries its own
+          // purple tile, so a purple field made the launch screen one flat block
+          // of colour with the mark barely readable inside it.
+          backgroundColor: "#ffffff",
           image: "./assets/images/splash-icon.png",
           imageWidth: 140,
         },
