@@ -1,11 +1,14 @@
+import { LiveSmsToggle } from "../_components/LiveSmsToggle";
 import { ResetDataButton } from "../_components/ResetDataButton";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import { isDevLiveSmsEnabled } from "@/server/runtime-settings";
 
 export default async function SettingsPage() {
   const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
   if (session?.role !== "super_admin") redirect("/dashboard");
+  const liveSmsEnabled = await isDevLiveSmsEnabled();
   return (
     <>
       <header className="admin-topbar">
@@ -14,6 +17,21 @@ export default async function SettingsPage() {
           <p className="muted">Platform-level configuration and maintenance actions.</p>
         </div>
       </header>
+
+      <section className="panel">
+        <h2>SMS delivery</h2>
+        <p className="muted">
+          Development servers use a mock provider by default: messages are logged
+          rather than sent, and the sign-in code is shown on screen. Turn this on
+          to exercise real delivery — only useful from a machine whose IP the SMS
+          provider has whitelisted.
+        </p>
+        <LiveSmsToggle
+          configuredProvider={process.env.SMS_PROVIDER ?? "mock"}
+          enabled={liveSmsEnabled}
+          isDevelopment={process.env.NODE_ENV === "development"}
+        />
+      </section>
 
       <section className="panel settings-danger-zone">
         <h2>Danger Zone</h2>

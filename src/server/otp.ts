@@ -82,12 +82,16 @@ export async function requestSignInOtp(input: {
     phone,
     `[BizFlow] Your sign-in code is ${code}. It expires in 5 minutes.`
   );
+  // Surface the code outside production so local/demo/tests can complete the
+  // flow without a live SMS — but only when nothing was actually sent. With the
+  // "Live SMS" switch on, a real text goes out and echoing the code back would
+  // hand it to any caller, defeating the point of testing the real path.
+  const usedMockProvider = result.provider === "mock";
   return {
     sent: result.success,
     expiresAt,
-    // Surface the code outside production so local/demo/tests can complete the
-    // flow without a live SMS.
-    devCode: process.env.NODE_ENV === "production" ? undefined : code
+    devCode:
+      process.env.NODE_ENV === "production" || !usedMockProvider ? undefined : code
   };
 }
 

@@ -49,7 +49,7 @@ describe("sendSms", () => {
       })
     );
     const result = await sendSms("+639171234567", "hello");
-    expect(result).toEqual({ success: true, providerMessageId: "abc123" });
+    expect(result).toEqual({ success: true, providerMessageId: "abc123", provider: "movider" });
   });
 
   it("movider: surfaces a top-level error array as a failure", async () => {
@@ -91,7 +91,7 @@ describe("sendSms", () => {
       })
     );
     const result = await sendSms("+639171234567", "hello");
-    expect(result).toEqual({ success: true, providerMessageId: "SMxyz" });
+    expect(result).toEqual({ success: true, providerMessageId: "SMxyz", provider: "twilio" });
   });
 
   it("infobip: rejected status maps to a failure with the rejection reason", async () => {
@@ -134,7 +134,7 @@ describe("sendSms", () => {
       })
     );
     const result = await sendSms("+639171234567", "hello");
-    expect(result).toEqual({ success: true, providerMessageId: "cs1" });
+    expect(result).toEqual({ success: true, providerMessageId: "cs1", provider: "clicksend" });
   });
 });
 

@@ -3,16 +3,38 @@
 //   SMS_PROVIDER=smpp|movider|twilio|infobip|clicksend|mock (defaults to mock)
 //   SMS_API_KEY, SMS_API_SECRET, SMS_SENDER_ID
 
+import { isDevLiveSmsEnabled } from "@/server/runtime-settings";
 import { recordSmsDeliveryReceipt } from "@/server/sms-delivery-receipts";
 
 export type SmsResult = {
   success: boolean;
   providerMessageId?: string;
   error?: string;
+  /** Provider actually used, which is not always SMS_PROVIDER — see resolveSmsProvider. */
+  provider: string;
 };
 
+/** What an individual provider returns; sendSms stamps on which one ran. */
+type ProviderResult = Omit<SmsResult, "provider">;
+
+/**
+ * Production always uses SMS_PROVIDER.
+ *
+ * Elsewhere the default is the mock provider, so a dev server cannot text real
+ * customers or spend aggregator credit by accident. The "Live SMS" switch in
+ * dashboard settings opts a dev server into real sending, which is how delivery
+ * gets exercised from a machine whose IP the SMSC whitelists.
+ */
+export async function resolveSmsProvider(): Promise<string> {
+  const configured = process.env.SMS_PROVIDER ?? "mock";
+  // Only a development server is gated. Production always sends, and tests must
+  // get the provider they configure rather than being forced onto the mock.
+  if (process.env.NODE_ENV !== "development") return configured;
+  return (await isDevLiveSmsEnabled()) ? configured : "mock";
+}
+
 export async function sendSms(phone: string, message: string): Promise<SmsResult> {
-  const provider = process.env.SMS_PROVIDER ?? "mock";
+  const provider = await resolveSmsProvider();
   const result = await routeSms(provider, phone, message);
 
   // Callers decide whether a failed send should fail their request — the sign-in
@@ -23,10 +45,10 @@ export async function sendSms(phone: string, message: string): Promise<SmsResult
       `[SMS] provider=${provider} send failed: ${result.error ?? "unknown error"}`,
     );
   }
-  return result;
+  return { ...result, provider };
 }
 
-async function routeSms(provider: string, phone: string, message: string): Promise<SmsResult> {
+async function routeSms(provider: string, phone: string, message: string): Promise<ProviderResult> {
   if (provider === "smpp_worker") return sendViaSmppWorker(phone, message);
   if (provider === "smpp") return sendViaSmpp(phone, message);
   if (provider === "movider") return sendViaMovider(phone, message);
@@ -55,7 +77,7 @@ async function routeSms(provider: string, phone: string, message: string): Promi
 // this relays to it over HTTP: stateless, fast, and no session to keep alive.
 //
 // Env: SMPP_WORKER_URL, SMPP_WORKER_API_TOKEN.
-async function sendViaSmppWorker(phone: string, message: string): Promise<SmsResult> {
+async function sendViaSmppWorker(phone: string, message: string): Promise<ProviderResult> {
   const workerUrl = process.env.SMPP_WORKER_URL;
   const apiToken = process.env.SMPP_WORKER_API_TOKEN;
   if (!workerUrl || !apiToken) {
@@ -136,7 +158,7 @@ type SmppModule = {
 let smppSessionPromise: Promise<SmppSession> | null = null;
 let smppSession: SmppSession | null = null;
 
-async function sendViaSmpp(phone: string, message: string): Promise<SmsResult> {
+async function sendViaSmpp(phone: string, message: string): Promise<ProviderResult> {
   const host = process.env.SMPP_HOST;
   const port = process.env.SMPP_PORT ?? "2775";
   const systemId = process.env.SMPP_SYSTEM_ID;
@@ -408,7 +430,7 @@ function isLikelyGlobeNumber(phone: string) {
 // Docs: https://developer.movider.co
 // Env vars: SMS_API_KEY, SMS_API_SECRET, SMS_SENDER_ID (optional, defaults to "BizFlow")
 
-async function sendViaMovider(phone: string, message: string): Promise<SmsResult> {
+async function sendViaMovider(phone: string, message: string): Promise<ProviderResult> {
   const apiKey = process.env.SMS_API_KEY;
   const apiSecret = process.env.SMS_API_SECRET;
   const from = process.env.SMS_SENDER_ID ?? "BizFlow";
@@ -464,7 +486,7 @@ async function sendViaMovider(phone: string, message: string): Promise<SmsResult
 
 // ---- Twilio ----
 
-async function sendViaTwilio(phone: string, message: string): Promise<SmsResult> {
+async function sendViaTwilio(phone: string, message: string): Promise<ProviderResult> {
   const accountSid = process.env.SMS_API_KEY;
   const authToken = process.env.SMS_API_SECRET;
   const from = process.env.SMS_SENDER_ID ?? process.env.TWILIO_PHONE_NUMBER;
@@ -495,7 +517,7 @@ async function sendViaTwilio(phone: string, message: string): Promise<SmsResult>
 
 // ---- Infobip ----
 
-async function sendViaInfobip(phone: string, message: string): Promise<SmsResult> {
+async function sendViaInfobip(phone: string, message: string): Promise<ProviderResult> {
   const apiKey = process.env.SMS_API_KEY;
   const baseUrl = process.env.INFOBIP_BASE_URL;
   const sender = process.env.SMS_SENDER_ID ?? "BizFlow";
@@ -533,7 +555,7 @@ async function sendViaInfobip(phone: string, message: string): Promise<SmsResult
 
 // ---- ClickSend ----
 
-async function sendViaClickSend(phone: string, message: string): Promise<SmsResult> {
+async function sendViaClickSend(phone: string, message: string): Promise<ProviderResult> {
   const username = process.env.SMS_API_KEY;
   const apiKey = process.env.SMS_API_SECRET;
   const sender = process.env.SMS_SENDER_ID ?? "BizFlow";
