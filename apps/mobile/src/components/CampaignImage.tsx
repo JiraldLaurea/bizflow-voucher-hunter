@@ -3,7 +3,8 @@ import { Image } from "expo-image";
 import { StyleSheet, Text, View } from "react-native";
 
 import { resolveAssetUrl } from "@/api/client";
-import { CAMPAIGN_MODE_LABELS } from "@/lib/format";
+import { useTranslation } from "@/i18n/LanguageContext";
+import { campaignModeLabel } from "@/lib/format";
 import { colors, fonts, radius } from "@/theme";
 
 /** `.campaign-landing-category.mode-*` — the pill overlaid on the landing artwork. */
@@ -37,6 +38,7 @@ export function CampaignImage({
   showCategory = false,
   style,
 }: CampaignImageProps) {
+  const t = useTranslation();
   const image = resolveCampaignImage(campaign);
   if (!image) return null;
 
@@ -54,7 +56,7 @@ export function CampaignImage({
       {showCategory ? (
         <View style={[styles.category, { borderColor: tint.border }]}>
           <Text style={[styles.categoryText, { color: tint.color }]}>
-            {CAMPAIGN_MODE_LABELS[campaign.mode] ?? campaign.mode}
+            {campaignModeLabel(t, campaign.mode)}
           </Text>
         </View>
       ) : null}

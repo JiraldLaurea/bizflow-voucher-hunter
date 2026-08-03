@@ -55,12 +55,9 @@ export function LoyaltyAwardModal({ balance, onConfirm, points }: Props) {
           </View>
         </View>
 
-        <Text style={styles.eyebrow}>DAILY LOYALTY REWARD</Text>
-        <Text style={styles.title}>{points} earned!</Text>
-        <Text style={styles.copy}>
-          Thanks for opening Voucher Hunt today. Your daily reward has been
-          added to your Loyalty Points balance.
-        </Text>
+        <Text style={styles.eyebrow}>{t("loyalty.awardEyebrow")}</Text>
+        <Text style={styles.title}>{t("loyalty.awardTitle", { points })}</Text>
+        <Text style={styles.copy}>{t("loyalty.awardCopy")}</Text>
 
         <View style={styles.balancePanel}>
           <View style={styles.balanceIcon}>

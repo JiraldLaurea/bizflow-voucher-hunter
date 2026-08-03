@@ -18,8 +18,13 @@ import { useAuth } from "@/auth/AuthContext";
 import { CampaignImage } from "@/components/CampaignImage";
 import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
-import { CAMPAIGN_MODE_LABELS } from "@/lib/format";
-import { useTranslation } from "@/i18n/LanguageContext";
+import { useLanguage } from "@/i18n/LanguageContext";
+import {
+  CAMPAIGN_MODES,
+  campaignModeLabel,
+  formatCampaignRange,
+  localeFor,
+} from "@/lib/format";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 /** `.chip.mode-*` — one tint per industry, matching the web directory cards. */
@@ -35,19 +40,9 @@ const MODE_CHIPS: Record<
   other: { color: "#475569", border: "#e2e8f0", background: "#f8fafc" },
 };
 
-function formatRange(start: string, end: string) {
-  const format = (value: string) => {
-    const parsed = new Date(`${value}T00:00:00`);
-    return Number.isNaN(parsed.getTime())
-      ? value
-      : parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
-  return `${format(start)} – ${format(end)}`;
-}
-
 /** Port of the web `CampaignDirectory`. */
 export default function HomeScreen() {
-  const t = useTranslation();
+  const { language, t } = useLanguage();
   const { token } = useAuth();
   const router = useRouter();
   const [cards, setCards] = useState<CampaignCard[]>([]);
@@ -89,18 +84,24 @@ export default function HomeScreen() {
     const present = new Set(cards.map((card) => String(card.businessIndustry)));
     return [
       "all",
-      ...Object.keys(CAMPAIGN_MODE_LABELS).filter((mode) => present.has(mode)),
+      ...CAMPAIGN_MODES.filter((mode) => present.has(mode)),
     ];
   }, [cards]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return cards.filter(({ businessIndustry, businessName, campaign }) => {
+    return cards.filter(({
+      businessAddress,
+      businessIndustry,
+      businessName,
+      campaign,
+    }) => {
       if (category !== "all" && businessIndustry !== category) return false;
       if (!needle) return true;
       return (
         campaign.title.toLowerCase().includes(needle) ||
         businessName.toLowerCase().includes(needle) ||
+        (businessAddress ?? "").toLowerCase().includes(needle) ||
         (campaign.location ?? "").toLowerCase().includes(needle)
       );
     });
@@ -125,9 +126,7 @@ export default function HomeScreen() {
       >
         <View>
           <Text style={styles.title}>{t("home.title")}</Text>
-          <Text style={styles.subtitle}>
-            Search active campaigns and pick one to start hunting.
-          </Text>
+          <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
         </View>
 
         <View style={styles.search}>
@@ -163,7 +162,7 @@ export default function HomeScreen() {
                       active && styles.filterTextActive,
                     ]}
                   >
-                    {entry === "all" ? "All" : CAMPAIGN_MODE_LABELS[entry]}
+                    {entry === "all" ? t("home.filterAll") : campaignModeLabel(t, entry)}
                   </Text>
                 </Pressable>
               );
@@ -189,7 +188,12 @@ export default function HomeScreen() {
           </View>
         ) : (
           <View style={styles.list}>
-            {filtered.map(({ businessIndustry, businessName, campaign }) => {
+            {filtered.map(({
+              businessAddress,
+              businessIndustry,
+              businessName,
+              campaign,
+            }) => {
               const chip = MODE_CHIPS[businessIndustry] ?? MODE_CHIPS.other;
               return (
                 <Pressable
@@ -216,8 +220,14 @@ export default function HomeScreen() {
                       <Text style={styles.cardBusiness}>{businessName}</Text>
                       <View style={styles.cardLocationRow}>
                         <Icon name="map-pin" size={14} />
-                        <Text style={styles.cardLocation}>
-                          {campaign.location ?? t("home.locationTba")}
+                        <Text
+                          ellipsizeMode="tail"
+                          numberOfLines={1}
+                          style={styles.cardLocation}
+                        >
+                          {businessAddress ??
+                            campaign.location ??
+                            t("home.locationTba")}
                         </Text>
                       </View>
                     </View>
@@ -231,14 +241,17 @@ export default function HomeScreen() {
                       ]}
                     >
                       <Text style={[styles.chipText, { color: chip.color }]}>
-                        {CAMPAIGN_MODE_LABELS[businessIndustry] ??
-                          businessIndustry}
+                        {campaignModeLabel(t, businessIndustry)}
                       </Text>
                     </View>
                   </View>
                   <View style={styles.cardFoot}>
                     <Text style={styles.cardDates}>
-                      {formatRange(campaign.startDate, campaign.endDate)}
+                      {formatCampaignRange(
+                        campaign.startDate,
+                        campaign.endDate,
+                        localeFor(language),
+                      )}
                     </Text>
                     <View style={styles.cardCtaRow}>
                       <Text style={styles.cardCta}>{t("home.huntNow")}</Text>
@@ -338,7 +351,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 14,
     borderWidth: 1,
-    boxShadow: "0 6px 16px rgba(11, 29, 58, 0.05)",
     gap: 6,
     padding: 16,
   },
@@ -373,8 +385,10 @@ const styles = StyleSheet.create({
   },
   cardLocation: {
     color: colors.ink,
+    flex: 1,
     fontFamily: fonts.semibold,
     fontSize: 13,
+    lineHeight: 18,
   },
   cardLocationRow: {
     alignItems: "center",

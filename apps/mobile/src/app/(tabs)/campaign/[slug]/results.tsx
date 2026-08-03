@@ -92,10 +92,7 @@ export default function ResultsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.title}>{t("results.title")}</Text>
-        <Text style={styles.lead}>
-          Pick the voucher you want to continue with. Extra spins add more options
-          here.
-        </Text>
+        <Text style={styles.lead}>{t("results.lead")}</Text>
 
         {flow.attempts.length === 0 ? (
           <InfoCard>
@@ -105,7 +102,7 @@ export default function ResultsScreen() {
                 router.replace({ pathname: "/campaign/[slug]", params: { slug } })
               }
             >
-              Return to campaign
+              {t("results.returnCampaign")}
             </Button>
           </InfoCard>
         ) : (
@@ -128,7 +125,7 @@ export default function ResultsScreen() {
                 >
                   <VoucherTicket
                     benefit={attempt}
-                    detail={voucherDetail(attempt)}
+                    detail={voucherDetail(t, attempt)}
                     footnote={t("results.minSpend")}
                     selected={selected}
                   />
@@ -148,13 +145,12 @@ export default function ResultsScreen() {
                   : t("results.shareToUnlock")}
               </Button>
               {shareError ? <InlineError message={shareError} /> : null}
-              <Text style={styles.shareHint}>
-                Share your link. When a friend opens it, you earn one extra roulette
-                spin.
-              </Text>
+              <Text style={styles.shareHint}>{t("results.shareHint")}</Text>
               <Text style={styles.shareNote}>
-                Extra spins earned today: {flow.shareCount} /{" "}
-                {campaign?.campaign.referralDailyLimit ?? 0}
+                {t("results.shareCount", {
+                  count: flow.shareCount,
+                  limit: campaign?.campaign.referralDailyLimit ?? 0,
+                })}
               </Text>
             </View>
           </View>
@@ -167,7 +163,7 @@ export default function ResultsScreen() {
               router.push({ pathname: "/campaign/[slug]/datetime", params: { slug } })
             }
           >
-            Pick date &amp; time
+            {t("results.pickDateTime")}
           </Button>
         </View>
       </ScrollView>

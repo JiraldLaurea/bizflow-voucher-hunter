@@ -7,16 +7,22 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { selectVoucher } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, Field, InlineError, ReadOnlyField } from "@/components/FormControls";
+import { BusinessDetailsCard } from "@/components/BusinessDetailsCard";
 import { StepHeader, SummaryList, SummaryRow } from "@/components/HuntUi";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { useHunt } from "@/hunt/HuntContext";
-import { formatDate, formatTime } from "@/lib/format";
-import { useTranslation } from "@/i18n/LanguageContext";
+import {
+  campaignModeLabel,
+  formatDate,
+  formatTime,
+  localeFor,
+} from "@/lib/format";
+import { useLanguage } from "@/i18n/LanguageContext";
 import { colors, fonts, spacing } from "@/theme";
 
 /** Step 6 — name/email/guests, then issue the final voucher. */
 export default function ConfirmScreen() {
-  const t = useTranslation();
+  const { language, t } = useLanguage();
   const router = useRouter();
   const { phone, token } = useAuth();
   const { campaign, flow, save, selectedAttempt, sessionId, slotById, slug } = useHunt();
@@ -62,9 +68,7 @@ export default function ConfirmScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.lead}>
-          Confirm your selected voucher and reservation details.
-        </Text>
+        <Text style={styles.lead}>{t("confirm.lead")}</Text>
 
         {selectedAttempt ? (
           <View style={styles.ticket}>
@@ -104,21 +108,41 @@ export default function ConfirmScreen() {
 
         <SummaryList>
           <SummaryRow
+            icon="flag"
+            label={t("common.campaign")}
+            value={campaign?.campaign.title ?? "—"}
+          />
+          <SummaryRow
+            icon="briefcase"
+            label={t("common.business")}
+            value={campaign?.business?.name ?? "—"}
+          />
+          <SummaryRow
             icon="calendar"
             label={t("common.date")}
-            value={slot ? formatDate(slot.date) : t("confirm.noSlot")}
+            value={
+              slot
+                ? formatDate(slot.date, localeFor(language))
+                : t("confirm.noSlot")
+            }
           />
           <SummaryRow
             icon="clock"
             label={t("common.time")}
-            value={slot ? formatTime(slot.startTime) : t("confirm.noSlot")}
+            value={
+              slot
+                ? formatTime(slot.startTime, localeFor(language))
+                : t("confirm.noSlot")
+            }
           />
           <SummaryRow
             icon="tag"
             label={t("confirm.category")}
-            value={isRestaurant ? t("confirm.restaurant") : t("confirm.onlineShop")}
+            value={campaignModeLabel(t, campaign?.campaign.mode ?? "other")}
           />
         </SummaryList>
+
+        <BusinessDetailsCard business={campaign?.business} />
 
         {error ? <InlineError message={error} /> : null}
 
@@ -129,7 +153,7 @@ export default function ConfirmScreen() {
             loadingLabel={t("confirm.reserving")}
             onPress={issue}
           >
-            Confirm &amp; Reserve
+            {t("confirm.submit")}
           </Button>
         </View>
       </ScrollView>

@@ -78,6 +78,7 @@ type Props = {
 };
 
 function WinnerRouletteCard({ item }: { item: RoulettePreview }) {
+  const t = useTranslation();
   const pop = useSharedValue(0);
   const shine = useSharedValue(0);
 
@@ -119,7 +120,7 @@ function WinnerRouletteCard({ item }: { item: RoulettePreview }) {
       <View pointerEvents="none" style={styles.winnerFrame} />
       <VoucherTicket
         benefit={item}
-        detail={voucherDetail(item)}
+        detail={voucherDetail(t, item)}
         minHeight={172}
         selected
         width={CARD_WIDTH}
@@ -133,6 +134,7 @@ function WinnerRouletteCard({ item }: { item: RoulettePreview }) {
 
 export const RouletteReel = forwardRef<RouletteReelHandle, Props>(
   function RouletteReel({ items, settledIndex }, ref) {
+    const t = useTranslation();
     const { width } = useWindowDimensions();
     const offset = useSharedValue(0);
     const spinning = useSharedValue(false);
@@ -245,13 +247,22 @@ export const RouletteReel = forwardRef<RouletteReelHandle, Props>(
     );
 
     const trackStyle = useAnimatedStyle(() => ({
-      transform: [{ translateX: wrapOffset(offset.value, cycleValue.value) }],
+      // Keep the active reel in the middle copy. Landing exactly at offset zero
+      // would otherwise put the winner at the start of the track with no card to
+      // render on its left.
+      transform: [
+        {
+          translateX:
+            wrapOffset(offset.value, cycleValue.value) - cycleValue.value,
+        },
+      ],
     }));
 
-    // Rendered twice so wrapping the offset by one cycle is invisible.
+    // Render the previous, active and next cycles so a settled voucher always has
+    // a neighbour on both sides, including at the exact cycle boundary.
     const cards = useMemo(
       () =>
-        [...reelItems, ...reelItems].map((item, index) => {
+        [...reelItems, ...reelItems, ...reelItems].map((item, index) => {
           const selected =
             settledIndex !== null &&
             index % Math.max(1, reelItems.length) === settledIndex;
@@ -275,7 +286,7 @@ export const RouletteReel = forwardRef<RouletteReelHandle, Props>(
             >
               <VoucherTicket
                 benefit={item}
-                detail={voucherDetail(item)}
+                detail={voucherDetail(t, item)}
                 minHeight={172}
                 motionOptimized
                 width={CARD_WIDTH}
@@ -283,7 +294,7 @@ export const RouletteReel = forwardRef<RouletteReelHandle, Props>(
             </View>
           );
         }),
-      [reelItems, settledIndex],
+      [reelItems, settledIndex, t],
     );
 
     // Centres card 0 under the pointer, which is what the offsets assume.

@@ -15,12 +15,13 @@ import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { Screen } from "@/components/Screen";
 import { VoucherTicket } from "@/components/VoucherTicket";
-import { formatDate, formatTime } from "@/lib/format";
-import { useTranslation } from "@/i18n/LanguageContext";
+import { formatDate, formatTime, localeFor } from "@/lib/format";
+import { useLanguage } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, spacing } from "@/theme";
 
 export default function VouchersScreen() {
-  const t = useTranslation();
+  const { language, t } = useLanguage();
+  const locale = localeFor(language);
   const router = useRouter();
   const { token } = useAuth();
   const [vouchers, setVouchers] = useState<ClaimedVoucher[]>([]);
@@ -80,7 +81,7 @@ export default function VouchersScreen() {
           </View>
           <Text style={styles.emptyTitle}>{t("vouchers.emptyTitle")}</Text>
           <Text style={styles.copy}>
-            Complete a voucher hunt and your confirmed reward will appear here.
+            {t("vouchers.emptyCopy")}
           </Text>
         </View>
       ) : (
@@ -104,7 +105,8 @@ export default function VouchersScreen() {
                 detail={claimed.businessName}
                 footnote={`${claimed.campaignTitle} · ${formatDate(
                   claimed.slot.date,
-                )} · ${formatTime(claimed.slot.startTime)}`}
+                  locale,
+                )} · ${formatTime(claimed.slot.startTime, locale)}`}
                 minHeight={174}
               />
             </Pressable>

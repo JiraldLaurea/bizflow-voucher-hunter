@@ -1,22 +1,23 @@
 import { useRouter } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { resolveAssetUrl } from "@/api/client";
+import { BusinessDetailsCard } from "@/components/BusinessDetailsCard";
 import { Button } from "@/components/FormControls";
-import { Icon } from "@/components/Icon";
 import { StepHeader, SummaryList, SummaryRow } from "@/components/HuntUi";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { useHunt } from "@/hunt/HuntContext";
-import { formatDate, formatTime } from "@/lib/format";
-import { useTranslation } from "@/i18n/LanguageContext";
+import { useLanguage } from "@/i18n/LanguageContext";
+import { formatDate, formatTime, localeFor, voucherStatusLabel } from "@/lib/format";
 import { colors, fonts, palette, radius, spacing } from "@/theme";
 
 /** Step 7 — the issued voucher and the QR the outlet scans. */
 export default function ConfirmationScreen() {
-  const t = useTranslation();
+  const { language, t } = useLanguage();
   const router = useRouter();
-  const { flow } = useHunt();
+  const { campaign, flow } = useHunt();
   const issued = flow.issued;
 
   if (!issued) {
@@ -38,13 +39,14 @@ export default function ConfirmationScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.check}>
-          <Icon color={colors.success} name="check" size={38} />
-        </View>
+        <Image
+          accessibilityLabel={t("confirmation.confirmedImage")}
+          resizeMode="contain"
+          source={{ uri: resolveAssetUrl("/assets/confirmation-check.png") }}
+          style={styles.check}
+        />
         <Text style={styles.title}>{t("confirmation.reservationConfirmed")}</Text>
-        <Text style={styles.lead}>
-          Here&apos;s your voucher code. Show this QR code at the outlet.
-        </Text>
+        <Text style={styles.lead}>{t("confirmation.arrivalQr")}</Text>
 
         <VoucherTicket
           benefit={issued.voucher}
@@ -64,18 +66,22 @@ export default function ConfirmationScreen() {
         </View>
 
         <SummaryList>
-          <SummaryRow icon="calendar" label={t("common.date")} value={formatDate(issued.slot.date)} />
+          <SummaryRow icon="flag" label={t("common.campaign")} value={campaign?.campaign.title ?? "—"} />
+          <SummaryRow icon="briefcase" label={t("common.business")} value={campaign?.business?.name ?? "—"} />
+          <SummaryRow icon="calendar" label={t("common.date")} value={formatDate(issued.slot.date, localeFor(language))} />
           <SummaryRow
             icon="clock"
             label={t("common.time")}
-            value={formatTime(issued.slot.startTime)}
+            value={formatTime(issued.slot.startTime, localeFor(language))}
           />
-          <SummaryRow icon="check-circle" label={t("confirmation.status")} value={issued.voucher.status} />
+          <SummaryRow icon="check-circle" label={t("confirmation.status")} value={voucherStatusLabel(t, issued.voucher.status)} />
         </SummaryList>
+
+        <BusinessDetailsCard business={campaign?.business} />
 
         <View style={styles.action}>
           <Button onPress={() => router.replace("/vouchers")}>
-            View my vouchers
+            {t("confirmation.viewVouchers")}
           </Button>
         </View>
       </ScrollView>
@@ -94,12 +100,8 @@ const styles = StyleSheet.create({
     paddingTop: 26,
   },
   check: {
-    alignItems: "center",
     alignSelf: "center",
-    backgroundColor: colors.successSoft,
-    borderRadius: radius.pill,
     height: 76,
-    justifyContent: "center",
     marginBottom: 14,
     width: 76,
   },

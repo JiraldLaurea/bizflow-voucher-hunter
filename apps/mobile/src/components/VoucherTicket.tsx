@@ -6,6 +6,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, Text, View } from "react-native";
 
 import { useTranslation } from "@/i18n/LanguageContext";
+import {
+  voucherDisplayLabel,
+  voucherRarityDescription,
+  voucherRarityLabel,
+} from "@/lib/format";
 import { colors, fonts, radius, spacing } from "@/theme";
 import { rarityStyles } from "@/theme";
 
@@ -92,11 +97,12 @@ export function VoucherTicket({
         >
           <FontAwesome color={rarity.badgeText} name="star" size={9} />
           <Text style={[styles.badgeText, { color: rarity.badgeText }]}>
-            {presentation.label} · {presentation.description}
+            {voucherRarityLabel(t, presentation.rarity)} ·{" "}
+            {voucherRarityDescription(t, presentation.rarity)}
           </Text>
         </View>
         <Text style={[styles.heading, { color: rarity.headingText }]}>
-          {benefit.displayLabel}
+          {voucherDisplayLabel(t, benefit)}
         </Text>
         <Text style={[styles.detail, { color: rarity.text }]}>{detail}</Text>
         {code ? (

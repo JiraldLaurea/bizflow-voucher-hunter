@@ -1,10 +1,12 @@
 import { buildDirectionsUrl, buildTelUrl, isCoordinate } from "@bizflow/shared";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Linking,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,8 +22,12 @@ import { Icon, type IconName } from "@/components/Icon";
 import { ErrorState } from "@/components/ErrorState";
 import { StepHeader } from "@/components/HuntUi";
 import { useHunt } from "@/hunt/HuntContext";
-import { CAMPAIGN_MODE_LABELS, formatCampaignRange } from "@/lib/format";
-import { useTranslation } from "@/i18n/LanguageContext";
+import {
+  campaignInstruction,
+  formatCampaignRange,
+  localeFor,
+} from "@/lib/format";
+import { useLanguage } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 function buildEmbeddedMapsHtml(latitude: number, longitude: number) {
@@ -56,7 +62,7 @@ function buildEmbeddedMapsHtml(latitude: number, longitude: number) {
 
 /** Step 1 — the campaign landing (`.campaign-landing-card` on the web). */
 export default function CampaignLandingScreen() {
-  const t = useTranslation();
+  const { language, t } = useLanguage();
   const router = useRouter();
   const [venueError, setVenueError] = useState("");
   const {
@@ -72,6 +78,74 @@ export default function CampaignLandingScreen() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [mapVisible, setMapVisible] = useState(false);
+  const mapSheetTranslateY = useRef(new Animated.Value(0)).current;
+
+  const closeMapSheet = useCallback(() => {
+    setMapVisible(false);
+  }, []);
+
+  const openMapSheet = useCallback(() => {
+    mapSheetTranslateY.setValue(900);
+    setMapVisible(true);
+  }, [mapSheetTranslateY]);
+
+  const animateMapSheetOpen = useCallback(() => {
+    Animated.spring(mapSheetTranslateY, {
+      damping: 24,
+      mass: 0.85,
+      stiffness: 210,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+  }, [mapSheetTranslateY]);
+
+  const dismissMapSheet = useCallback(() => {
+    Animated.timing(mapSheetTranslateY, {
+      duration: 220,
+      toValue: 900,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) closeMapSheet();
+    });
+  }, [closeMapSheet, mapSheetTranslateY]);
+
+  const mapSheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderGrant: () => {
+          mapSheetTranslateY.stopAnimation();
+        },
+        onPanResponderMove: (_, gesture) => {
+          mapSheetTranslateY.setValue(Math.max(0, gesture.dy));
+        },
+        onPanResponderRelease: (_, gesture) => {
+          if (gesture.dy > 70 || gesture.vy > 0.55) {
+            dismissMapSheet();
+            return;
+          }
+          Animated.spring(mapSheetTranslateY, {
+            damping: 22,
+            mass: 0.8,
+            stiffness: 230,
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(mapSheetTranslateY, {
+            damping: 22,
+            stiffness: 230,
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [dismissMapSheet, mapSheetTranslateY],
+  );
 
   // The landing screen stays mounted in the tab navigator. Re-read the
   // authoritative hunt state whenever it becomes active so its CTA cannot show
@@ -217,15 +291,43 @@ export default function CampaignLandingScreen() {
           <Text style={styles.eyebrow}>{t("campaign.selectedEyebrow")}</Text>
           <Text style={styles.campaignTitle}>{details.title}</Text>
           <Text style={styles.business}>{campaign.business?.name ?? ""}</Text>
-          <Text style={styles.offer}>{details.offerMessage}</Text>
+          <Text style={styles.offer}>{campaignInstruction(t, details.mode)}</Text>
           <View style={styles.metaRow}>
             <View style={styles.metaIcon}>
               <Icon name="calendar" size={14} />
             </View>
             <Text style={styles.metaText}>
-              {formatCampaignRange(details.startDate, details.endDate)}
+              {formatCampaignRange(
+                details.startDate,
+                details.endDate,
+                localeFor(language),
+              )}
             </Text>
           </View>
+          </View>
+        </View>
+
+        <View style={styles.huntSection}>
+          <View style={styles.actionIntro}>
+            <Text style={styles.actionTitle}>{t("campaign.readyTitle")}</Text>
+            <Text style={styles.actionCopy}>{t("campaign.readySubtitle")}</Text>
+          </View>
+
+          <View style={styles.ruleCard}>
+            <RuleRow icon="clock" text={t("campaign.ruleOneSpin")} />
+            <RuleRow icon="shield" text={t("campaign.ruleHigherDiscount")} last />
+          </View>
+
+          {actionError ? <InlineError message={actionError} /> : null}
+
+          <View style={styles.action}>
+            <Button
+              loading={busy}
+              loadingLabel={t("campaign.searching")}
+              onPress={startHunt}
+            >
+              {canResume ? t("campaign.continue") : t("campaign.startHunt")}
+            </Button>
           </View>
         </View>
 
@@ -264,7 +366,7 @@ export default function CampaignLandingScreen() {
                 accessibilityHint={t("venue.viewFullMap")}
                 accessibilityLabel={`${business.name} ${t("venue.address")}`}
                 accessibilityRole="button"
-                onPress={() => setMapVisible(true)}
+                onPress={openMapSheet}
                 style={({ pressed }) => [
                   styles.mapPreview,
                   pressed && styles.mapPreviewPressed,
@@ -333,103 +435,100 @@ export default function CampaignLandingScreen() {
           </View>
         ) : null}
 
-        <View style={styles.actionIntro}>
-          <Text style={styles.actionTitle}>{t("campaign.readyTitle")}</Text>
-          <Text style={styles.actionCopy}>{t("campaign.readySubtitle")}</Text>
-        </View>
-
-        <View style={styles.ruleCard}>
-          <RuleRow icon="clock" text={t("campaign.ruleOneSpin")} />
-          <RuleRow icon="shield" text={t("campaign.ruleHigherDiscount")} last />
-        </View>
-
-        {actionError ? <InlineError message={actionError} /> : null}
-
-        <View style={styles.action}>
-          <Button
-            loading={busy}
-            loadingLabel={t("campaign.searching")}
-            onPress={startHunt}
-          >
-            {canResume ? t("campaign.continue") : t("campaign.startHunt")}
-          </Button>
-        </View>
       </ScrollView>
 
       {business && businessPin && embeddedMapHtml ? (
         <Modal
-          animationType="slide"
-          onRequestClose={() => setMapVisible(false)}
-          presentationStyle="fullScreen"
+          animationType="none"
+          onRequestClose={dismissMapSheet}
+          onShow={animateMapSheetOpen}
+          statusBarTranslucent
+          transparent
           visible={mapVisible}
         >
-          <SafeAreaView style={styles.fullMapSafeArea}>
-            <View style={styles.fullMapHeader}>
-              <View style={styles.fullMapHeaderCopy}>
-                <Text numberOfLines={1} style={styles.fullMapTitle}>
-                  {business.name}
-                </Text>
-                {business.address ? (
-                  <Text numberOfLines={1} style={styles.fullMapSubtitle}>
-                    {business.address}
-                  </Text>
-                ) : null}
-              </View>
-              <Pressable
-                accessibilityLabel={t("common.close")}
-                accessibilityRole="button"
-                hitSlop={10}
-                onPress={() => setMapVisible(false)}
-                style={({ pressed }) => [
-                  styles.fullMapClose,
-                  pressed && styles.venueActionPressed,
-                ]}
+          <View style={styles.mapSheetBackdrop}>
+            <Pressable
+              accessibilityLabel={t("common.close")}
+              onPress={dismissMapSheet}
+              style={StyleSheet.absoluteFill}
+            />
+            <Animated.View
+              style={[
+                styles.mapSheet,
+                { transform: [{ translateY: mapSheetTranslateY }] },
+              ]}
+            >
+              <View
+                style={styles.mapSheetDragArea}
+                {...mapSheetPanResponder.panHandlers}
               >
-                <Icon color={colors.ink} name="x" size={21} />
-              </Pressable>
-            </View>
-
-            <View style={styles.fullMapBody}>
-              <WebView
-                cacheEnabled={false}
-                javaScriptEnabled
-                onShouldStartLoadWithRequest={() => false}
-                originWhitelist={["https://*"]}
-                source={{
-                  baseUrl: "https://www.google.com",
-                  html: embeddedMapHtml,
-                }}
-                style={styles.fullMap}
-              />
-
-              <View style={styles.fullMapCard}>
-                <View style={styles.fullMapLocation}>
-                  <View style={styles.venueIcon}>
-                    <Icon name="map-pin" size={17} />
-                  </View>
-                  <View style={styles.fullMapLocationCopy}>
-                    <Text style={styles.fullMapBusiness}>{business.name}</Text>
-                    {business.address ? (
-                      <Text style={styles.fullMapAddress}>{business.address}</Text>
-                    ) : null}
-                  </View>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => void openMaps()}
-                  style={({ pressed }) => [
-                    styles.fullMapDirections,
-                    pressed && styles.venueActionPressed,
-                  ]}
-                >
-                  <Icon color={colors.surface} name="navigation" size={15} />
-                  <Text style={styles.fullMapDirectionsText}>
-                    {t("venue.directions")}
-                  </Text>
-                </Pressable>
+                <View style={styles.mapSheetHandle} />
               </View>
-            </View>
-          </SafeAreaView>
+              <SafeAreaView edges={["bottom"]} style={styles.mapSheetSafeArea}>
+                <View style={styles.fullMapHeader}>
+                  <View
+                    style={styles.fullMapHeaderCopy}
+                    {...mapSheetPanResponder.panHandlers}
+                  >
+                    <Text numberOfLines={1} style={styles.fullMapTitle}>
+                      {business.name}
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityLabel={t("common.close")}
+                    accessibilityRole="button"
+                    hitSlop={10}
+                    onPress={dismissMapSheet}
+                    style={({ pressed }) => [
+                      styles.fullMapClose,
+                      pressed && styles.venueActionPressed,
+                    ]}
+                  >
+                    <Icon color={colors.ink} name="x" size={21} />
+                  </Pressable>
+                </View>
+
+                {business.address ? (
+                  <View style={styles.fullMapAddressRow}>
+                    <View style={styles.venueIcon}>
+                      <Icon name="map-pin" size={17} />
+                    </View>
+                    <Text style={styles.fullMapAddress}>{business.address}</Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.fullMapBody}>
+                  <WebView
+                    cacheEnabled={false}
+                    javaScriptEnabled
+                    onShouldStartLoadWithRequest={() => false}
+                    originWhitelist={["https://*"]}
+                    source={{
+                      baseUrl: "https://www.google.com",
+                      html: embeddedMapHtml,
+                    }}
+                    style={styles.fullMap}
+                  />
+                </View>
+
+                <View style={styles.fullMapFooter}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => void openMaps()}
+                    style={({ pressed }) => [
+                      styles.fullMapDirections,
+                      pressed && styles.venueActionPressed,
+                    ]}
+                  >
+                    <Icon color={colors.surface} name="navigation" size={15} />
+                    <Text style={styles.fullMapDirectionsText}>
+                      {t("venue.directions")}
+                    </Text>
+                  </Pressable>
+                </View>
+              </SafeAreaView>
+            </Animated.View>
+          </View>
         </Modal>
       ) : null}
     </SafeAreaView>
@@ -476,7 +575,7 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.lg,
     padding: 18,
-    paddingBottom: 48,
+    paddingBottom: spacing.xxl,
     paddingTop: 22,
   },
   landingCard: {
@@ -484,7 +583,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 14,
     borderWidth: 1,
-    boxShadow: "0 12px 30px rgba(11, 29, 58, 0.09)",
     overflow: "hidden",
   },
   landingBody: {
@@ -521,7 +619,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
-    marginTop: spacing.lg,
     padding: spacing.lg,
     ...shadow.soft,
   },
@@ -676,17 +773,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   actionIntro: {
+    alignItems: "center",
     gap: 4,
   },
   actionTitle: {
     color: colors.ink,
     fontFamily: fonts.bold,
     fontSize: 19,
+    textAlign: "center",
   },
   actionCopy: {
     color: colors.textMuted,
     fontFamily: fonts.regular,
     fontSize: 14,
+    textAlign: "center",
+  },
+  huntSection: {
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
   },
   ruleCard: {
     backgroundColor: colors.surface,
@@ -721,18 +825,40 @@ const styles = StyleSheet.create({
   action: {
     marginTop: spacing.sm,
   },
-  fullMapSafeArea: {
-    backgroundColor: colors.surface,
+  mapSheetBackdrop: {
+    backgroundColor: "rgba(7, 15, 31, 0.48)",
     flex: 1,
+    justifyContent: "flex-end",
+  },
+  mapSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "90%",
+    overflow: "hidden",
+  },
+  mapSheetSafeArea: {
+    flex: 1,
+  },
+  mapSheetDragArea: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    minHeight: 30,
+    paddingBottom: 8,
+    paddingTop: 10,
+  },
+  mapSheetHandle: {
+    backgroundColor: colors.border,
+    borderRadius: radius.pill,
+    height: 5,
+    width: 44,
   },
   fullMapHeader: {
     alignItems: "center",
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
     flexDirection: "row",
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingBottom: spacing.sm,
   },
   fullMapHeaderCopy: {
     flex: 1,
@@ -741,12 +867,6 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontFamily: fonts.bold,
     fontSize: 17,
-  },
-  fullMapSubtitle: {
-    color: colors.textMuted,
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    marginTop: 2,
   },
   fullMapClose: {
     alignItems: "center",
@@ -760,48 +880,37 @@ const styles = StyleSheet.create({
   },
   fullMapBody: {
     flex: 1,
-    position: "relative",
-  },
-  fullMap: {
-    backgroundColor: "#eef1f4",
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
-  fullMapCard: {
-    backgroundColor: colors.surface,
+    marginHorizontal: spacing.lg,
+    overflow: "hidden",
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
-    bottom: spacing.lg,
-    gap: spacing.md,
-    left: spacing.lg,
-    padding: spacing.md,
-    position: "absolute",
-    right: spacing.lg,
-    ...shadow.soft,
   },
-  fullMapLocation: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.sm,
-  },
-  fullMapLocationCopy: {
+  fullMap: {
+    backgroundColor: "#eef1f4",
     flex: 1,
   },
-  fullMapBusiness: {
-    color: colors.ink,
-    fontFamily: fonts.bold,
-    fontSize: 15,
+  fullMapAddressRow: {
+    alignItems: "flex-start",
+    borderTopColor: colors.borderSoft,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    paddingTop: spacing.sm,
   },
   fullMapAddress: {
     color: colors.textMuted,
+    flex: 1,
     fontFamily: fonts.regular,
     fontSize: 13,
     lineHeight: 18,
-    marginTop: 3,
+  },
+  fullMapFooter: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
   },
   fullMapDirections: {
     alignItems: "center",

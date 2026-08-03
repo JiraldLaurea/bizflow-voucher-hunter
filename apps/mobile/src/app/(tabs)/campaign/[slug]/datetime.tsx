@@ -8,8 +8,13 @@ import { useAuth } from "@/auth/AuthContext";
 import { Button, InlineError } from "@/components/FormControls";
 import { InfoCard, SelectedStrip, SlotRow, StepHeader } from "@/components/HuntUi";
 import { useHunt } from "@/hunt/HuntContext";
-import { formatDate, formatTime } from "@/lib/format";
-import { useTranslation } from "@/i18n/LanguageContext";
+import {
+  formatDate,
+  formatTime,
+  localeFor,
+  voucherDisplayLabel,
+} from "@/lib/format";
+import { useLanguage } from "@/i18n/LanguageContext";
 import { colors, fonts, spacing } from "@/theme";
 
 /**
@@ -17,7 +22,7 @@ import { colors, fonts, spacing } from "@/theme";
  * the campaign's full slot list: a higher-value voucher is offered at fewer times.
  */
 export default function DateTimeScreen() {
-  const t = useTranslation();
+  const { language, t } = useLanguage();
   const router = useRouter();
   const { token } = useAuth();
   const { begin, flow, save, selectedAttempt, slug } = useHunt();
@@ -117,7 +122,7 @@ export default function DateTimeScreen() {
                 router.replace({ pathname: "/campaign/[slug]", params: { slug } })
               }
             >
-              Return to campaign
+              {t("results.returnCampaign")}
             </Button>
           </InfoCard>
         </View>
@@ -126,6 +131,9 @@ export default function DateTimeScreen() {
   }
 
   const dates = Array.from(new Set(slots.map((slot) => slot.date)));
+  const selectedLabel = selectedAttempt
+    ? voucherDisplayLabel(t, selectedAttempt)
+    : "";
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -136,14 +144,12 @@ export default function DateTimeScreen() {
       >
         {selectedAttempt ? (
           <SelectedStrip
-            label={selectedAttempt.displayLabel}
+            label={selectedLabel}
             onChange={() => router.back()}
           />
         ) : null}
         <Text style={styles.helper}>
-          Pick a time to use your{" "}
-          <Text style={styles.helperStrong}>{selectedAttempt?.displayLabel}</Text>{" "}
-          voucher.
+          {t("datetime.helper", { label: selectedLabel })}
         </Text>
 
         {loading ? (
@@ -151,13 +157,15 @@ export default function DateTimeScreen() {
         ) : error ? null : slots.length === 0 ? (
           <InfoCard>
             <Text style={styles.infoText}>
-              No time slots are available for this voucher right now.
+              {t("datetime.noSlotsForVoucher")}
             </Text>
           </InfoCard>
         ) : (
           dates.map((date) => (
             <View key={date}>
-              <Text style={styles.dateTitle}>{formatDate(date)}</Text>
+              <Text style={styles.dateTitle}>
+                {formatDate(date, localeFor(language))}
+              </Text>
               <View style={styles.slotList}>
                 {slots
                   .filter((slot) => slot.date === date)
@@ -174,14 +182,19 @@ export default function DateTimeScreen() {
                             ? t("datetime.fullyBooked")
                             : low
                               ? t("datetime.spotsLeft", { count: slot.remainingCapacity })
-                              : `${slot.remainingCapacity} spots available`
+                              : t("datetime.spotsAvailable", {
+                                  count: slot.remainingCapacity,
+                                })
                         }
                         onPress={() =>
                           save({ selectedSlotId: slot.id, selectedDate: slot.date })
                         }
                         selected={slot.id === flow.selectedSlotId}
                         soldOut={soldOut}
-                        time={`${formatTime(slot.startTime)} – ${formatTime(slot.endTime)}`}
+                        time={`${formatTime(
+                          slot.startTime,
+                          localeFor(language),
+                        )} – ${formatTime(slot.endTime, localeFor(language))}`}
                       />
                     );
                   })}
@@ -199,7 +212,7 @@ export default function DateTimeScreen() {
               router.push({ pathname: "/campaign/[slug]/confirm", params: { slug } })
             }
           >
-            Continue
+            {t("common.continue")}
           </Button>
         </View>
       </ScrollView>

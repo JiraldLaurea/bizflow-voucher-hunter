@@ -141,6 +141,8 @@ type SelectProps = {
   /** Shown when nothing matches `value`. */
   placeholder?: string;
   disabled?: boolean;
+  /** Keep the sheet title while omitting the duplicate field label. */
+  hideLabel?: boolean;
 };
 
 /**
@@ -153,6 +155,7 @@ type SelectProps = {
  */
 export function Select({
   disabled = false,
+  hideLabel = false,
   label,
   onChange,
   options,
@@ -293,7 +296,7 @@ export function Select({
 
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      {hideLabel ? null : <Text style={styles.label}>{label}</Text>}
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ disabled, expanded: mounted }}

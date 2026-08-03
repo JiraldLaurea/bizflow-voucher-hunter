@@ -65,24 +65,13 @@ export const radius = {
 } as const;
 
 /**
- * `--shadow-soft` / `--shadow-raised`, expressed as RN shadow props. Android only
- * honours `elevation`, so each carries a matched elevation alongside the iOS keys.
+ * Container cards use a flat, bordered treatment throughout the mobile app.
+ * Keeping these aliases empty lets existing shared-card call sites stay uniform
+ * without reintroducing platform-specific iOS shadows or Android elevation.
  */
 export const shadow = {
-  soft: {
-    shadowColor: "#091e42",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 26,
-    elevation: 3,
-  },
-  raised: {
-    shadowColor: "#261f6e",
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.16,
-    shadowRadius: 46,
-    elevation: 8,
-  },
+  soft: {},
+  raised: {},
   button: {
     shadowColor: palette.purple,
     shadowOffset: { width: 0, height: 10 },

@@ -12,17 +12,26 @@ import {
 import QRCode from "react-native-qrcode-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { listClaimedVouchers } from "@/api/client";
+import { getCampaign, listClaimedVouchers, type PublicCampaign } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
+import { BusinessDetailsCard } from "@/components/BusinessDetailsCard";
 import { Button, InlineError } from "@/components/FormControls";
 import { Icon } from "@/components/Icon";
+import { SummaryList, SummaryRow } from "@/components/HuntUi";
 import { VoucherTicket } from "@/components/VoucherTicket";
-import { formatDate, formatTime, voucherDetail } from "@/lib/format";
-import { useTranslation } from "@/i18n/LanguageContext";
+import {
+  formatDate,
+  formatTime,
+  localeFor,
+  voucherDetail,
+  voucherStatusLabel,
+} from "@/lib/format";
+import { useLanguage } from "@/i18n/LanguageContext";
 import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 export default function VoucherDetailScreen() {
-  const t = useTranslation();
+  const { language, t } = useLanguage();
+  const locale = localeFor(language);
   const router = useRouter();
   const params = useLocalSearchParams<{ voucherId: string }>();
   const voucherId = Array.isArray(params.voucherId)
@@ -30,6 +39,7 @@ export default function VoucherDetailScreen() {
     : params.voucherId;
   const { token } = useAuth();
   const [claimed, setClaimed] = useState<ClaimedVoucher | null>(null);
+  const [campaign, setCampaign] = useState<PublicCampaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -42,6 +52,12 @@ export default function VoucherDetailScreen() {
       const match = vouchers.find((item) => item.voucher.id === voucherId);
       if (!match) throw new Error(t("vouchers.notFound"));
       setClaimed(match);
+      try {
+        setCampaign(await getCampaign(match.campaignSlug, token));
+      } catch {
+        // The issued voucher remains usable if optional venue enrichment fails.
+        setCampaign(null);
+      }
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : t("vouchers.loadOneError"),
@@ -79,7 +95,7 @@ export default function VoucherDetailScreen() {
         <View style={styles.errorState}>
           <InlineError message={error || t("vouchers.notFound")} />
           <Button variant="secondary" onPress={() => void load()}>
-            Try again
+            {t("common.retry")}
           </Button>
         </View>
       ) : (
@@ -87,13 +103,17 @@ export default function VoucherDetailScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.business}>{claimed.businessName}</Text>
-          <Text style={styles.campaign}>{claimed.campaignTitle}</Text>
+          <View style={styles.contextCard}>
+            <SummaryList>
+              <SummaryRow icon="flag" label={t("common.campaign")} value={claimed.campaignTitle} />
+              <SummaryRow icon="briefcase" label={t("common.business")} value={claimed.businessName} />
+            </SummaryList>
+          </View>
 
           <VoucherTicket
             benefit={claimed.voucher}
             code={claimed.voucher.voucherCode}
-            detail={voucherDetail(claimed.voucher)}
+            detail={voucherDetail(t, claimed.voucher)}
             selected
           />
 
@@ -107,26 +127,32 @@ export default function VoucherDetailScreen() {
             />
           </View>
           <Text style={styles.qrHint}>
-            Show this QR code to partner staff when redeeming your voucher.
+            {t("vouchers.qrInstruction")}
           </Text>
 
           <View style={styles.details}>
-            <DetailRow label={t("common.date")} value={formatDate(claimed.slot.date)} />
+            <DetailRow label={t("common.date")} value={formatDate(claimed.slot.date, locale)} />
             <DetailRow
               label={t("common.time")}
-              value={`${formatTime(claimed.slot.startTime)} – ${formatTime(
+              value={`${formatTime(claimed.slot.startTime, locale)} – ${formatTime(
                 claimed.slot.endTime,
+                locale,
               )}`}
             />
-            <DetailRow label={t("vouchers.status")} value={claimed.voucher.status} />
+            <DetailRow
+              label={t("vouchers.status")}
+              value={voucherStatusLabel(t, claimed.voucher.status)}
+            />
             <DetailRow
               label={t("vouchers.expires")}
-              value={new Intl.DateTimeFormat("en-PH", {
+              value={new Intl.DateTimeFormat(locale, {
                 dateStyle: "medium",
                 timeStyle: "short",
               }).format(new Date(claimed.voucher.expiresAt))}
             />
           </View>
+
+          <BusinessDetailsCard business={campaign?.business} />
         </ScrollView>
       )}
     </SafeAreaView>
@@ -182,19 +208,8 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     paddingBottom: 48,
   },
-  business: {
-    color: colors.ink,
-    fontFamily: fonts.bold,
-    fontSize: 22,
-    textAlign: "center",
-  },
-  campaign: {
-    color: colors.textMuted,
-    fontFamily: fonts.regular,
-    fontSize: 14,
+  contextCard: {
     marginBottom: spacing.xl,
-    marginTop: spacing.xs,
-    textAlign: "center",
   },
   qrCard: {
     alignItems: "center",

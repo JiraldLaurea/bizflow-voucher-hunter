@@ -30,6 +30,7 @@ import {
 } from "@/hunt/sequence";
 import { UnlockCelebration } from "@/hunt/UnlockCelebration";
 import { useTranslation } from "@/i18n/LanguageContext";
+import { voucherDisplayLabel } from "@/lib/format";
 import { colors, fonts, spacing } from "@/theme";
 
 type Phase = "idle" | "searching" | "landing" | "selected";
@@ -102,7 +103,11 @@ export default function RouletteScreen() {
       setWinner(draw.winner);
       setPhase("selected");
       // "Selected" reads as though the visitor picked it — the reel landed on it.
-      setMessage(t("roulette.youWon", { label: draw.winner.displayLabel }));
+      setMessage(
+        t("roulette.youWon", {
+          label: voucherDisplayLabel(t, draw.winner),
+        }),
+      );
       addAttempt(draw.attempt);
       // The web lets the win land for a beat before offering the confirm button.
       setTimeout(() => setCanConfirm(true), SETTLE_MS);
@@ -308,7 +313,7 @@ export default function RouletteScreen() {
   const title = error
     ? t("roulette.spinUnavailable")
     : winner
-      ? "🎉 Voucher unlocked!"
+      ? `🎉 ${t("roulette.unlocked")}`
       : phase === "landing"
         ? t("roulette.slowing")
         : t("roulette.spinning");
@@ -317,9 +322,7 @@ export default function RouletteScreen() {
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
       <StepHeader title={t("roulette.title")} />
       <View style={styles.body}>
-        <Text style={styles.lead}>
-          Every voucher is in the reel — watch the arrow land on your prize!
-        </Text>
+        <Text style={styles.lead}>{t("roulette.intro")}</Text>
 
         <View style={styles.reelWrap}>
           <Pressable
@@ -351,7 +354,7 @@ export default function RouletteScreen() {
                   router.replace({ pathname: "/campaign/[slug]", params: { slug } })
                 }
               >
-                Back to campaign
+                {t("results.returnCampaign")}
               </Button>
             </View>
           ) : null}
@@ -368,7 +371,7 @@ export default function RouletteScreen() {
                   });
                 }}
               >
-                Confirm Voucher
+                {t("roulette.confirm")}
               </Button>
             </View>
           ) : null}

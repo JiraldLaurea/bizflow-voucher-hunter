@@ -237,11 +237,6 @@ const styles = StyleSheet.create({
   },
   slotRowActive: {
     borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 3,
-    elevation: 2,
   },
   slotRowSoldOut: {
     backgroundColor: colors.dangerSoft,
