@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FiChevronDown } from "react-icons/fi";
 import { campaignCategoryIcon } from "@/lib/campaign-category";
 import type { Business, Campaign } from "@/types/voucher";
@@ -33,6 +33,7 @@ export function ScopeSelector({
   showBusiness: boolean;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   const business =
@@ -44,8 +45,11 @@ export function ScopeSelector({
     scopedCampaigns.find((item) => item.slug === selectedCampaignSlug) ??
     scopedCampaigns[0];
 
+  // Client-side navigation, not window.location.assign: changing scope only
+  // needs the page's server components re-rendered with new search params, and
+  // a full document load threw away the whole dashboard bundle each time.
   function navigate(params: URLSearchParams) {
-    window.location.assign(`${pathname}?${params.toString()}`);
+    router.push(`${pathname}?${params.toString()}`);
   }
 
   function onBusinessChange(businessId: string) {
