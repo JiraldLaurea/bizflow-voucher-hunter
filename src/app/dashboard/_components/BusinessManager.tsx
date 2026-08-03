@@ -14,7 +14,9 @@ const LocationPicker = dynamic(
     import("./GoogleLocationPicker").then((mod) => mod.GoogleLocationPicker),
   {
     ssr: false,
-    loading: () => <div className="location-picker-skeleton">Loading map...</div>,
+    loading: () => (
+      <div className="location-picker-skeleton">Loading map...</div>
+    ),
   },
 );
 
@@ -61,18 +63,9 @@ export function BusinessManager({
   return (
     <>
       <section className="panel table-wrap">
-        <div className="admin-topbar">
-          <div>
-            <h2>Businesses</h2>
-            <p className="muted">
-              The venues behind your campaigns. Address and contact number are
-              shown to customers on every campaign the business runs.
-            </p>
-          </div>
-        </div>
-
-        {/* Below the heading and left-aligned, matching the New Campaign trigger
-            on the campaigns page rather than sitting in the top-right. */}
+        {/* Left-aligned at the top of the panel, matching the New Campaign
+            trigger on the campaigns page rather than sitting in the top-right.
+            The page heading lives outside the panel, as on every other page. */}
         <button
           className="button admin-form-toggle"
           onClick={() => setCreating(true)}
@@ -421,7 +414,6 @@ function VenueFields({
           placeholder="09123456789"
           value={contactNumber}
         />
-        <small className="muted">Customers tap to call. +63 also works.</small>
       </label>
     </>
   );

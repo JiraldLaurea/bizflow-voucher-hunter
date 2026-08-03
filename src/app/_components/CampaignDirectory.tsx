@@ -44,12 +44,18 @@ export function CampaignDirectory({ cards }: { cards: CampaignCard[] }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return cards.filter(({ campaign, businessName, businessIndustry }) => {
+    return cards.filter(({
+      businessAddress,
+      businessIndustry,
+      businessName,
+      campaign,
+    }) => {
       if (category !== "all" && businessIndustry !== category) return false;
       if (!q) return true;
       return (
         campaign.title.toLowerCase().includes(q) ||
         businessName.toLowerCase().includes(q) ||
+        (businessAddress ?? "").toLowerCase().includes(q) ||
         (campaign.location ?? "").toLowerCase().includes(q)
       );
     });
@@ -103,7 +109,12 @@ export function CampaignDirectory({ cards }: { cards: CampaignCard[] }) {
           ) : (
             <div className="directory-list">
               {filtered.map(
-                ({ campaign, businessName, businessIndustry }) => {
+                ({
+                  businessAddress,
+                  businessIndustry,
+                  businessName,
+                  campaign,
+                }) => {
                   const campaignImage = resolveCampaignImage(campaign);
                   return (
                     <Link
@@ -129,7 +140,11 @@ export function CampaignDirectory({ cards }: { cards: CampaignCard[] }) {
                           <p className="directory-card-business">{businessName}</p>
                           <p className="directory-card-location">
                             <FiMapPin aria-hidden="true" />
-                            {campaign.location ?? "Location to be announced"}
+                            <span>
+                              {businessAddress ??
+                                campaign.location ??
+                                "Location to be announced"}
+                            </span>
                           </p>
                         </div>
                         <span className={`chip mode-${businessIndustry}`}>

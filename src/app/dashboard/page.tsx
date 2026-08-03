@@ -12,8 +12,13 @@ export default async function DashboardPage({
 }: {
   searchParams: { business?: string; campaign?: string };
 }) {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
-  const campaigns = filterCampaignsForSession(session!, await listCampaignsWithIndustry());
+  const session = await verifyAdminSession(
+    cookies().get(ADMIN_SESSION_COOKIE)?.value,
+  );
+  const campaigns = filterCampaignsForSession(
+    session!,
+    await listCampaignsWithIndustry(),
+  );
   const businesses = await listBusinesses();
   const scope = selectScope(businesses, campaigns, searchParams);
   const selectedCampaign = scope.campaign;
@@ -27,8 +32,16 @@ export default async function DashboardPage({
   const staffRequests =
     isStaff && selectedCampaign && session
       ? await Promise.all([
-          listStaffChangeRequests(selectedCampaign.id, session.email, "slot_create"),
-          listStaffChangeRequests(selectedCampaign.id, session.email, "pool_create"),
+          listStaffChangeRequests(
+            selectedCampaign.id,
+            session.email,
+            "slot_create",
+          ),
+          listStaffChangeRequests(
+            selectedCampaign.id,
+            session.email,
+            "pool_create",
+          ),
         ])
       : [[], []];
   const pendingStaffRequestCount = staffRequests
@@ -65,19 +78,12 @@ export default async function DashboardPage({
 
   return (
     <>
-      <ScopeSelector
-        businesses={businesses}
-        campaigns={campaigns}
-        selectedBusinessId={scope.business?.id}
-        selectedCampaignSlug={selectedCampaign?.slug}
-        showBusiness={session?.role !== "staff"}
-      />
       <header className="admin-topbar">
         <div>
           <h1>
             {isStaff
-              ? `${staffBusinessName ?? selectedCampaign?.title ?? "Campaign"} Staff Dashboard`
-              : "BizFlow Voucher Hunt - Admin Dashboard"}
+              ? `${staffBusinessName ?? selectedCampaign?.title ?? "Campaign"} Dashboard`
+              : "Dashboard"}
           </h1>
           <p className="muted">
             {isStaff
@@ -86,13 +92,22 @@ export default async function DashboardPage({
           </p>
         </div>
       </header>
+      <ScopeSelector
+        businesses={businesses}
+        campaigns={campaigns}
+        selectedBusinessId={scope.business?.id}
+        selectedCampaignSlug={selectedCampaign?.slug}
+        showBusiness={session?.role !== "staff"}
+      />
 
       <div className="admin-grid">
         {metricCards.map(([label, value]) => (
           <article className="card metric span-3" key={label}>
             <span className="muted">{label}</span>
             <strong>{value}</strong>
-            {!isStaff ? <span className="trend">+4.8% vs last 7 days</span> : null}
+            {!isStaff ? (
+              <span className="trend">+4.8% vs last 7 days</span>
+            ) : null}
           </article>
         ))}
 
@@ -122,7 +137,10 @@ export default async function DashboardPage({
           <div className="admin-topbar">
             <h2>User Attempts / Voucher Hunt Logs</h2>
             {selectedCampaign ? (
-              <a className="button secondary" href={`/api/export/campaigns/${selectedCampaign.id}`}>
+              <a
+                className="button secondary"
+                href={`/api/export/campaigns/${selectedCampaign.id}`}
+              >
                 Export
               </a>
             ) : null}
@@ -149,8 +167,13 @@ export default async function DashboardPage({
                   <td>{metrics.campaign.title}</td>
                   <td>{slotRows[0]?.slot.date ?? "Pending"}</td>
                   <td>{metrics.summary.attemptsUsed} / 8</td>
-                  <td>{metrics.benefitPerformance.find((row) => row.selected > 0)?.label ?? "-"}</td>
-                  <td><span className="badge warning">Hunting</span></td>
+                  <td>
+                    {metrics.benefitPerformance.find((row) => row.selected > 0)
+                      ?.label ?? "-"}
+                  </td>
+                  <td>
+                    <span className="badge warning">Hunting</span>
+                  </td>
                 </tr>
               )}
             </tbody>

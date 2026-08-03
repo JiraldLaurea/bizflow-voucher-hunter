@@ -35,34 +35,36 @@ export default async function CampaignsPage() {
   const campaigns = await listCampaigns();
 
   return (
-    <section className="panel table-wrap">
-      <div className="admin-topbar">
+    <>
+      <header className="admin-topbar">
         <div>
-          <h2>Campaign Management</h2>
+          <h1>Campaigns</h1>
           <p className="muted">Configured campaigns and current operational status.</p>
         </div>
-      </div>
-      <NewCampaignForm businesses={businesses} />
-      <table className="admin-table">
-        <thead>
-          <tr>
-            <th>Campaign</th>
-            <th>Business</th>
-            <th>Category</th>
-            <th>Status</th>
-            <th>Date Range</th>
-            <th>Reschedule</th>
-          </tr>
-        </thead>
-        <tbody>
-          {campaigns.length === 0 ? (
+      </header>
+
+      <section className="panel table-wrap">
+        <NewCampaignForm businesses={businesses} />
+        <table className="admin-table">
+          <thead>
             <tr>
-              <td colSpan={6} className="table-empty">
-                No campaigns yet. Create one above.
-              </td>
+              <th>Campaign</th>
+              <th>Business</th>
+              <th>Category</th>
+              <th>Status</th>
+              <th>Date Range</th>
+              <th>Reschedule</th>
             </tr>
-          ) : (
-            campaigns.map((campaign) => (
+          </thead>
+          <tbody>
+            {campaigns.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="table-empty">
+                  No campaigns yet. Create one above.
+                </td>
+              </tr>
+            ) : (
+              campaigns.map((campaign) => (
                 <tr key={campaign.id}>
                   <td>
                     <div className="campaign-table-title">
@@ -90,10 +92,11 @@ export default async function CampaignsPage() {
                     />
                   </td>
                 </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </section>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
+    </>
   );
 }

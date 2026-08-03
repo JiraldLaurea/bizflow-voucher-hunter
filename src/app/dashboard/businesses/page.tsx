@@ -28,7 +28,8 @@ export default async function BusinessesPage() {
         <div>
           <h1>Businesses</h1>
           <p className="muted">
-            Venue details customers see on the campaign page.
+            The venues behind your campaigns. Address and contact number are
+            shown to customers on every campaign the business runs.
           </p>
         </div>
       </header>

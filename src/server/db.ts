@@ -634,6 +634,32 @@ async function ensureSmsSchema(c: Client) {
       });
     }
   }
+
+  // Migrate only the original demo copy from the retired date-first journey.
+  // The exact-message guard preserves any copy an admin has customized.
+  const demoOfferCopyUpdates = [
+    {
+      id: "camp_july_dinner",
+      previous: "Pick your visit window first, then hunt for one final dining voucher.",
+      next: "Hunt for your dining voucher first, then choose your visit date and time.",
+    },
+    {
+      id: "camp_8pm_drop",
+      previous: "Choose the drop window, reveal candidates, and keep one checkout code.",
+      next: "Hunt for your checkout reward first, then choose an available drop window.",
+    },
+    {
+      id: "camp_glow_facial",
+      previous: "Book your facial appointment first, then hunt for one skincare voucher.",
+      next: "Hunt for your skincare voucher first, then choose your appointment date and time.",
+    },
+  ];
+  for (const copy of demoOfferCopyUpdates) {
+    await c.execute({
+      sql: "UPDATE campaigns SET offer_message = ? WHERE id = ? AND offer_message = ?",
+      args: [copy.next, copy.id, copy.previous],
+    });
+  }
 }
 
 /** Returns the ready libSQL client (schema created + seeded on first use). */
@@ -698,7 +724,7 @@ export const seedData: {
       slug: "july-dinner",
       title: "July Dinner",
       location: "Makati City",
-      offerMessage: "Pick your visit window first, then hunt for one final dining voucher.",
+      offerMessage: "Hunt for your dining voucher first, then choose your visit date and time.",
       heroImage:
         "linear-gradient(135deg, rgba(21,72,87,.9), rgba(229,90,54,.76)), url('https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80')",
       mode: "restaurant",
@@ -717,7 +743,7 @@ export const seedData: {
       slug: "8pm-drop",
       title: "8PM Shopping",
       location: "Online · Nationwide",
-      offerMessage: "Choose the drop window, reveal candidates, and keep one checkout code.",
+      offerMessage: "Hunt for your checkout reward first, then choose an available drop window.",
       heroImage:
         "linear-gradient(135deg, rgba(29,44,74,.9), rgba(38,142,125,.72)), url('https://images.unsplash.com/photo-1607082350899-7e105aa886ae?auto=format&fit=crop&w=1600&q=80')",
       mode: "online_shop",
@@ -737,7 +763,7 @@ export const seedData: {
       slug: "glow-facial",
       title: "Glow Facial Week",
       location: "BGC, Taguig",
-      offerMessage: "Book your facial appointment first, then hunt for one skincare voucher.",
+      offerMessage: "Hunt for your skincare voucher first, then choose your appointment date and time.",
       heroImage:
         "linear-gradient(135deg, rgba(120,52,110,.9), rgba(233,120,150,.72)), url('https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1600&q=80')",
       // Appointment-based flow: same reservation mechanics as a restaurant slot.

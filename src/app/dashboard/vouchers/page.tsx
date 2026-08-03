@@ -55,6 +55,12 @@ export default async function VouchersPage({
 
   return (
     <>
+      <header className="admin-topbar">
+        <div>
+          <h1>Vouchers</h1>
+          <p className="muted">Voucher benefit tiers and the date/time slots each is offered at.</p>
+        </div>
+      </header>
       <ScopeSelector
         businesses={businesses}
         campaigns={campaigns}
@@ -63,12 +69,6 @@ export default async function VouchersPage({
         showBusiness={session?.role !== "staff"}
       />
       <section className="panel table-wrap">
-        <div className="admin-topbar">
-          <div>
-            <h2>Voucher Benefit Tiers</h2>
-            <p className="muted">Voucher benefit tiers and the date/time slots each is offered at.</p>
-          </div>
-        </div>
         {selectedCampaign ? (
           <div className="admin-form-actions">
             <NewPoolForm

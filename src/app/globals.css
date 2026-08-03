@@ -448,7 +448,9 @@ img.logo-tile {
 }
 
 .hunt-start-button {
-  transition: background 160ms ease, box-shadow 160ms ease;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .hunt-start-button:disabled {
@@ -665,7 +667,11 @@ img.logo-tile {
      visible band of colour. An ellipse keyed to the box always fades out
      inside it, at any stage height. */
   background:
-    radial-gradient(ellipse 62% 42% at 50% 46%, rgba(92, 61, 255, 0.18), transparent),
+    radial-gradient(
+      ellipse 62% 42% at 50% 46%,
+      rgba(92, 61, 255, 0.18),
+      transparent
+    ),
     linear-gradient(
       180deg,
       rgba(246, 243, 255, 0.98) 0%,
@@ -752,7 +758,11 @@ img.logo-tile {
   z-index: 0;
   /* Ellipse for the same reason as the stage background above — a circle was
      being clipped at the top and bottom edges. */
-  background: radial-gradient(ellipse 58% 40% at 50% 44%, rgba(124, 70, 255, 0.28), transparent);
+  background: radial-gradient(
+    ellipse 58% 40% at 50% 44%,
+    rgba(124, 70, 255, 0.28),
+    transparent
+  );
   opacity: 0.7;
   animation: roulette-glow-pulse 2.4s ease-in-out infinite;
   pointer-events: none;
@@ -824,7 +834,12 @@ img.logo-tile {
   inset: 0;
   z-index: 4;
   border-radius: inherit;
-  background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.55) 50%, transparent 58%);
+  background: linear-gradient(
+    115deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 58%
+  );
   background-size: 260% 100%;
   background-position: 135% 0;
   animation: roulette-shine 950ms ease-out 360ms both;
@@ -1353,7 +1368,6 @@ img.logo-tile {
 .step-card {
   min-height: 210px;
 }
-
 
 .date-list,
 .slot-list {
@@ -2010,6 +2024,8 @@ img.logo-tile {
   position: sticky;
   top: 0;
   align-self: start;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   min-height: 100vh;
   overflow-y: auto;
@@ -2023,7 +2039,31 @@ img.logo-tile {
   align-items: center;
   gap: 10px;
   margin-bottom: 18px;
-  font-weight: 900;
+  font-weight: 800;
+}
+
+.sidebar-brand-role {
+  font-size: 0.72rem;
+  font-weight: 400;
+  opacity: 0.72;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: 16px;
+}
+
+.sidebar-nav-section {
+  display: grid;
+  gap: 2px;
+}
+
+.sidebar-nav-section-title {
+  margin: 0 0 4px;
+  color: #8fa3c8;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 /* Per-page campaign scope selector, sits at the top-left of a page, above the
@@ -2037,7 +2077,6 @@ img.logo-tile {
   width: max-content;
   min-width: 220px;
   max-width: 300px;
-  margin-bottom: 18px;
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -2048,6 +2087,12 @@ img.logo-tile {
 
 .campaign-page-selector:hover {
   border-color: #c7cede;
+}
+
+/* Tiles that carry no logo lose the icon column so the copy is not left
+   floating in an empty gutter. */
+.campaign-page-selector.is-iconless {
+  grid-template-columns: minmax(0, 1fr) 16px;
 }
 
 .campaign-page-selector-icon {
@@ -2122,16 +2167,23 @@ img.logo-tile {
   cursor: pointer;
 }
 
+/* Inside a modal the selector is a form control rather than a page-level scope
+   control, so it fills its section instead of hugging the current value. */
+.campaign-page-selector.in-form {
+  width: 100%;
+  max-width: none;
+  padding: 10px 12px;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px;
-  margin: 4px 0;
   border-radius: 8px;
   color: #dbe6ff;
   font-size: 0.84rem;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .nav-item-label {
@@ -2146,15 +2198,16 @@ img.logo-tile {
 .nav-item.active {
   color: #fff;
   background: var(--purple);
+  font-weight: 600;
 }
 
+/* Pinned to the foot of the sidebar: identity first, then sign out on its own
+   row so the destructive action is never a mis-tap away from the nav. */
 .sidebar-account {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  align-items: center;
   gap: 10px;
-  margin-top: 28px;
-  padding: 14px 10px 0;
+  margin-top: auto;
+  padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
@@ -2162,6 +2215,7 @@ img.logo-tile {
   min-width: 0;
   display: grid;
   gap: 2px;
+  padding: 0 10px;
 }
 
 .sidebar-account-copy strong,
@@ -2171,25 +2225,44 @@ img.logo-tile {
   white-space: nowrap;
 }
 
+.sidebar-account-copy strong {
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
 .sidebar-account-copy span {
   opacity: 0.72;
   font-size: 0.68rem;
 }
 
-.sidebar-account button {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
+.sidebar-signout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 9px;
-  color: #fff;
+  border-radius: 8px;
+  color: #dbe6ff;
   background: rgba(255, 255, 255, 0.06);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  text-align: left;
   cursor: pointer;
 }
 
-.sidebar-account button:hover {
+.sidebar-signout:hover {
+  color: #fff;
   background: rgba(255, 255, 255, 0.13);
+}
+
+/* Matches .nav-item-icon so the label lines up with the nav labels above. */
+.sidebar-signout svg {
+  width: 16px;
+  height: 16px;
+  margin: 0 1px;
+  flex-shrink: 0;
 }
 
 .admin-login-page {
@@ -2198,7 +2271,11 @@ img.logo-tile {
   place-items: center;
   padding: 28px;
   background:
-    radial-gradient(circle at 82% 12%, rgba(92, 61, 255, 0.14), transparent 28%),
+    radial-gradient(
+      circle at 82% 12%,
+      rgba(92, 61, 255, 0.14),
+      transparent 28%
+    ),
     linear-gradient(145deg, #f8faff, #eff3fb);
 }
 
@@ -2220,7 +2297,11 @@ img.logo-tile {
   padding: 36px;
   color: #fff;
   background:
-    radial-gradient(circle at 20% 15%, rgba(124, 77, 255, 0.35), transparent 30%),
+    radial-gradient(
+      circle at 20% 15%,
+      rgba(124, 77, 255, 0.35),
+      transparent 30%
+    ),
     linear-gradient(155deg, #0c2446, #061a35 66%);
 }
 
@@ -2330,7 +2411,9 @@ img.logo-tile {
   border: 1px solid var(--line);
   border-radius: 11px;
   background: #fff;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .admin-login-field > div:focus-within {
@@ -2636,7 +2719,14 @@ img.logo-tile {
   font-size: 0.82rem;
   font-weight: 650;
 }
+.directory-card-location span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
 .directory-card-location svg {
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
   color: var(--purple);
@@ -2960,7 +3050,9 @@ img.logo-tile {
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 4px);
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
   white-space: normal;
 }
 
@@ -3240,7 +3332,6 @@ img.logo-tile {
   font-size: 0.74rem;
   font-weight: 850;
 }
-
 
 .table-wrap {
   overflow-x: auto;
@@ -3547,7 +3638,10 @@ th {
   color: #15203b;
   background: linear-gradient(145deg, #ffffff, #f4f6fb);
   box-shadow: 0 10px 24px var(--voucher-shadow);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .candidate-button[class*="voucher-"]:hover {
@@ -3555,7 +3649,8 @@ th {
   box-shadow: 0 16px 32px var(--voucher-shadow);
 }
 
-.candidate[class*="voucher-"] > *:not(.voucher-glow, .voucher-sparkles, .voucher-cutout) {
+.candidate[class*="voucher-"]
+  > *:not(.voucher-glow, .voucher-sparkles, .voucher-cutout) {
   position: relative;
   z-index: 2;
 }
@@ -3605,7 +3700,8 @@ th {
   height: 18px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--voucher-accent) 30%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--voucher-accent) 30%, transparent);
   transform: translateY(-50%);
 }
 
@@ -3667,7 +3763,11 @@ th {
   --voucher-accent: #1976d2;
   --voucher-shadow: rgba(25, 118, 210, 0.2);
   background:
-    radial-gradient(circle at 92% 10%, rgba(94, 186, 255, 0.24), transparent 31%),
+    radial-gradient(
+      circle at 92% 10%,
+      rgba(94, 186, 255, 0.24),
+      transparent 31%
+    ),
     linear-gradient(145deg, #fafdff, #e8f4ff);
 }
 
@@ -3681,7 +3781,11 @@ th {
   --voucher-shadow: rgba(117, 71, 232, 0.28);
   color: #fff;
   background:
-    radial-gradient(circle at 90% 4%, rgba(255, 255, 255, 0.23), transparent 25%),
+    radial-gradient(
+      circle at 90% 4%,
+      rgba(255, 255, 255, 0.23),
+      transparent 25%
+    ),
     linear-gradient(135deg, #8158ee 0%, #5730c7 56%, #3c208d 100%);
 }
 
@@ -3704,7 +3808,11 @@ th {
   color: #fff7d6;
   border-color: #f4c85c;
   background:
-    radial-gradient(circle at 84% 12%, rgba(255, 211, 104, 0.3), transparent 29%),
+    radial-gradient(
+      circle at 84% 12%,
+      rgba(255, 211, 104, 0.3),
+      transparent 29%
+    ),
     linear-gradient(135deg, #3b2910 0%, #17130f 52%, #080808 100%);
   box-shadow:
     0 10px 24px var(--voucher-shadow),
@@ -3716,7 +3824,12 @@ th {
   position: absolute;
   z-index: 1;
   inset: 0;
-  background: linear-gradient(108deg, transparent 28%, rgba(255, 255, 255, 0.16) 46%, transparent 63%);
+  background: linear-gradient(
+    108deg,
+    transparent 28%,
+    rgba(255, 255, 255, 0.16) 46%,
+    transparent 63%
+  );
   transform: translateX(-120%);
   animation: voucher-shimmer 3.6s ease-in-out infinite;
   pointer-events: none;
@@ -3842,10 +3955,12 @@ th {
 }
 
 @keyframes voucher-shimmer {
-  0%, 50% {
+  0%,
+  50% {
     transform: translateX(-120%);
   }
-  85%, 100% {
+  85%,
+  100% {
     transform: translateX(120%);
   }
 }
@@ -4431,7 +4546,11 @@ th {
   padding: 13px;
   border-radius: 16px;
   background:
-    radial-gradient(circle at 88% 10%, rgba(255, 255, 255, 0.34), transparent 28%),
+    radial-gradient(
+      circle at 88% 10%,
+      rgba(255, 255, 255, 0.34),
+      transparent 28%
+    ),
     linear-gradient(135deg, #6637ff, #7a44f4);
   color: #fff;
 }
@@ -4768,7 +4887,14 @@ th {
 
   .sidebar {
     position: static;
+    height: auto;
     min-height: auto;
+  }
+
+  /* Without a viewport-tall column there is no slack for margin-top: auto, so
+     restore an explicit gap above the account block. */
+  .sidebar-account {
+    margin-top: 24px;
   }
 
   .admin-topbar {
@@ -5110,9 +5236,35 @@ th {
 .scope-selector {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
+  align-items: stretch;
+  width: max-content;
+  max-width: 100%;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.05);
+  overflow: hidden;
+}
+
+/* Business and campaign are one scope, so they share a single card and are
+   separated by a rule rather than sitting as two detached tiles. */
+.scope-selector > .campaign-page-selector {
+  min-width: 190px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* An inset shadow rather than a border, so the tile's own hover rules cannot
+   recolour the divider. */
+.scope-selector > .campaign-page-selector + .campaign-page-selector {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+
+.scope-selector > .campaign-page-selector:hover {
+  background: var(--canvas);
 }
 
 /* --- Users --- */
@@ -5222,9 +5374,74 @@ th {
   gap: 8px;
 }
 
-.location-picker-search input {
+.location-picker-input {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.location-picker-search input {
+  width: 100%;
+  min-width: 0;
+}
+
+.location-picker-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.location-picker-suggestion {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: var(--navy);
+  cursor: pointer;
+}
+
+.location-picker-suggestion > svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--purple);
+}
+
+.location-picker-suggestion span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.location-picker-suggestion strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.location-picker-suggestion small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.location-picker-suggestion.active,
+.location-picker-suggestion:hover {
+  background: var(--purple-soft);
 }
 
 .location-picker-search-button {
@@ -5272,6 +5489,42 @@ th {
 .google-location-map {
   height: 100%;
   width: 100%;
+}
+
+/* The picker's own layer toggle, replacing Google's control so the labels and
+   sizing are ours. Floats over the top-left of the map, clear of the drop-a-pin
+   hint, the recentre button, and Google's attribution along the bottom. */
+.location-picker-layers {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 4px rgba(9, 30, 66, 0.24);
+}
+
+.location-picker-layers button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.location-picker-layers button:hover {
+  color: var(--navy);
+}
+
+.location-picker-layers button.active {
+  color: #fff;
+  background: var(--purple);
 }
 
 .location-picker-loading {
@@ -5499,7 +5752,9 @@ th {
   background: #faf9ff;
   color: var(--purple);
   cursor: pointer;
-  transition: border-color 140ms ease, background 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
 }
 .campaign-image-upload:hover,
 .campaign-image-upload:focus-within {

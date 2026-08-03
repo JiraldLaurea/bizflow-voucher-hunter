@@ -47,6 +47,12 @@ export default async function SlotsPage({
 
   return (
     <>
+      <header className="admin-topbar">
+        <div>
+          <h1>Slots</h1>
+          <p className="muted">Date/time slots and remaining capacity.</p>
+        </div>
+      </header>
       <ScopeSelector
         businesses={businesses}
         campaigns={campaigns}
@@ -55,12 +61,6 @@ export default async function SlotsPage({
         showBusiness={session?.role !== "staff"}
       />
       <section className="panel table-wrap">
-        <div className="admin-topbar">
-          <div>
-            <h2>Slot Inventory Management</h2>
-            <p className="muted">Date/time slots and remaining capacity.</p>
-          </div>
-        </div>
         {selectedCampaign ? (
           <NewSlotForm
             campaignId={selectedCampaign.id}

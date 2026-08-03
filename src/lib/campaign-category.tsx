@@ -23,3 +23,18 @@ const categoryIcons: Record<string, ReactNode> = {
 export function campaignCategoryIcon(category: string): ReactNode {
   return categoryIcons[category] ?? categoryIcons.other;
 }
+
+// Display names for the same enum, so a category reads the same wherever it is
+// spelled out rather than shown as an icon.
+const categoryLabels: Record<string, string> = {
+  restaurant: "Restaurant",
+  online_shop: "Online Shop",
+  beauty: "Beauty",
+  pet: "Pet",
+  retail: "Retail",
+  other: "Other",
+};
+
+export function campaignCategoryLabel(category: string): string {
+  return categoryLabels[category] ?? categoryLabels.other;
+}

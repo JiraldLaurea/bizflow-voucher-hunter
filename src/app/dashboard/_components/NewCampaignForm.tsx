@@ -3,8 +3,12 @@
 import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiImage, FiUploadCloud, FiX } from "react-icons/fi";
+import { FiChevronDown, FiImage, FiUploadCloud, FiX } from "react-icons/fi";
 import { api } from "@/lib/api-client";
+import {
+  campaignCategoryIcon,
+  campaignCategoryLabel,
+} from "@/lib/campaign-category";
 import {
   isUploadedCampaignImage,
   MAX_CAMPAIGN_IMAGE_DATA_URL_LENGTH,
@@ -13,7 +17,6 @@ import {
 import type { Business, Campaign } from "@/types/voucher";
 import { AdminModal } from "./AdminModal";
 
-const emptyBusiness = { name: "", logoText: "", industry: "restaurant", staffPin: "" };
 const emptyCampaign = {
   businessId: "",
   slug: "",
@@ -111,16 +114,14 @@ export async function normalizeCampaignImage(file: File) {
 export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [creatingBusiness, setCreatingBusiness] = useState(businesses.length === 0);
-  const [business, setBusiness] = useState(emptyBusiness);
-  const [campaign, setCampaign] = useState({
-    ...emptyCampaign,
-    businessId: businesses[0]?.id ?? "",
-  });
+  // Starts unselected on purpose: pre-picking a business makes it easy to create
+  // a campaign under whichever one happened to sort first.
+  const [campaign, setCampaign] = useState(emptyCampaign);
   const [busy, setBusy] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
   const [campaignImageName, setCampaignImageName] = useState("");
   const [error, setError] = useState("");
+  const selectedBusiness = businesses.find((item) => item.id === campaign.businessId);
 
   async function handleCampaignImage(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -148,16 +149,9 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
       if (!campaign.heroImage) {
         throw new Error("Upload a campaign image before creating the campaign.");
       }
-      let businessId = campaign.businessId;
-      if (creatingBusiness) {
-        const createdBusiness = await api<Business>("/api/businesses", {
-          method: "POST",
-          body: JSON.stringify(business),
-        });
-        businessId = createdBusiness.id;
-      }
+      const businessId = campaign.businessId;
       if (!businessId) {
-        throw new Error("Select or create a business first.");
+        throw new Error("Select a business first.");
       }
       const createdCampaign = await api<Campaign>("/api/campaigns", {
         method: "POST",
@@ -183,8 +177,7 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
       router.push(`/dashboard/campaigns?campaign=${createdCampaign.slug}`);
       router.refresh();
       setOpen(false);
-      setBusiness(emptyBusiness);
-      setCampaign({ ...emptyCampaign, businessId: businesses[0]?.id ?? "" });
+      setCampaign(emptyCampaign);
       setCampaignImageName("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create campaign.");
@@ -202,91 +195,51 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
       {open ? (
         <AdminModal
           title="New Campaign"
-          subtitle="Set up a business, schedule, and hunt rules."
+          subtitle="Pick a business, then set the schedule and hunt rules."
           onClose={() => setOpen(false)}
         >
           <form className="modal-form" onSubmit={handleSubmit}>
               <div className="modal-body">
                 <div className="form-section">
                   <span className="form-section-title">Business</span>
-                  <div className="segmented" role="tablist">
-                    <button
-                      type="button"
-                      className={!creatingBusiness ? "active" : ""}
-                      disabled={businesses.length === 0}
-                      onClick={() => setCreatingBusiness(false)}
+                  <label className="campaign-page-selector in-form">
+                    <span
+                      className={`campaign-page-selector-icon mode-${selectedBusiness?.industry ?? "other"}`}
                     >
-                      Use existing
-                    </button>
-                    <button
-                      type="button"
-                      className={creatingBusiness ? "active" : ""}
-                      onClick={() => setCreatingBusiness(true)}
+                      {campaignCategoryIcon(selectedBusiness?.industry ?? "other")}
+                    </span>
+                    <span className="campaign-page-selector-copy">
+                      <small>
+                        {selectedBusiness
+                          ? campaignCategoryLabel(selectedBusiness.industry)
+                          : "Not selected"}
+                      </small>
+                      <strong>
+                        {selectedBusiness?.name ?? "Select a business"}
+                      </strong>
+                    </span>
+                    <FiChevronDown
+                      aria-hidden="true"
+                      className="campaign-page-selector-chevron"
+                    />
+                    <select
+                      aria-label="Business"
+                      required
+                      value={campaign.businessId}
+                      onChange={(event) => setCampaign({ ...campaign, businessId: event.target.value })}
                     >
-                      Create new
-                    </button>
-                  </div>
-
-                  {creatingBusiness ? (
-                    <div className="admin-form-grid">
-                      <label className="field">
-                        <span>Business Name</span>
-                        <input
-                          required
-                          value={business.name}
-                          onChange={(event) => setBusiness({ ...business, name: event.target.value })}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Logo Text</span>
-                        <input
-                          maxLength={4}
-                          required
-                          value={business.logoText}
-                          onChange={(event) => setBusiness({ ...business, logoText: event.target.value })}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Industry</span>
-                        <select
-                          value={business.industry}
-                          onChange={(event) => setBusiness({ ...business, industry: event.target.value })}
-                        >
-                          <option value="restaurant">Restaurant</option>
-                          <option value="online_shop">Online Shop</option>
-                          <option value="beauty">Beauty</option>
-                          <option value="pet">Pet</option>
-                          <option value="retail">Retail</option>
-                          <option value="other">Other</option>
-                        </select>
-                      </label>
-                      <label className="field">
-                        <span>Staff PIN (4-6 digits)</span>
-                        <input
-                          required
-                          value={business.staffPin}
-                          onChange={(event) => setBusiness({ ...business, staffPin: event.target.value })}
-                        />
-                      </label>
-
-                    </div>
-                  ) : (
-                    <label className="field">
-                      <span>Select a business</span>
-                      <select
-                        required
-                        value={campaign.businessId}
-                        onChange={(event) => setCampaign({ ...campaign, businessId: event.target.value })}
-                      >
-                        <option value="">Select a business</option>
-                        {businesses.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
+                      {/* Holds the unselected state without offering itself as a
+                          choice in the dropdown list. */}
+                      <option disabled hidden value="">
+                        Select a business
+                      </option>
+                      {businesses.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
 
                 <div className="form-section">

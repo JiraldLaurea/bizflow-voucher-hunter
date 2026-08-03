@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { FiChevronDown } from "react-icons/fi";
 import { campaignCategoryIcon } from "@/lib/campaign-category";
@@ -63,69 +64,111 @@ export function ScopeSelector({
     navigate(params);
   }
 
-  const showBusinessPicker = showBusiness && businesses.length > 1;
-  const showCampaignPicker = scopedCampaigns.length > 1;
-  if (!showBusinessPicker && !showCampaignPicker) return null;
+  // A single option is shown but not made switchable. Hiding it outright left
+  // the page silent about what it was scoped to — a campaign's slots looked
+  // like the business's slots.
+  const showBusinessScope = showBusiness && businesses.length > 0;
+  const showCampaignScope = scopedCampaigns.length > 0;
+  if (!showBusinessScope && !showCampaignScope) return null;
 
   const category = campaign?.industry ?? campaign?.mode ?? "other";
 
   return (
     <div className="scope-selector">
-      {showBusinessPicker ? (
-        <label className="campaign-page-selector">
-          <span
-            className={`campaign-page-selector-icon mode-${business?.industry ?? "other"}`}
-          >
-            {campaignCategoryIcon(business?.industry ?? "other")}
-          </span>
-          <span className="campaign-page-selector-copy">
-            <small>Business</small>
-            <strong>{business?.name ?? "All businesses"}</strong>
-          </span>
-          <FiChevronDown
-            aria-hidden="true"
-            className="campaign-page-selector-chevron"
-          />
-          <select
-            aria-label="Viewing business"
-            onChange={(event) => onBusinessChange(event.target.value)}
-            value={business?.id ?? ""}
-          >
-            {businesses.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      {showBusinessScope ? (
+        <ScopeTile
+          category={business?.industry ?? "other"}
+          icon={campaignCategoryIcon(business?.industry ?? "other")}
+          label="Business"
+          onChange={onBusinessChange}
+          options={businesses.map((item) => ({
+            key: item.id,
+            value: item.id,
+            label: item.name,
+          }))}
+          selectLabel="Viewing business"
+          value={business?.id ?? ""}
+          valueLabel={business?.name ?? "All businesses"}
+        />
       ) : null}
 
-      {showCampaignPicker ? (
-        <label className="campaign-page-selector">
-          <span className={`campaign-page-selector-icon mode-${category}`}>
-            {campaignCategoryIcon(category)}
-          </span>
-          <span className="campaign-page-selector-copy">
-            <small>Campaign</small>
-            <strong>{campaign?.title ?? "No campaigns"}</strong>
-          </span>
-          <FiChevronDown
-            aria-hidden="true"
-            className="campaign-page-selector-chevron"
-          />
-          <select
-            aria-label="Viewing campaign"
-            onChange={(event) => onCampaignChange(event.target.value)}
-            value={campaign?.slug ?? ""}
-          >
-            {scopedCampaigns.map((item) => (
-              <option key={item.id} value={item.slug}>
-                {item.title}
-              </option>
-            ))}
-          </select>
-        </label>
+      {showCampaignScope ? (
+        // No icon: the category glyph belongs to the business, and repeating it
+        // here produced two identical tiles for a shop running a shop campaign.
+        <ScopeTile
+          label="Campaign"
+          onChange={onCampaignChange}
+          options={scopedCampaigns.map((item) => ({
+            key: item.id,
+            value: item.slug,
+            label: item.title,
+          }))}
+          selectLabel="Viewing campaign"
+          value={campaign?.slug ?? ""}
+          valueLabel={campaign?.title ?? "No campaigns"}
+        />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One scope tile: always a picker, even when there is a single option today.
+ * A tile that reads as inert gives no hint that the scope is switchable at all,
+ * and the option list is how you find out what else exists.
+ */
+function ScopeTile({
+  category,
+  icon,
+  label,
+  onChange,
+  options,
+  selectLabel,
+  value,
+  valueLabel,
+}: {
+  category?: string;
+  icon?: ReactNode;
+  label: string;
+  onChange: (value: string) => void;
+  options: { key: string; value: string; label: string }[];
+  selectLabel?: string;
+  value?: string;
+  valueLabel: string;
+}) {
+  const face = (
+    <>
+      {icon ? (
+        <span className={`campaign-page-selector-icon mode-${category ?? "other"}`}>
+          {icon}
+        </span>
+      ) : null}
+      <span className="campaign-page-selector-copy">
+        <small>{label}</small>
+        <strong>{valueLabel}</strong>
+      </span>
+    </>
+  );
+  const className = `campaign-page-selector${icon ? "" : " is-iconless"}`;
+
+  return (
+    <label className={className}>
+      {face}
+      <FiChevronDown
+        aria-hidden="true"
+        className="campaign-page-selector-chevron"
+      />
+      <select
+        aria-label={selectLabel}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {options.map((option) => (
+          <option key={option.key} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

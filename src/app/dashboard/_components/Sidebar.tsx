@@ -16,63 +16,97 @@ import {
   FiUsers,
 } from "react-icons/fi";
 
-const nav = [
+const navSections = [
   {
-    label: "Dashboard",
-    href: "/dashboard",
-    icon: <FiGrid aria-hidden="true" />,
+    title: "Overview",
+    items: [
+      {
+        label: "Dashboard",
+        href: "/dashboard",
+        icon: <FiGrid aria-hidden="true" />,
+      },
+    ],
   },
   {
-    label: "Campaigns",
-    href: "/dashboard/campaigns",
-    icon: <FiFlag aria-hidden="true" />,
+    title: "Manage",
+    items: [
+      {
+        label: "Campaigns",
+        href: "/dashboard/campaigns",
+        icon: <FiFlag aria-hidden="true" />,
+      },
+      {
+        label: "Businesses",
+        href: "/dashboard/businesses",
+        icon: <FiBriefcase aria-hidden="true" />,
+      },
+      {
+        label: "Slots",
+        href: "/dashboard/slots",
+        icon: <FiClock aria-hidden="true" />,
+      },
+    ],
   },
   {
-    label: "Businesses",
-    href: "/dashboard/businesses",
-    icon: <FiBriefcase aria-hidden="true" />,
+    title: "Customers",
+    items: [
+      {
+        label: "Vouchers",
+        href: "/dashboard/vouchers",
+        icon: <FiGift aria-hidden="true" />,
+      },
+      {
+        label: "Users",
+        href: "/dashboard/users",
+        icon: <FiUsers aria-hidden="true" />,
+      },
+      {
+        label: "Loyalty Points",
+        href: "/dashboard/rewards",
+        icon: <FiRepeat aria-hidden="true" />,
+      },
+    ],
   },
   {
-    label: "Slots",
-    href: "/dashboard/slots",
-    icon: <FiClock aria-hidden="true" />,
-  },
-  {
-    label: "Vouchers",
-    href: "/dashboard/vouchers",
-    icon: <FiGift aria-hidden="true" />,
-  },
-  {
-    label: "Users",
-    href: "/dashboard/users",
-    icon: <FiUsers aria-hidden="true" />,
-  },
-  {
-    label: "Loyalty Points",
-    href: "/dashboard/rewards",
-    icon: <FiRepeat aria-hidden="true" />,
-  },
-  {
-    label: "Staff Validation",
-    href: "/dashboard/staff",
-    icon: <FiCheckSquare aria-hidden="true" />,
-  },
-  {
-    label: "Settings",
-    href: "/dashboard/settings",
-    icon: <FiSettings aria-hidden="true" />,
+    title: "Operations",
+    items: [
+      {
+        label: "Staff Validation",
+        href: "/dashboard/staff",
+        icon: <FiCheckSquare aria-hidden="true" />,
+      },
+      {
+        label: "Settings",
+        href: "/dashboard/settings",
+        icon: <FiSettings aria-hidden="true" />,
+      },
+    ],
   },
 ];
-const staffNav = nav.filter((item) =>
-  [
-    "Dashboard",
-    "Slots",
-    "Vouchers",
-    "Users",
-    "Loyalty Points",
-    "Staff Validation",
-  ].includes(item.label),
-);
+
+const staffLabels = new Set([
+  "Dashboard",
+  "Slots",
+  "Vouchers",
+  "Users",
+  "Loyalty Points",
+  "Staff Validation",
+]);
+
+// Sections are filtered item by item, then any section left with nothing is
+// dropped so a role never sees a heading with no links under it.
+function visibleSections(role: "super_admin" | "admin" | "staff") {
+  return navSections
+    .map((section) => ({
+      title: section.title,
+      items: section.items.filter((item) => {
+        if (role === "staff") return staffLabels.has(item.label);
+        if (item.href === "/dashboard/settings") return role === "super_admin";
+        return true;
+      }),
+    }))
+    .filter((section) => section.items.length > 0);
+}
 
 function isNavActive(pathname: string, href: string) {
   if (href.includes("#")) return false;
@@ -113,34 +147,39 @@ export function Sidebar({
         />
         <div>
           <strong>Voucher Hunt</strong>
-          <div style={{ fontSize: ".72rem", opacity: 0.76 }}>
+          <div className="sidebar-brand-role">
             {role === "staff"
               ? `${staffBusinessName ?? "Unassigned business"} · Staff`
               : "Admin"}
           </div>
         </div>
       </div>
-      {(role === "staff"
-        ? staffNav
-        : nav.filter((item) => item.href !== "/dashboard/settings" || role === "super_admin")
-      ).map((item) => (
-        <Link
-          aria-current={isNavActive(pathname, item.href) ? "page" : undefined}
-          className={`nav-item ${isNavActive(pathname, item.href) ? "active" : ""}`}
-          href={item.href}
-          key={item.label}
-        >
-          <span className="nav-item-icon">{item.icon}</span>
-          <span className="nav-item-label">{item.label}</span>
-        </Link>
-      ))}
+      <nav className="sidebar-nav">
+        {visibleSections(role).map((section) => (
+          <div className="sidebar-nav-section" key={section.title}>
+            <h2 className="sidebar-nav-section-title">{section.title}</h2>
+            {section.items.map((item) => (
+              <Link
+                aria-current={isNavActive(pathname, item.href) ? "page" : undefined}
+                className={`nav-item ${isNavActive(pathname, item.href) ? "active" : ""}`}
+                href={item.href}
+                key={item.label}
+              >
+                <span className="nav-item-icon">{item.icon}</span>
+                <span className="nav-item-label">{item.label}</span>
+              </Link>
+            ))}
+          </div>
+        ))}
+      </nav>
       <div className="sidebar-account">
         <div className="sidebar-account-copy">
           <strong>{adminName}</strong>
           <span title={adminEmail}>{adminEmail}</span>
         </div>
-        <button aria-label="Log out" onClick={logout} type="button">
+        <button className="sidebar-signout" onClick={logout} type="button">
           <FiLogOut aria-hidden="true" />
+          Sign out
         </button>
       </div>
     </aside>
