@@ -13,6 +13,22 @@ import {
   listStaffChangeRequests,
 } from "@/server/change-requests";
 
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/**
+ * "2026-07-08" -> "Jul 8". Built from the string's own parts rather than via
+ * `new Date(...)`, which would read the slot date as UTC midnight and render
+ * the previous day for anyone west of it.
+ */
+function shortDate(iso: string) {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day || month < 1 || month > 12) return iso;
+  return `${MONTHS[month - 1]} ${day}`;
+}
+
 export default async function VouchersPage({
   searchParams,
 }: {
@@ -48,10 +64,31 @@ export default async function VouchersPage({
       pools = [];
     }
   }
-  const slotLabel = (slotId: string) => {
-    const slot = slotRows.find((row) => row.slot.id === slotId)?.slot;
-    return slot ? `${slot.date} ${slot.startTime}` : slotId;
+  /**
+   * Availability grouped by date rather than one entry per slot. A tier offered
+   * at fifteen slots rendered as fifteen full timestamps, which wrapped over
+   * three lines and buried every other column.
+   */
+  const slotsByDate = (slotIds: string[]) => {
+    const byDate = new Map<string, string[]>();
+    const unknown: string[] = [];
+    for (const slotId of slotIds) {
+      const slot = slotRows.find((row) => row.slot.id === slotId)?.slot;
+      if (!slot) {
+        unknown.push(slotId);
+        continue;
+      }
+      byDate.set(slot.date, [...(byDate.get(slot.date) ?? []), slot.startTime]);
+    }
+    const groups = [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, times]) => ({ date, times: [...times].sort() }));
+    return { groups, unknown };
   };
+
+  // Weight is only meaningful next to the others, so it is shown as a share of
+  // the campaign's total rather than as a bare number.
+  const totalWeight = pools.reduce((sum, pool) => sum + pool.probabilityWeight, 0);
 
   return (
     <>
@@ -100,16 +137,65 @@ export default async function VouchersPage({
                   </td>
               </tr>
             ) : (
-              pools.map((pool) => (
-                <tr key={pool.id}>
-                  <td>{pool.displayLabel}</td>
-                  <td>{pool.totalQuantity}</td>
-                  <td>{pool.remainingQuantity}</td>
-                  <td>{pool.probabilityWeight}</td>
-                  <td>{pool.slotIds.length === 0 ? "—" : pool.slotIds.map(slotLabel).join(", ")}</td>
-                  <td><span className="badge">{pool.status}</span></td>
-                </tr>
-              ))
+              pools.map((pool) => {
+                const { groups, unknown } = slotsByDate(pool.slotIds);
+                const claimed = pool.totalQuantity - pool.remainingQuantity;
+                const share = totalWeight
+                  ? Math.round((pool.probabilityWeight / totalWeight) * 100)
+                  : 0;
+                return (
+                  <tr key={pool.id}>
+                    <td>
+                      <div className="cell-title">{pool.displayLabel}</div>
+                    </td>
+                    <td className="cell-numeric">{pool.totalQuantity}</td>
+                    <td className="cell-numeric">
+                      <div className="pool-stock">
+                        <span>{pool.remainingQuantity}</span>
+                        <span
+                          aria-hidden="true"
+                          className="pool-stock-bar"
+                          data-depleted={claimed > 0 ? "true" : undefined}
+                        >
+                          <span
+                            style={{
+                              width: `${pool.totalQuantity ? (pool.remainingQuantity / pool.totalQuantity) * 100 : 0}%`,
+                            }}
+                          />
+                        </span>
+                      </div>
+                    </td>
+                    <td className="cell-numeric">
+                      <div className="pool-weight">
+                        <span>{pool.probabilityWeight}</span>
+                        <small>{share}%</small>
+                      </div>
+                    </td>
+                    <td>
+                      {groups.length === 0 && unknown.length === 0 ? (
+                        <span className="muted">—</span>
+                      ) : (
+                        <div className="pool-slot-chips">
+                          {groups.map((group) => (
+                            <span className="pool-slot-chip" key={group.date}>
+                              <strong>{shortDate(group.date)}</strong>
+                              <span>{group.times.join(" · ")}</span>
+                            </span>
+                          ))}
+                          {unknown.map((slotId) => (
+                            <span className="pool-slot-chip is-unknown" key={slotId}>
+                              <strong>{slotId}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span className="badge">{pool.status}</span>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

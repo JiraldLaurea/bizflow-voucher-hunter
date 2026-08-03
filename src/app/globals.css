@@ -5131,6 +5131,96 @@ th {
   white-space: nowrap;
 }
 
+/* Figures line up on the digit rather than the word, so quantities can be
+   compared down the column at a glance. */
+.cell-numeric {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Voucher benefit tiers table --- */
+
+/* One chip per date, times collected inside it. A tier offered at fifteen slots
+   was fifteen full timestamps wrapping over three lines. */
+.pool-slot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 620px;
+}
+
+.pool-slot-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--canvas);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.pool-slot-chip strong {
+  color: var(--navy);
+  font-weight: 650;
+}
+
+.pool-slot-chip span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A slot that no longer resolves — the id is shown so it can be traced. */
+.pool-slot-chip.is-unknown {
+  border-style: dashed;
+  border-color: var(--orange);
+}
+
+.pool-slot-chip.is-unknown strong {
+  color: var(--orange);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 500;
+}
+
+.pool-stock {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+}
+
+.pool-stock-bar {
+  display: block;
+  width: 54px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--soft-line);
+  overflow: hidden;
+}
+
+.pool-stock-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+/* Only tint once stock has actually moved, so a full tier stays quiet. */
+.pool-stock-bar[data-depleted="true"] > span {
+  background: var(--orange);
+}
+
+.pool-weight {
+  display: grid;
+  gap: 1px;
+  justify-items: end;
+}
+
+.pool-weight small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
 .campaign-table-title {
   min-width: 210px;
   display: flex;
