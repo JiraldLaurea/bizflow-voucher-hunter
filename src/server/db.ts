@@ -712,10 +712,37 @@ export const seedData: {
   pools: VoucherPool[];
   poolSlots: Array<{ poolId: string; slotId: string }>;
 } = {
+  // Address and contact number are seeded, not left blank: they are what the
+  // campaign page shows a customer, so a fresh reset that omits them makes the
+  // venue section look broken rather than empty.
   businesses: [
-    { id: "biz_demo_restaurant", name: "Mesa Manila Test Kitchen", logoText: "MM", industry: "restaurant", staffPin: "2468" },
-    { id: "biz_demo_shop", name: "SariSari Studio", logoText: "SS", industry: "online_shop", staffPin: "1357" },
-    { id: "biz_demo_clinic", name: "Glow Lab Skin Clinic", logoText: "GL", industry: "beauty", staffPin: "9753" }
+    {
+      id: "biz_demo_restaurant",
+      name: "Mesa Manila Test Kitchen",
+      logoText: "MM",
+      industry: "restaurant",
+      staffPin: "2468",
+      address: "229 Nicanor Garcia St, Makati City, Metro Manila, Philippines",
+      contactNumber: "09161234567"
+    },
+    {
+      id: "biz_demo_shop",
+      name: "SariSari Studio",
+      logoText: "SS",
+      industry: "online_shop",
+      staffPin: "1357",
+      address: "1631 31st Street, Makati City, Metro Manila, Philippines",
+      contactNumber: "09789632563"
+    },
+    {
+      id: "biz_demo_clinic",
+      name: "Glow Lab Skin Clinic",
+      logoText: "GL",
+      industry: "beauty",
+      staffPin: "9753",
+      address: "1 Zuellig Loop, Makati City, Metro Manila, Philippines",
+      contactNumber: "09471234567"
+    }
   ],
   campaigns: [
     {
@@ -914,7 +941,8 @@ async function hasCompleteSeed(c: Client) {
 }
 
 const INSERT_BUSINESS =
-  "INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin) VALUES (@id, @name, @logoText, @industry, @staffPin)";
+  `INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number)
+     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber)`;
 const INSERT_CAMPAIGN = `INSERT OR IGNORE INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, location, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, allow_reschedule)
      VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @location, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @allowReschedule)`;
 const INSERT_SLOT = `INSERT OR IGNORE INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
@@ -934,7 +962,16 @@ async function seed(c: Client) {
   const statements: InStatement[] = [
     ...seedData.businesses.map((r) => ({
       sql: INSERT_BUSINESS,
-      args: { id: r.id, name: r.name, logoText: r.logoText, industry: r.industry, staffPin: hashStaffPin(r.staffPin) }
+      args: {
+        id: r.id,
+        name: r.name,
+        logoText: r.logoText,
+        industry: r.industry,
+        staffPin: hashStaffPin(r.staffPin),
+        // The columns are nullable, but the driver rejects `undefined`.
+        address: r.address ?? null,
+        contactNumber: r.contactNumber ?? null
+      }
     })),
     ...seedData.campaigns.map((r) => ({
       sql: INSERT_CAMPAIGN,

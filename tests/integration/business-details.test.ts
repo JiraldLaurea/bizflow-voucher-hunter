@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createBusiness, listBusinesses, updateBusiness } from "@/server/admin";
-import { resetDb } from "@/server/db";
+import { resetDb, seedData } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { listPublicCampaignCards } from "@/server/voucher-engine";
 
@@ -87,11 +87,23 @@ describe("business venue details", () => {
   it("carries the details onto public campaign cards", async () => {
     const cards = await listPublicCampaignCards();
     expect(cards.length).toBeGreaterThan(0);
-    // The seed has no venue details, so the fields must be absent rather than
-    // the string "null" leaking out of the SQL join.
+
     for (const card of cards) {
-      expect(card.businessAddress).toBeUndefined();
-      expect(card.businessContactNumber).toBeUndefined();
+      const business = seedData.businesses.find((b) => b.name === card.businessName);
+      expect(business).toBeDefined();
+      expect(card.businessAddress).toBe(business?.address);
+      expect(card.businessContactNumber).toBe(business?.contactNumber);
+      // Guards the SQL join: a NULL column must surface as an absent field, not
+      // as the string "null".
+      expect(card.businessAddress).not.toBe("null");
+      expect(card.businessContactNumber).not.toBe("null");
     }
+  });
+
+  it("omits the fields entirely for a venue with no details", async () => {
+    const created = await createBusiness(base);
+    const listed = (await listBusinesses()).find((b) => b.id === created.id);
+    expect(listed?.address).toBeUndefined();
+    expect(listed?.contactNumber).toBeUndefined();
   });
 });
