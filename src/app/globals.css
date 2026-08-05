@@ -354,6 +354,15 @@ img.logo-tile {
   margin-top: 18px;
 }
 
+/*
+ * ...but not inside a grid, where `gap` already does the spacing. The extra
+ * margin pushed every panel after the first down inside its own cell, so two
+ * panels sharing a row rendered at visibly different heights.
+ */
+.admin-grid > .panel + .panel {
+  margin-top: 0;
+}
+
 .mini-rule {
   display: grid;
   grid-template-columns: 28px 1fr;
@@ -1600,6 +1609,42 @@ img.logo-tile {
   font-weight: 650;
 }
 
+/* Required marker driven off the control's own `required` attribute rather than
+   hand-placed in each label, so it cannot drift out of sync with validation.
+   Deliberately decorative: screen readers already announce the required state
+   from the attribute, so repeating it in text would double up. */
+.field:has(> input:required, > select:required, > textarea:required)
+  > span:first-child::after {
+  content: "*";
+  margin-left: 3px;
+  color: var(--red);
+  font-weight: 700;
+}
+
+/* The tooltip variant is a flex row, so the icon is pushed past the marker to
+   keep the asterisk against the label text. */
+.field-label-with-tooltip .field-tooltip {
+  order: 1;
+}
+
+/* Login wraps its input in a div for the leading icon, so the control is a
+   descendant rather than a direct child. */
+.admin-login-field:has(input:required) > span:first-child::after {
+  content: "*";
+  margin-left: 3px;
+  color: var(--red);
+  font-weight: 700;
+}
+
+/* The location picker also wraps its required address input so it can place
+   the Find button and suggestions beside it. */
+.location-picker .field:has(input:required) > span:first-child::after {
+  content: "*";
+  margin-left: 3px;
+  color: var(--red);
+  font-weight: 700;
+}
+
 .field input,
 .field textarea,
 .field select {
@@ -1884,6 +1929,21 @@ img.logo-tile {
   margin-top: auto;
 }
 
+/*
+ * The amount now lives beside the redeem action rather than in the lookup
+ * form: it only means anything once a voucher is confirmed, and it is what the
+ * customer's 5% is calculated from.
+ */
+.staff-amount-field {
+  margin-top: 16px;
+}
+.staff-amount-field small {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
 .staff-result-message {
   margin: 0 0 12px;
   text-align: left;
@@ -1970,7 +2030,608 @@ img.logo-tile {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
   min-height: 100vh;
-  background: #f8faff;
+  background: var(--surface);
+}
+
+/*
+ * Dashboard surfaces are flat. These pages stack dozens of cards and panels in
+ * dense grids, where a soft shadow under every one reads as noise rather than
+ * elevation; the border and the tinted page background already separate them.
+ * The customer flow keeps its shadows — there a card is a single focal object.
+ */
+.admin-shell .info-card,
+.admin-shell .card,
+.admin-shell .panel {
+  box-shadow: none;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Console palette.
+ *
+ * The console adopts the slate scale the reference console uses — cooler and
+ * lower-contrast than the navy/blue-grey the customer pages are built on, which
+ * is what makes dense screens read as calm rather than busy. Redefining the
+ * tokens on the shell re-points every rule that already uses them, so this is
+ * one change rather than a hunt through the stylesheet. Purple stays the
+ * primary: it is the brand, and only accents (buttons, links, active nav) use it.
+ * ---------------------------------------------------------------------------
+ */
+.admin-shell {
+  --navy: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --soft-line: #f1f5f9;
+  --canvas: #f8fafc;
+}
+
+/*
+ * Stat cards: an uppercase micro-label over a large but unbold figure. The
+ * label carries the tracking, the number carries the size — bolding both left
+ * every card shouting at the same volume.
+ */
+.admin-shell .metric {
+  gap: 0;
+  padding: 16px;
+}
+
+.admin-shell .metric > .muted {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.admin-shell .metric strong {
+  margin: 6px 0 0;
+  color: var(--navy);
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+/* The delta under a figure is context, not a headline. */
+.admin-shell .trend {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Sidebar: white, like the reference console.
+ *
+ * A dark rail reads as chrome and pulls the eye away from the data; a white one
+ * with a hairline edge lets the content own the screen. Purple stays the brand
+ * accent — the active item is a soft purple pill rather than a solid block,
+ * which is enough to locate yourself without shouting.
+ * ---------------------------------------------------------------------------
+ */
+.admin-shell .sidebar {
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--navy);
+}
+
+.admin-shell .sidebar-nav-section-title {
+  color: #94a3b8;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.admin-shell .nav-item {
+  color: #475569;
+  font-weight: 500;
+}
+
+.admin-shell .nav-item:hover {
+  background: var(--canvas);
+  color: var(--navy);
+}
+
+.admin-shell .nav-item.active {
+  background: var(--purple-soft);
+  color: var(--purple);
+  font-weight: 500;
+}
+
+.admin-shell .sidebar-brand-role,
+.admin-shell .sidebar-account-copy small,
+.admin-shell .sidebar-account-copy span {
+  color: var(--muted);
+}
+
+.admin-shell .sidebar-account {
+  border-top-color: var(--line);
+}
+
+.admin-shell .sidebar-signout {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: #475569;
+}
+
+.admin-shell .sidebar-signout:hover {
+  background: var(--canvas);
+  color: var(--navy);
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Card header band.
+ *
+ * The reference separates a card's title from its body with a hairline and its
+ * own padding, so the heading belongs to the card rather than floating above
+ * the content. Done with negative margins so no page markup has to change.
+ * ---------------------------------------------------------------------------
+ */
+.admin-shell .panel > .admin-topbar:first-child {
+  margin: -18px -18px 16px;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+/*
+ * Tables sit flush with the card edge, as they do in the reference: the cells'
+ * own 16px padding is the inset, and the panel's padding would double it. The
+ * panel drops its padding and gives it back to everything that is not a table.
+ */
+/*
+ * The inset lives on the area, not on what sits in it: the panel carries 16px
+ * of horizontal padding and the table is pulled back out to the card edge, so
+ * its cells' own padding stays the only inset on the rows.
+ */
+.admin-shell .panel.table-wrap {
+  padding: 0 16px;
+}
+
+.admin-shell .panel.table-wrap > table {
+  width: calc(100% + 32px);
+  margin-right: -16px;
+  margin-left: -16px;
+}
+
+/* The band above the table. */
+.admin-shell .panel.table-wrap > *:not(table):not(.admin-topbar):first-child {
+  margin-top: 12px;
+}
+
+/* The band supplies the gap; a block's own bottom margin would double it. */
+.admin-shell .panel.table-wrap > *:not(table) {
+  margin-bottom: 0;
+}
+
+.admin-shell .panel.table-wrap > *:not(table) + table {
+  margin-top: 12px;
+}
+
+/*
+ * ...but a header band closes with its own hairline, so the table must start
+ * against it. A gap there leaves the rule floating above the header strip.
+ */
+.admin-shell .panel.table-wrap > .admin-topbar + table,
+.admin-shell .panel.table-wrap > h2:first-child + table {
+  margin-top: 0;
+}
+
+.admin-shell .panel > .admin-topbar:first-child + table th,
+.admin-shell .panel > h2:first-child + table th {
+  border-top: 0;
+}
+
+/* The header band's hairline spans the full card, its copy keeps the inset. */
+.admin-shell .panel.table-wrap > .admin-topbar:first-child {
+  margin: 0 -16px;
+  padding: 15px 16px;
+}
+
+.admin-shell .panel.table-wrap > h2:first-child {
+  margin: 0 -16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The header band sets its own vertical rhythm. */
+.admin-shell .panel.table-wrap > .admin-topbar:first-child,
+.admin-shell .panel.table-wrap > h2:first-child {
+  margin-bottom: 0;
+}
+
+/*
+ * A heading's description is the last thing in its band, so its paragraph
+ * margin lands *inside* the band and stacks on top of the band's own padding —
+ * 13px + 15px of space under every panel title. The padding owns that gap.
+ */
+.admin-shell .admin-topbar p:last-child,
+.admin-shell .panel > p.muted:last-of-type,
+.admin-shell .admin-topbar div > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Control rows are as tall as their controls; stray child margins made the
+   row 14px taller than the buttons in it. */
+.admin-shell .admin-form-actions > *,
+.admin-shell .admin-form-actions > * > .button {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Console form controls, matching the reference: 36px tall, 12px of horizontal
+ * padding, an 8px radius and a slate-300 hairline on white. The customer-facing
+ * forms keep their taller, softer inputs — those are thumb targets on a phone,
+ * these are fields in a dense admin form.
+ * ---------------------------------------------------------------------------
+ */
+/*
+ * Matched by exclusion rather than by listing the text-ish `type` values: an
+ * `<input>` with no `type` at all is the most common shape in this codebase and
+ * an `input[type="…"]` list silently misses every one of them, which is how the
+ * users search box ended up on its own border colour and font size.
+ *
+ * One `:not()` holding a selector list, not a chain of four: a chain would
+ * score (0,5,1) and no page could adjust so much as a padding without an
+ * `!important`. A list scores as its most specific argument, so this is
+ * (0,2,1) — high enough to beat a bare `.field input`, low enough that a
+ * shell-scoped page rule below still gets the last word.
+ */
+.admin-shell input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"]),
+.admin-shell textarea,
+.admin-shell select {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--navy);
+  font-size: 0.875rem;
+}
+
+.admin-shell textarea {
+  min-height: 76px;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
+.admin-shell input::placeholder,
+.admin-shell textarea::placeholder {
+  color: #94a3b8;
+}
+
+.admin-shell input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"]):focus,
+.admin-shell textarea:focus,
+.admin-shell select:focus {
+  border-color: var(--purple);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--purple-soft);
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * SelectMenu — the console dropdown that replaced the native <select>.
+ *
+ * The trigger deliberately repeats the console input chrome rather than
+ * inheriting it: it is a <button>, so none of the input rules above reach it,
+ * and a dropdown that is a pixel off the field beside it is worse than one that
+ * looks nothing like it. Keep these four values in step with the block above.
+ * ---------------------------------------------------------------------------
+ */
+.select-menu {
+  position: relative;
+}
+
+/* The layout `.field` would have given it, stated here so the component does
+   not inherit `.field`'s descendant `span` rules along with it. */
+.select-menu-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.select-menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.select-menu-label b {
+  margin-left: -2px;
+  color: var(--red);
+  font-weight: 700;
+}
+
+.admin-shell .select-menu-field .select-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--navy);
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-shell .select-menu-field .select-menu-trigger:hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+
+.admin-shell .select-menu-field .select-menu-trigger:disabled {
+  background: var(--canvas);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.admin-shell .select-menu-field .select-menu-trigger:focus-visible {
+  border-color: var(--purple);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--purple-soft);
+}
+
+/* An open menu reads as focused even when the ring is not drawn, so the border
+   follows the panel rather than the focus state. */
+.select-menu-field.is-open .select-menu-trigger {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px var(--purple-soft);
+}
+
+.select-menu-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Category glyph, on the trigger and on every row of the panel, so the list you
+   pick from and the control you picked with read as the same thing. */
+.select-menu-option-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.select-menu-option-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.select-menu-value.is-placeholder {
+  color: #94a3b8;
+}
+
+.select-menu-chevron {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: #64748b;
+  transition: transform 0.15s ease;
+}
+
+.select-menu.is-open .select-menu-chevron {
+  transform: rotate(180deg);
+}
+
+.select-menu-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: 264px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+.select-menu-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: #334155;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.select-menu-option-copy {
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.select-menu-option-copy > span {
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.875rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-menu-option-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hover and keyboard highlight are the same state: the arrow keys move the same
+   marker the pointer does, so there is only ever one row to look at. */
+.select-menu-option.is-active {
+  background: #f1f5f9;
+  color: var(--navy);
+}
+
+.select-menu-option.is-selected {
+  color: var(--navy);
+  font-weight: 600;
+}
+
+.select-menu-option.is-selected svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: var(--purple);
+}
+
+.select-menu-option[aria-disabled="true"] {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.select-menu-empty {
+  margin: 0;
+  padding: 10px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* A value the form works out for itself, shown under the field it derives from
+   rather than in a box of its own. */
+.admin-shell .field-derived {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.admin-shell .field-derived code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--canvas);
+  color: var(--navy);
+  font-size: 0.75rem;
+}
+
+/* Field label above its control, at the console's label size. */
+.admin-shell .field {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-shell .field > span {
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+/* Form sections share the panel rhythm: 20px inside, 20px between fields. */
+.admin-shell .admin-form,
+.admin-shell .admin-form-grid {
+  gap: 20px;
+}
+
+/* The user summary tiles sit on white, like every other card here. */
+.admin-shell .customer-stat {
+  background: var(--surface);
+}
+
+/* Supporting copy under a heading: quiet, and short enough to scan. */
+.admin-shell .admin-topbar .muted,
+.admin-shell .panel > .muted {
+  max-width: 68ch;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Dashboard tables.
+ *
+ * Column headers are labels, not data: small, uppercase and tracked out on a
+ * tinted strip, separated from the body by the stronger hairline. Body rows use
+ * the lighter rule so the eye follows records rather than the grid, with
+ * generous horizontal padding to keep columns apart on wide screens.
+ * ---------------------------------------------------------------------------
+ */
+.admin-shell table {
+  font-size: 0.875rem;
+}
+
+.admin-shell th {
+  padding: 10px 16px;
+  /* Enclosed top and bottom so the strip reads as a band rather than as a
+     first row that happens to be tinted. */
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.admin-shell td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--soft-line);
+  color: #334155;
+  vertical-align: middle;
+}
+
+.admin-shell tbody tr {
+  transition: background-color 0.12s ease;
+}
+
+.admin-shell tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* The panel's own border already closes the table. */
+.admin-shell tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/*
+ * A badge is an inline label beside data, so it reads as a quiet ring rather
+ * than a solid pill competing with the row it annotates.
+ */
+.admin-shell .badge {
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/*
+ * Weight is hierarchy in small steps here — 600 to emphasise, 500 to label.
+ * The 750–900 weights belong to the customer-facing pages, where type is much
+ * larger; at 13px they just look shouty and blur the difference between a
+ * heading, a field label and a cell value.
+ */
+.admin-shell .cell-title,
+.admin-shell .field > span {
+  font-weight: 600;
 }
 
 .dashboard-hydration-gate {
@@ -1983,7 +2644,7 @@ img.logo-tile {
   gap: 8px;
   padding: 24px;
   color: var(--navy);
-  background: var(--canvas);
+  background: #fff;
   cursor: progress;
   text-align: center;
 }
@@ -2082,11 +2743,20 @@ img.logo-tile {
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 1px 2px rgba(9, 30, 66, 0.05);
+  /* It is a <button> now, so it would otherwise sit at the browser's default
+     type size rather than the console's. */
+  font-size: 0.875rem;
+  text-align: left;
   cursor: pointer;
 }
 
 .campaign-page-selector:hover {
   border-color: #c7cede;
+}
+
+.campaign-page-selector:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: -2px;
 }
 
 /* Tiles that carry no logo lose the icon column so the copy is not left
@@ -2111,23 +2781,31 @@ img.logo-tile {
   height: 16px;
 }
 
-/* Category colours, matched to the customer directory's mode tiles. */
-.campaign-page-selector-icon.mode-restaurant {
+/* Category colours, matched to the customer directory's mode tiles. Shared with
+   the SelectMenu option glyph so a business looks the same in the scope tile,
+   in the picker that changes it, and in the list you pick it from. */
+.campaign-page-selector-icon.mode-restaurant,
+.select-menu-option-icon.mode-restaurant {
   background: linear-gradient(135deg, #fb923c, #ea580c);
 }
-.campaign-page-selector-icon.mode-online_shop {
+.campaign-page-selector-icon.mode-online_shop,
+.select-menu-option-icon.mode-online_shop {
   background: linear-gradient(135deg, #60a5fa, #2563eb);
 }
-.campaign-page-selector-icon.mode-beauty {
+.campaign-page-selector-icon.mode-beauty,
+.select-menu-option-icon.mode-beauty {
   background: linear-gradient(135deg, #f472b6, #db2777);
 }
-.campaign-page-selector-icon.mode-pet {
+.campaign-page-selector-icon.mode-pet,
+.select-menu-option-icon.mode-pet {
   background: linear-gradient(135deg, #2dd4bf, #0d9488);
 }
-.campaign-page-selector-icon.mode-retail {
+.campaign-page-selector-icon.mode-retail,
+.select-menu-option-icon.mode-retail {
   background: linear-gradient(135deg, #a78bfa, #7c3aed);
 }
-.campaign-page-selector-icon.mode-other {
+.campaign-page-selector-icon.mode-other,
+.select-menu-option-icon.mode-other {
   background: linear-gradient(135deg, #94a3b8, #475569);
 }
 
@@ -2154,25 +2832,10 @@ img.logo-tile {
   white-space: nowrap;
 }
 
-.campaign-page-selector-chevron {
+/* The tile is a SelectMenu trigger, so the chevron comes from that component
+   and inherits its open-state rotation. Only the colour is the tile's call. */
+.campaign-page-selector .select-menu-chevron {
   color: var(--muted);
-}
-
-.campaign-page-selector select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-
-/* Inside a modal the selector is a form control rather than a page-level scope
-   control, so it fills its section instead of hugging the current value. */
-.campaign-page-selector.in-form {
-  width: 100%;
-  max-width: none;
-  padding: 10px 12px;
 }
 
 .nav-item {
@@ -2198,7 +2861,7 @@ img.logo-tile {
 .nav-item.active {
   color: #fff;
   background: var(--purple);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* Pinned to the foot of the sidebar: identity first, then sign out on its own
@@ -2756,6 +3419,22 @@ img.logo-tile {
   width: 15px;
   height: 15px;
 }
+/* Full or sold-out campaigns stay listed and clickable — their page still
+   carries the venue and the booking step — but read as inactive. */
+.directory-card.is-unavailable {
+  opacity: 0.62;
+}
+.directory-card-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--page, #f7f8fb);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
 .directory-empty {
   padding: 44px 18px;
   text-align: center;
@@ -2887,20 +3566,31 @@ img.logo-tile {
   }
 }
 
+/*
+ * Console type scale. A page title here is a label on a dense screen, not the
+ * hero the customer-facing pages use, so it steps down to 22px with panel
+ * titles at 15px. Kept on .admin-main because that is the container the pages
+ * render into; the same rule on .admin-shell loses to this one.
+ */
 .admin-main h1 {
-  font-size: clamp(1.75rem, 2.4vw, 2.35rem);
-  line-height: 1.08;
   margin-bottom: 6px;
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.27;
 }
 
 .admin-main h2 {
-  font-size: 1.1rem;
-  line-height: 1.25;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+  line-height: 1.35;
 }
 
 .admin-main h3 {
-  font-size: 1rem;
-  line-height: 1.3;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .admin-main .staff-result-status {
@@ -2939,6 +3629,46 @@ img.logo-tile {
   gap: 6px;
 }
 
+/*
+ * Beside a panel heading the group must keep its natural width. The heading and
+ * its description grow, squeezing the group to min-content, which stacked two
+ * short buttons into a ragged column.
+ */
+.admin-topbar > .reward-row-actions {
+  flex-shrink: 0;
+  align-items: center;
+}
+
+/* A failure message belongs under the buttons, never wedged between them. */
+.reward-row-actions > .alert {
+  flex-basis: 100%;
+  margin-top: 8px;
+}
+
+/*
+ * Month-end actions sit under their explanation, aligned with it. The wrapper
+ * already spaces them, so the inner group only has to stop stretching.
+ */
+.admin-form-actions.billing-month-end-actions {
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+.billing-month-end-actions > .reward-row-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Match the closing inset used by the other dashboard panels. */
+.billing-month-end-panel {
+  padding-bottom: 20px;
+}
+
+/* Flush tables use their cells as the horizontal inset, but the last row still
+   needs breathing room before the panel border. */
+.admin-shell .panel.table-wrap.dashboard-attempts-panel > table {
+  margin-bottom: 20px;
+}
+
 .compact-button {
   width: auto;
   min-height: 32px;
@@ -2963,53 +3693,38 @@ img.logo-tile {
   margin-top: 4px;
 }
 
-.rewards-staff-grid {
+/*
+ * A short form on a full-width panel. Capped rather than stretched: two inputs
+ * spanning 1600px read as a broken layout, and the eye has to travel the whole
+ * width to get from a label to its field.
+ */
+.rewards-award-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  max-width: 460px;
 }
 
-.rewards-tool-card {
-  display: grid;
-  align-content: start;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--canvas);
+.rewards-award-form .button {
+  justify-self: start;
 }
 
-.rewards-tool-card-header {
-  display: flex;
-  align-items: center;
-  min-height: 28px;
-}
-
-.rewards-tool-card h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.25;
-}
-
-.rewards-tool-card .field {
+.rewards-award-form .field {
   gap: 8px;
   margin-bottom: 0;
 }
 
-.rewards-tool-card .field span {
+.rewards-award-form .field > span {
   color: #536078;
   font-size: 0.78rem;
   font-weight: 800;
   line-height: 1.2;
 }
 
-.rewards-tool-card .field input,
-.rewards-tool-card .field select {
-  min-height: 52px;
-  border-radius: 12px;
+.rewards-award-form small {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .field-label-with-tooltip {
@@ -3064,19 +3779,6 @@ img.logo-tile {
 
 .field-tooltip:focus-visible {
   box-shadow: 0 0 0 2px #d9d0ff;
-}
-
-.rewards-tool-card .split-actions {
-  margin: 0;
-}
-
-.rewards-tool-card .button:disabled {
-  opacity: 1;
-  color: #7d8798;
-  background: #eef2f8;
-  border: 1px solid #d8e0ee;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
-  cursor: not-allowed;
 }
 
 .rewards-result-box {
@@ -3282,11 +3984,13 @@ img.logo-tile {
 .admin-form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: start;
   gap: 12px;
 }
 
 .admin-form-grid .field,
 .admin-inline-form > .field {
+  align-self: start;
   margin-bottom: 0;
 }
 
@@ -4856,9 +5560,6 @@ th {
     grid-column: span 12;
   }
 
-  .rewards-staff-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 760px) {
@@ -5049,26 +5750,14 @@ th {
   display: flex;
   gap: 8px;
 }
-/* Standalone select (no .field wrapper), so give it the same chrome as one —
-   otherwise it falls back to the browser default (square, black border). */
-.field-select {
-  min-height: 46px;
-  padding: 11px 36px 11px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background-color: #fff;
-  color: var(--navy);
-  cursor: pointer;
-}
-
-.field-select:focus-visible {
-  outline: none;
-  border-color: var(--purple);
-  box-shadow: 0 0 0 3px rgba(92, 61, 255, 0.12);
-}
-
-.staff-reschedule-row .field-select {
+/* The picker is a SelectMenu now, so it brings its own chrome; all this row
+   has to say is that it takes the space the Reschedule button does not. */
+.staff-reschedule-row .staff-reschedule-select {
   flex: 1;
+  min-width: 0;
+  /* `.field`'s bottom margin is for a stacked form; in this row it would push
+     the picker off the baseline of the button beside it. */
+  margin-bottom: 0;
 }
 
 /* --- Admin form action row + redemption import --- */
@@ -5221,6 +5910,24 @@ th {
   font-size: 0.7rem;
 }
 
+/* A tier the draw will skip. Sits under the label rather than in the status
+   column, because the row still legitimately reads "active". */
+.pool-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 4px;
+  max-width: 260px;
+  color: var(--orange);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.pool-warning > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .campaign-table-title {
   min-width: 210px;
   display: flex;
@@ -5334,12 +6041,18 @@ th {
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 1px 2px rgba(9, 30, 66, 0.05);
-  overflow: hidden;
+  /* Not `overflow: hidden`: the tiles open a menu panel that has to escape the
+     card. The end tiles round their own corners instead. */
+  overflow: visible;
+}
+
+.scope-selector > .scope-tile {
+  min-width: 0;
 }
 
 /* Business and campaign are one scope, so they share a single card and are
    separated by a rule rather than sitting as two detached tiles. */
-.scope-selector > .campaign-page-selector {
+.scope-selector .campaign-page-selector {
   min-width: 190px;
   border: 0;
   border-radius: 0;
@@ -5347,14 +6060,32 @@ th {
   box-shadow: none;
 }
 
+.scope-selector > .scope-tile:first-child .campaign-page-selector {
+  border-radius: 10px 0 0 10px;
+}
+
+.scope-selector > .scope-tile:last-child .campaign-page-selector {
+  border-radius: 0 10px 10px 0;
+}
+
 /* An inset shadow rather than a border, so the tile's own hover rules cannot
    recolour the divider. */
-.scope-selector > .campaign-page-selector + .campaign-page-selector {
+.scope-selector > .scope-tile + .scope-tile .campaign-page-selector {
   box-shadow: inset 1px 0 0 var(--line);
 }
 
-.scope-selector > .campaign-page-selector:hover {
+.scope-selector .campaign-page-selector:hover,
+.scope-selector .is-open .campaign-page-selector {
   background: var(--canvas);
+}
+
+/* The panel belongs to the tile that opened it, so it is pinned to that tile's
+   left edge rather than stretched across both. */
+.scope-tile .select-menu-panel {
+  min-width: 100%;
+  width: max-content;
+  max-width: 320px;
+  right: auto;
 }
 
 /* --- Users --- */
@@ -5382,33 +6113,40 @@ th {
   pointer-events: none;
 }
 
-/* This input sits outside `.field`, so it needs the border and sizing spelled
-   out; height matches the compact dashboard buttons beside it. */
-.customer-search-field input {
+/* Chrome, height and type size come from the shared console control rule. All
+   this needs to add is the width and the room the leading icon occupies —
+   redeclaring the border here is what put this field on its own hairline.
+   Scoped to `.admin-shell` to match that rule's specificity, since it is a
+   `padding` shorthand that this has to reach past. */
+.admin-shell .customer-search-field input {
   width: 100%;
-  min-height: 36px;
-  padding: 8px 12px 8px 32px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background-color: #fff;
-  color: var(--navy);
-  font: inherit;
-  font-size: 0.85rem;
-}
-
-.customer-search-field input:focus {
-  outline: none;
-  border-color: var(--purple);
-  box-shadow: 0 0 0 3px rgba(92, 61, 255, 0.12);
+  padding-left: 32px;
 }
 
 .customer-link {
   color: var(--navy);
   text-decoration: none;
+  font-weight: 400;
 }
-.customer-link:hover strong {
+.customer-row-link:hover .customer-link,
+.customer-row-link:focus-visible .customer-link {
   color: var(--purple);
   text-decoration: underline;
+}
+
+.customer-row-link {
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.customer-row-link:hover {
+  background: #f8f7ff;
+}
+
+.customer-row-link:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: -2px;
+  background: #f8f7ff;
 }
 
 .customer-phone {
@@ -5419,11 +6157,15 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 18px;
   color: var(--purple);
   font-size: 0.78rem;
   font-weight: 650;
   text-decoration: none;
+}
+
+.customer-summary {
+  margin-bottom: 22px;
 }
 .customer-back:hover {
   text-decoration: underline;
@@ -5773,18 +6515,159 @@ th {
 }
 .form-section {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: 16px;
+  padding: 18px;
+  overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   background: #fff;
 }
 .form-section-title {
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  display: block;
+  margin: -18px -18px 0;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+  color: var(--navy);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Dedicated long-form pages use the calm, centered section-card pattern from
+   the rest of the operations suite. Keeping the content to a readable measure
+   also prevents labels and controls from stretching across wide dashboards. */
+.form-page {
+  width: min(100%, 900px);
+  margin: 0 auto;
+  padding: 18px 0 34px;
+}
+
+.form-page-header {
+  margin-bottom: 28px;
+}
+
+/* The way back to the list you came from. A form on its own route has no
+   backdrop to click, so the escape hatch has to be on the page. */
+.form-page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
   color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.form-page-back:hover,
+.form-page-back:focus-visible {
+  color: var(--purple);
+}
+
+.form-page-back svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* `.admin-main h1` sets the console title scale and its 6px bottom margin, and
+   it is the container these pages actually render into — this only zeroes the
+   top margin so the back link sits tight above the title. */
+.form-page-header h1 {
+  margin-top: 0;
+}
+
+.form-page-header p {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.form-page-form {
+  display: grid;
+  gap: 24px;
+}
+
+.form-page-alert {
+  margin: 0;
+}
+
+/* No `overflow: hidden`. The header band is a bottom border on a transparent
+   strip, so there was nothing for it to clip against the radius — but a
+   SelectMenu inside the card had its panel cut off at the card's edge. */
+.form-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+/* 16px 20px on the band, 20px in the body — the reference card's padding, and
+   the reason the description paragraph below is margin-zeroed: its own margin
+   would land inside the band and stack on this. */
+.form-card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-main .form-card-header h2 {
+  margin: 0 0 5px;
+  color: var(--navy);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+}
+
+.form-card-header p {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.form-card-body {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.form-page-form .admin-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 24px;
+}
+
+.form-page-form .field,
+.form-page-form .select-menu-field,
+.form-card-body > .field,
+.form-card-body > .select-menu-field {
+  margin-bottom: 0;
+}
+
+.form-page-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 760px) {
+  .form-page {
+    padding-top: 8px;
+  }
+
+  .form-page-header {
+    margin-bottom: 20px;
+  }
+
+  .form-card-header,
+  .form-card-body {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .form-page-form .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .campaign-image-field {
   margin-bottom: 2px;
@@ -5979,8 +6862,8 @@ th {
   flex: 1;
   overflow-y: auto;
   display: grid;
-  gap: 12px;
-  padding: 18px 20px;
+  gap: 16px;
+  padding: 20px;
   background: var(--canvas);
 }
 .modal-footer {
@@ -6080,4 +6963,1582 @@ th {
 .legal-page a {
   color: var(--purple);
   text-decoration: underline;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Business marketing home (/).
+ *
+ * Its own namespace on purpose: `landing-*` is already the customer app shell
+ * and the in-app campaign card, so reusing it here would put two unrelated
+ * designs in charge of the same 51 rules.
+ *
+ * Every margin below is stated rather than inherited. The global `h1,h2,h3,p`
+ * reset zeroes top margins only, so a heading's *bottom* margin still lands
+ * inside whatever band it sits in and stacks with that band's padding.
+ * ---------------------------------------------------------------------------
+ */
+.marketing {
+  background: var(--surface);
+  color: var(--navy);
+}
+
+.marketing-shell {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* --- Nav --- */
+.marketing-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: saturate(180%) blur(12px);
+}
+
+.marketing-nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  height: 68px;
+}
+
+.marketing-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  color: var(--navy);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* The app icon — the same file the dashboard sidebar and the Play listing use,
+   so the product is recognisable across all three. */
+.marketing-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  object-fit: cover;
+  box-shadow: 0 4px 10px rgba(92, 61, 255, 0.22);
+}
+
+.marketing-footer .marketing-mark {
+  box-shadow: none;
+}
+
+.marketing-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-right: auto;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.marketing-nav-links a {
+  color: var(--muted);
+}
+
+.marketing-nav-links a:hover,
+.marketing-nav-links a:focus-visible {
+  color: var(--navy);
+}
+
+.marketing-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+}
+
+.marketing-nav-login {
+  color: var(--navy);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.marketing-nav-client {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 13px;
+  border-radius: 9px;
+  background: var(--purple-soft);
+  color: var(--purple);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.marketing-nav-client:hover,
+.marketing-nav-client:focus-visible {
+  background: #e8e2ff;
+  color: #4c2bd4;
+}
+
+.marketing-nav-login:hover,
+.marketing-nav-login:focus-visible {
+  color: var(--purple);
+}
+
+/*
+ * --- Buttons ---
+ * Marketing-only, so they cannot be dragged around by `.button`, which is sized
+ * for the customer flow's full-width thumb targets.
+ */
+.marketing-button,
+.marketing-button-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.marketing-button {
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, var(--purple), var(--purple-2));
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(92, 61, 255, 0.22);
+}
+
+.marketing-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(92, 61, 255, 0.28);
+}
+
+.marketing-button-ghost {
+  border: 1px solid #cbd3e1;
+  background: var(--surface);
+  color: var(--navy);
+}
+
+.marketing-button-ghost:hover {
+  border-color: var(--purple);
+  color: var(--purple);
+}
+
+.marketing-button-lg {
+  height: 52px;
+  padding: 0 26px;
+  font-size: 0.975rem;
+}
+
+.marketing-button svg,
+.marketing-button-ghost svg {
+  width: 17px;
+  height: 17px;
+}
+
+.marketing-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* --- Shared section rhythm --- */
+.marketing-section {
+  padding: 96px 0;
+}
+
+.marketing-section-tight {
+  padding: 72px 0;
+}
+
+.marketing-section-alt {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--canvas);
+}
+
+.marketing-how-it-works {
+  background:
+    radial-gradient(720px 280px at 100% 0%, rgba(111, 79, 255, 0.07), transparent 68%),
+    #fafbff;
+}
+
+.marketing-eyebrow {
+  margin: 0 0 12px;
+  color: var(--purple);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.marketing-section-head {
+  max-width: 640px;
+  margin: 0 0 48px;
+}
+
+.marketing-section-head h2,
+.marketing-problem-grid h2,
+.marketing-closer h2,
+.marketing-product-preview-copy h2 {
+  margin: 0;
+  font-size: clamp(1.6rem, 3vw, 2.15rem);
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+}
+
+.marketing-section-lead {
+  max-width: 58ch;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+
+/*
+ * --- Hero ---
+ * The artwork layer is separate from the copy so a background can be dropped on
+ * `.marketing-hero-bg` without touching the markup or restacking anything. For
+ * dark photography add `is-dark` to `.marketing-hero`: it deepens the scrim and
+ * flips the copy to white in one move.
+ */
+.marketing-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 104px 0 92px;
+}
+
+.marketing-hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    url("/images/voucher-hunt-hero-v3.jpg"),
+    var(--surface);
+  background-size: cover;
+  background-position: center center;
+}
+
+/*
+ * Scrim. Barely there by default so the gradient above is not washed out, and
+ * turned up by one of two classes once real artwork is in play:
+ *
+ *   .marketing-hero.has-art   light or busy photography — white scrim, dark copy
+ *   .marketing-hero.is-dark   dark photography — navy scrim, white copy
+ */
+.marketing-hero-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.marketing-hero.has-art .marketing-hero-bg::after {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(255, 255, 255, 0.93) 38%,
+    rgba(255, 255, 255, 0.5) 58%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+}
+
+.marketing-hero-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.marketing-hero h1 {
+  max-width: 15ch;
+  margin: 0;
+  font-size: clamp(2.35rem, 4.8vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.032em;
+  line-height: 1.06;
+}
+
+.marketing-hero-lead {
+  max-width: 56ch;
+  margin: 22px 0 0;
+  color: #46506a;
+  font-size: 1.125rem;
+  line-height: 1.65;
+}
+
+.marketing-hero .marketing-cta-row {
+  margin-top: 34px;
+}
+
+.marketing-hero-note {
+  max-width: 46ch;
+  margin: 22px 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+/* Dark-artwork variant. */
+.marketing-hero.is-dark .marketing-hero-bg::after {
+  background: linear-gradient(
+    to bottom,
+    rgba(7, 29, 58, 0.62),
+    rgba(7, 29, 58, 0.78)
+  );
+}
+
+.marketing-hero.is-dark h1,
+.marketing-hero.is-dark .marketing-eyebrow {
+  color: #fff;
+}
+
+.marketing-hero.is-dark .marketing-hero-lead {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.marketing-hero.is-dark .marketing-hero-note {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.marketing-hero.is-dark .marketing-button-ghost {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: transparent;
+  color: #fff;
+}
+
+.marketing-hero.is-dark .marketing-button-ghost:hover {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* --- Problem --- */
+.marketing-problem-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 24px 64px;
+  align-items: start;
+}
+
+.marketing-problem-list {
+  display: grid;
+  gap: 22px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marketing-problem-list li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.marketing-problem-list li::before {
+  content: "";
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--purple);
+}
+
+.marketing-problem-list strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--navy);
+  font-weight: 650;
+}
+
+/* --- Steps --- */
+.marketing-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marketing-step h3 {
+  margin: 18px 0 0;
+  font-size: 1.0625rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.marketing-step p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+
+.marketing-step-number {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--purple-soft);
+  color: var(--purple);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+/* --- Capabilities --- */
+.marketing-capabilities {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.marketing-capability {
+  padding: 24px 22px 26px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.marketing-capability:hover {
+  border-color: #d5dbea;
+  box-shadow: var(--shadow-soft);
+}
+
+.marketing-capability-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+
+.marketing-capability-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.marketing-capability h3 {
+  margin: 18px 0 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.008em;
+}
+
+.marketing-capability p {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 0.9063rem;
+  line-height: 1.62;
+}
+
+/* --- Customer journey strip --- */
+.marketing-journey {
+  margin-top: 44px;
+  padding: 24px 26px 26px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--canvas);
+}
+
+.marketing-journey-label {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.marketing-journey-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: journey;
+}
+
+.marketing-journey-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--navy);
+  font-size: 0.875rem;
+  font-weight: 500;
+  counter-increment: journey;
+}
+
+.marketing-journey-step::before {
+  content: counter(journey);
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--purple-soft);
+  color: var(--purple);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* The arrow between stages. Decorative, so it is generated rather than markup
+   a screen reader would read out as a stray character. */
+.marketing-journey-step:not(:last-child)::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-top: 1.5px solid #b9c2d4;
+  border-right: 1.5px solid #b9c2d4;
+  transform: rotate(45deg);
+}
+
+/* --- Loyalty Points --- */
+.marketing-loyalty {
+  border: 0;
+  background:
+    radial-gradient(760px 320px at 0% 0%, rgba(255, 255, 255, 0.14), transparent 68%),
+    linear-gradient(135deg, #4024bf, #6948ee 58%, #7757f2);
+  color: #fff;
+}
+
+.marketing-loyalty .marketing-section-head {
+  max-width: 690px;
+}
+
+.marketing-loyalty .marketing-eyebrow {
+  color: #dcd5ff;
+}
+
+.marketing-loyalty .marketing-section-head h2 {
+  color: #fff;
+}
+
+.marketing-loyalty .marketing-section-lead {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.marketing-loyalty-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marketing-loyalty-steps li {
+  display: flex;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 14px 34px rgba(30, 14, 103, 0.12);
+}
+
+.marketing-loyalty-number {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--purple);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.marketing-loyalty-steps h3 {
+  margin: 5px 0 0;
+  font-size: 1.0625rem;
+  font-weight: 650;
+  color: #fff;
+}
+
+.marketing-loyalty-steps p {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.9063rem;
+  line-height: 1.58;
+}
+
+.marketing-loyalty-note {
+  margin: 22px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.marketing-capabilities-section {
+  border-top: 0;
+  background: #f5f7fb;
+}
+
+@media (max-width: 760px) {
+  .marketing-journey {
+    margin-top: 34px;
+    padding: 20px;
+  }
+
+  .marketing-journey-steps {
+    display: grid;
+    gap: 8px;
+  }
+
+  .marketing-journey-step {
+    justify-content: flex-start;
+  }
+
+  .marketing-journey-step:not(:last-child)::after {
+    display: none;
+  }
+}
+
+/* --- Product preview --- */
+.marketing-product-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.5fr);
+  gap: 56px;
+  align-items: center;
+}
+
+.marketing-product-preview-copy p:not(.marketing-eyebrow) {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.marketing-product-preview-copy ul {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marketing-product-preview-copy li {
+  position: relative;
+  padding-left: 24px;
+  color: var(--navy);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.marketing-product-preview-copy li::before {
+  content: "";
+  position: absolute;
+  top: 0.34em;
+  left: 0;
+  width: 10px;
+  height: 6px;
+  border-bottom: 2px solid var(--purple);
+  border-left: 2px solid var(--purple);
+  transform: rotate(-45deg);
+}
+
+.marketing-dashboard-figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.marketing-dashboard-window {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #d9dfeb;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgba(11, 29, 58, 0.14);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.marketing-dashboard-window-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 13px;
+  border-bottom: 1px solid var(--line);
+  background: #f7f8fc;
+}
+
+.marketing-dashboard-window-bar span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c9d0de;
+}
+
+.marketing-dashboard-window img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.marketing-dashboard-figure figcaption {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+/* --- Demo campaigns --- */
+.marketing-campaigns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.marketing-campaign {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.marketing-campaign-media {
+  position: relative;
+  aspect-ratio: 2 / 1;
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+}
+
+.marketing-campaign-media img {
+  object-fit: cover;
+}
+
+.marketing-campaign-fallback {
+  color: var(--muted);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.marketing-campaign-body {
+  padding: 20px;
+}
+
+.marketing-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 23px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--purple-soft);
+  color: var(--purple);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.marketing-campaign-body h3 {
+  margin: 12px 0 0;
+  font-size: 1.0313rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.marketing-campaign-business {
+  margin: 6px 0 0;
+  color: var(--navy);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.marketing-campaign-dates {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* --- Closer --- */
+.marketing-closer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 40px 44px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    radial-gradient(680px 260px at 0% 0%, var(--purple-soft), transparent 66%),
+    var(--canvas);
+}
+
+.marketing-closer p {
+  max-width: 52ch;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.62;
+}
+
+/* --- Shopper strip --- */
+.marketing-shopper {
+  padding: 34px 0;
+  border-top: 1px solid var(--line);
+  background: var(--canvas);
+}
+
+.marketing-shopper-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px 32px;
+}
+
+.marketing-shopper .marketing-eyebrow {
+  margin-bottom: 6px;
+}
+
+.marketing-shopper-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+/* --- Customer app landing (/client) --- */
+.client-nav-inner {
+  justify-content: space-between;
+}
+
+.client-nav-links {
+  gap: 24px;
+}
+
+.client-steps-section,
+.client-app-preview,
+.client-shop,
+.client-loyalty {
+  scroll-margin-top: 68px;
+}
+
+.client-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 630px;
+  background: #fffaf5;
+}
+
+.client-hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    url("/images/client-app/client-hero-bg-v3.jpg"),
+    #fffaf5;
+  background-position: center center;
+  background-size: cover;
+}
+
+.client-hero-bg::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(255, 255, 255, 0.9) 36%,
+    rgba(255, 255, 255, 0.3) 57%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+  content: "";
+}
+
+.client-hero-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 630px;
+  align-items: center;
+}
+
+.client-hero-copy {
+  width: min(52%, 640px);
+  padding: 88px 0;
+}
+
+.client-hero-copy h1 {
+  max-width: 10ch;
+  margin: 0;
+  color: var(--navy);
+  font-size: clamp(2.6rem, 5vw, 4.25rem);
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+}
+
+.client-hero-copy > p:not(.marketing-eyebrow) {
+  max-width: 50ch;
+  margin: 22px 0 30px;
+  color: var(--muted);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+.client-store-button {
+  cursor: default;
+  pointer-events: none;
+  user-select: none;
+}
+
+.client-store-button:hover {
+  transform: none;
+}
+
+.client-steps-section {
+  padding: 92px 0;
+  background: #fff;
+}
+
+.client-section-head {
+  margin-bottom: 38px;
+}
+
+.client-section-head h2,
+.client-loyalty h2 {
+  margin: 0;
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  letter-spacing: -0.025em;
+}
+
+.client-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-steps li {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f9faff;
+}
+
+.client-steps li > span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+
+.client-steps li svg {
+  width: 19px;
+  height: 19px;
+}
+
+.client-steps h3 {
+  margin: 20px 0 0;
+  font-size: 1.0625rem;
+}
+
+.client-steps p {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.client-app-preview {
+  padding: 96px 0 88px;
+  overflow: hidden;
+  background:
+    radial-gradient(600px 360px at 14% 18%, rgba(111, 79, 255, 0.1), transparent 70%),
+    #f5f4fb;
+}
+
+.client-app-preview-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr);
+  gap: 64px;
+  align-items: end;
+  margin-bottom: 52px;
+}
+
+.client-app-preview-head h2 {
+  margin: 0;
+  color: var(--navy);
+  font-size: clamp(1.9rem, 3vw, 2.6rem);
+  letter-spacing: -0.03em;
+}
+
+.client-app-preview-head > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.client-app-screens {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(24px, 4vw, 54px);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.client-app-screen {
+  min-width: 0;
+  margin: 0;
+}
+
+.client-phone-frame {
+  position: relative;
+  padding: 9px;
+  overflow: hidden;
+  border: 1px solid rgba(11, 30, 63, 0.2);
+  border-radius: 32px;
+  background: #0b1e3f;
+  box-shadow:
+    0 30px 58px rgba(39, 25, 105, 0.16),
+    0 6px 16px rgba(39, 25, 105, 0.08);
+}
+
+.client-phone-frame::before {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 1;
+  width: 32%;
+  height: 17px;
+  border-radius: 999px;
+  background: #08162f;
+  content: "";
+  transform: translateX(-50%);
+}
+
+.client-phone-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 24px;
+}
+
+.client-screen-dev-cover {
+  position: absolute;
+  top: 4.2%;
+  right: 1.5%;
+  z-index: 2;
+  width: 17%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #f7f8fc;
+}
+
+.client-app-screen figcaption {
+  display: grid;
+  gap: 7px;
+  padding: 24px 10px 0;
+}
+
+.client-app-screen figcaption strong {
+  color: var(--navy);
+  font-size: 1.0625rem;
+}
+
+.client-app-screen figcaption span {
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.client-app-demo-note {
+  margin: 34px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.client-shop {
+  padding: 96px 0;
+  overflow: hidden;
+  background:
+    radial-gradient(600px 420px at 6% 16%, rgba(255, 182, 111, 0.18), transparent 68%),
+    radial-gradient(520px 380px at 96% 82%, rgba(65, 201, 235, 0.16), transparent 70%),
+    #fffaf5;
+}
+
+.client-shop-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.62fr);
+  gap: clamp(56px, 8vw, 112px);
+  align-items: center;
+}
+
+.client-shop-copy h2 {
+  max-width: 14ch;
+  margin: 0;
+  color: var(--navy);
+  font-size: clamp(2rem, 3.7vw, 3.1rem);
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.client-shop-lead {
+  max-width: 54ch;
+  margin: 22px 0 0;
+  color: var(--muted);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+.client-shop-steps {
+  display: grid;
+  gap: 22px;
+  margin: 38px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-shop-steps li {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.client-shop-steps li > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: #efeaff;
+  color: var(--purple);
+}
+
+.client-shop-steps li:nth-child(2) > span {
+  background: #e4f8fc;
+  color: #1389a4;
+}
+
+.client-shop-steps li:nth-child(3) > span {
+  background: #fff0dc;
+  color: #d87711;
+}
+
+.client-shop-steps svg {
+  width: 19px;
+  height: 19px;
+}
+
+.client-shop-steps strong {
+  color: var(--navy);
+  font-size: 0.9875rem;
+}
+
+.client-shop-steps p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.client-shop-screen {
+  width: min(100%, 350px);
+  margin: 0 auto;
+}
+
+.client-shop-screen .client-phone-frame::before {
+  display: none;
+}
+
+.client-shop-screen figcaption {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.client-loyalty {
+  padding: 74px 0;
+  background:
+    radial-gradient(620px 240px at 100% 0%, rgba(255, 255, 255, 0.14), transparent 66%),
+    linear-gradient(135deg, #4024bf, #6f4fff);
+  color: #fff;
+}
+
+.client-loyalty-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 56px;
+  align-items: center;
+}
+
+.client-loyalty .marketing-eyebrow {
+  color: #dcd5ff;
+}
+
+.client-loyalty-inner > p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+/* --- Footer --- */
+.marketing-footer {
+  padding: 34px 0;
+  background: var(--sidebar);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.marketing-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px 32px;
+}
+
+.marketing-footer .marketing-wordmark {
+  color: #fff;
+}
+
+.marketing-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  font-size: 0.875rem;
+}
+
+.marketing-footer-links a:hover,
+.marketing-footer-links a:focus-visible {
+  color: #fff;
+}
+
+.marketing a:focus-visible,
+.marketing button:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.marketing-footer a:focus-visible {
+  outline-color: #fff;
+}
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+  .marketing-problem-grid,
+  .marketing-steps,
+  .marketing-loyalty-steps,
+  .marketing-product-preview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .marketing-problem-grid {
+    gap: 28px;
+  }
+
+  .marketing-steps {
+    gap: 30px;
+  }
+
+  .marketing-capabilities {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .marketing-closer {
+    padding: 32px 28px;
+  }
+
+  .marketing-product-preview-grid {
+    gap: 34px;
+  }
+
+  .client-app-preview-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .client-nav-links {
+    gap: 18px;
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .marketing-shell {
+    padding: 0 20px;
+  }
+
+  .marketing-nav-links {
+    display: none;
+  }
+
+  .marketing-nav-inner {
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .marketing-hero {
+    padding: 72px 0 68px;
+  }
+
+  .marketing-hero h1 {
+    max-width: none;
+  }
+
+  .marketing-hero.has-art .marketing-hero-bg {
+    background-position: 66% center;
+  }
+
+  .marketing-hero.has-art .marketing-hero-bg::after {
+    background: rgba(255, 255, 255, 0.84);
+  }
+
+  .marketing-section {
+    padding: 68px 0;
+  }
+
+  .marketing-section-tight {
+    padding: 56px 0;
+  }
+
+  .marketing-section-head {
+    margin-bottom: 36px;
+  }
+
+  .marketing-cta-row .marketing-button,
+  .marketing-cta-row .marketing-button-ghost {
+    flex: 1 1 auto;
+  }
+
+  .client-loyalty-inner,
+  .client-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .client-hero,
+  .client-hero-inner {
+    min-height: 760px;
+  }
+
+  .client-hero-inner {
+    align-items: flex-start;
+  }
+
+  .client-hero-bg {
+    background-position: 69% center;
+  }
+
+  .client-hero-bg::after {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.99) 0%,
+      rgba(255, 255, 255, 0.95) 42%,
+      rgba(255, 255, 255, 0.7) 58%,
+      rgba(255, 255, 255, 0.08) 100%
+    );
+  }
+
+  .client-hero-copy {
+    width: 100%;
+    padding: 58px 0 0;
+  }
+
+  .client-hero-copy h1 {
+    max-width: 9ch;
+  }
+
+  .client-steps-section {
+    padding: 68px 0;
+  }
+
+  .client-app-preview {
+    padding: 70px 0 64px;
+  }
+
+  .client-app-preview-head {
+    margin-bottom: 38px;
+  }
+
+  .client-app-screens {
+    grid-template-columns: repeat(3, minmax(230px, 72vw));
+    gap: 20px;
+    max-width: none;
+    margin-right: -20px;
+    padding-right: 20px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: inline mandatory;
+    scrollbar-width: none;
+  }
+
+  .client-app-screens::-webkit-scrollbar {
+    display: none;
+  }
+
+  .client-app-screen {
+    scroll-snap-align: start;
+  }
+
+  .client-shop {
+    padding: 70px 0;
+  }
+
+  .client-shop-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 48px;
+  }
+
+  .client-shop-screen {
+    width: min(82vw, 320px);
+  }
+
+  .client-loyalty {
+    padding: 60px 0;
+  }
+
+  .client-loyalty-inner {
+    gap: 22px;
+  }
+}
+
+@media (max-width: 520px) {
+  .marketing-nav-login {
+    display: none;
+  }
+
+  .marketing-capabilities {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/*
+ * --- Motion ---
+ *
+ * Two mechanisms, split by where the element sits on load:
+ *
+ *   [data-rise]    above the fold. A CSS keyframe that runs at first paint, so
+ *                  there is no window in which the copy is visible-then-hidden.
+ *   [data-reveal]  below the fold. Armed and released by RevealOnScroll.
+ *
+ * The reveal transition is declared on `.is-revealed`, never on the base
+ * selector: with it on the base, adding `.is-armed` after paint animated the
+ * element *out* over half a second instead of just hiding it.
+ */
+@keyframes marketing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+[data-rise] {
+  animation: marketing-rise 0.62s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+[data-reveal].is-armed {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+[data-reveal].is-revealed {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.55s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* Stagger within a group. Short on purpose: this should feel like the page
+   settling, not like a slideshow. */
+[data-rise="1"],
+[data-reveal="1"].is-revealed {
+  animation-delay: 60ms;
+  transition-delay: 60ms;
+}
+[data-rise="2"],
+[data-reveal="2"].is-revealed {
+  animation-delay: 140ms;
+  transition-delay: 140ms;
+}
+[data-rise="3"],
+[data-reveal="3"].is-revealed {
+  animation-delay: 220ms;
+  transition-delay: 220ms;
+}
+[data-rise="4"],
+[data-reveal="4"].is-revealed {
+  animation-delay: 300ms;
+  transition-delay: 300ms;
+}
+[data-rise="5"],
+[data-reveal="5"].is-revealed {
+  animation-delay: 380ms;
+  transition-delay: 380ms;
+}
+
+/*
+ * Motion is decoration here — every reveal ends in the state the page would
+ * have had anyway, so removing it costs nothing.
+ */
+@media (prefers-reduced-motion: reduce) {
+  [data-rise],
+  [data-reveal],
+  [data-reveal].is-armed,
+  [data-reveal].is-revealed {
+    opacity: 1;
+    transform: none;
+    animation: none;
+    transition: none;
+  }
+
+  .marketing-button,
+  .marketing-button-ghost,
+  .marketing-capability {
+    transition: none;
+  }
+
+  .marketing-button:hover {
+    transform: none;
+  }
 }

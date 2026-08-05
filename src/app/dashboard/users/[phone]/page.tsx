@@ -81,7 +81,7 @@ export default async function CustomerDetailPage({
         </div>
       </header>
 
-      <section className="panel">
+      <section className="customer-summary">
         <div className="customer-stats">
           <div className="customer-stat">
             <span className="muted">Mobile number</span>

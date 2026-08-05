@@ -51,6 +51,7 @@ export default function ConfirmationScreen() {
         <VoucherTicket
           benefit={issued.voucher}
           code={issued.voucher.voucherCode}
+          copyable
           detail={t("confirmation.yourReward")}
         />
 

@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+// Declared to Google Play as the account-deletion contact. Shared with
+// /delete-account and the marketing page from one module so the three cannot
+// drift apart — Play reviewers do test it.
+import { SUPPORT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Voucher Hunt",
@@ -20,13 +24,6 @@ export const metadata: Metadata = {
  * confirmed before publishing.
  */
 const UPDATED = "30 July 2026";
-
-/**
- * Declared to Google Play as the account-deletion contact, so it must stay in
- * step with `SUPPORT_EMAIL` in /delete-account and with the address on the store
- * listing. Play reviewers do test it.
- */
-const SUPPORT_EMAIL = "yangpspider@gmail.com";
 
 export default function PrivacyPolicyPage() {
   return (

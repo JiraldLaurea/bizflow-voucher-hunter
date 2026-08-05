@@ -1,5 +1,22 @@
 import type { Business, Campaign } from "@/types/voucher";
 
+/**
+ * A link back to a campaign-scoped list page that keeps the scope you were in.
+ *
+ * Without it, submitting a form on a dedicated route drops you on whichever
+ * campaign sorts first rather than the one you were just working on.
+ */
+export function scopedHref(
+  base: string,
+  businessId: string | undefined,
+  campaignSlug: string,
+) {
+  const params = new URLSearchParams();
+  if (businessId) params.set("business", businessId);
+  params.set("campaign", campaignSlug);
+  return `${base}?${params.toString()}`;
+}
+
 export function selectCampaign(campaigns: Campaign[], requested?: string): Campaign | undefined {
   return campaigns.find((campaign) => campaign.id === requested || campaign.slug === requested) ?? campaigns[0];
 }

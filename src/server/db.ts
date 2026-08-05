@@ -388,6 +388,38 @@ CREATE TABLE IF NOT EXISTS reward_settlements (
   processed_at TEXT,
   UNIQUE (business_id, period)
 );
+-- Every partner posts a deposit before joining the network. LP issued at their
+-- till is money they owe us, so the deposit is what that exposure is drawn
+-- against when a month closes in our favour.
+CREATE TABLE IF NOT EXISTS business_deposit_entries (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  -- TopUp | StatementDeduction | Adjustment | Refund
+  type TEXT NOT NULL,
+  -- Signed: positive adds to the deposit, negative draws it down.
+  amount_centavos INTEGER NOT NULL,
+  balance_after_centavos INTEGER NOT NULL,
+  reference TEXT,
+  note TEXT,
+  recorded_by TEXT NOT NULL,
+  statement_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_business_deposits ON business_deposit_entries (business_id, created_at);
+-- Items a customer buys with LP instead of pesos. Priced in LP hundredths, the
+-- same unit as every other reward amount.
+CREATE TABLE IF NOT EXISTS reward_products (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  image_url TEXT,
+  price_centavos INTEGER NOT NULL CHECK (price_centavos > 0),
+  status TEXT NOT NULL DEFAULT 'Active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reward_products_business ON reward_products (business_id, status);
 CREATE TABLE IF NOT EXISTS reward_audit_logs (
   id TEXT PRIMARY KEY,
   actor_type TEXT NOT NULL,
@@ -438,9 +470,12 @@ function ensureReady(): Promise<void> {
 // migration reset and by resetDb.
 const DATA_TABLES = [
   "reward_audit_logs",
+  // Draws down businesses(id) and references settlements, so it goes first.
+  "business_deposit_entries",
   "reward_settlements",
   "reward_voucher_redemptions",
   "reward_vouchers",
+  "reward_products",
   "loyalty_daily_rewards",
   "reward_ledger_entries",
   "reward_purchases",
@@ -511,6 +546,7 @@ async function init() {
 
   // Same version: self-heal an empty or partially-seeded database.
   if (!(await hasCompleteSeed(c))) await seed(c);
+  await ensureSeededRewardProductImages(c);
   await ensureDemoCampaignAvailability(c);
 }
 
@@ -550,6 +586,21 @@ async function ensureRewardsSchema(c: Client) {
     ["reward_voucher_redemptions", "settlement_amount_centavos", "INTEGER"],
     ["reward_settlements", "gross_amount_centavos", "INTEGER"],
     ["reward_settlements", "service_fee_centavos", "INTEGER"],
+    // A settlement is now a two-sided monthly statement: LP the partner issued
+    // (owed to us) against LP their customers spent (owed to them).
+    ["reward_settlements", "lp_issued_centavos", "INTEGER"],
+    ["reward_settlements", "lp_redeemed_centavos", "INTEGER"],
+    ["reward_settlements", "net_centavos", "INTEGER"],
+    ["reward_settlements", "direction", "TEXT"],
+    ["reward_settlements", "deposit_deduction_centavos", "INTEGER"],
+    ["reward_settlements", "paid_at", "TEXT"],
+    ["reward_settlements", "payment_reference", "TEXT"],
+    ["reward_settlements", "payment_recorded_by", "TEXT"],
+    ["businesses", "deposit_balance_centavos", "INTEGER NOT NULL DEFAULT 0"],
+    // An LP voucher bought from the storefront is spendable only at the partner
+    // that sells the item, unlike a plain LP conversion.
+    ["reward_vouchers", "business_id", "TEXT"],
+    ["reward_vouchers", "product_id", "TEXT"],
     ["reward_audit_logs", "previous_hash", "TEXT"],
     ["reward_audit_logs", "event_hash", "TEXT"],
   ];
@@ -559,6 +610,23 @@ async function ensureRewardsSchema(c: Client) {
       await c.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
   }
+
+  // The deposit ledger is the source of truth; the column on `businesses` is a
+  // cached running total. They can drift — adding the column to an existing
+  // database defaults every partner to zero while their seeded opening entry
+  // says otherwise — so reconcile the cache to the movements on boot.
+  await c.execute(
+    `UPDATE businesses
+     SET deposit_balance_centavos = (
+       SELECT COALESCE(SUM(amount_centavos), 0) FROM business_deposit_entries
+       WHERE business_id = businesses.id
+     )
+     WHERE EXISTS (SELECT 1 FROM business_deposit_entries WHERE business_id = businesses.id)
+       AND deposit_balance_centavos <> (
+         SELECT COALESCE(SUM(amount_centavos), 0) FROM business_deposit_entries
+         WHERE business_id = businesses.id
+       )`,
+  );
 
   await c.execute(
     `UPDATE reward_wallets
@@ -706,15 +774,30 @@ export async function run(db: Exec, sql: string, args?: InArgs): Promise<number>
 
 /** Seed data. Also used to (re)populate the database for local dev and tests. */
 export const seedData: {
-  businesses: Array<Business & { staffPin: string }>;
+  businesses: Array<
+    Business & { staffPin: string; depositCentavos: number }
+  >;
   campaigns: Campaign[];
   slots: CampaignSlot[];
   pools: VoucherPool[];
   poolSlots: Array<{ poolId: string; slotId: string }>;
+  rewardProducts: Array<{
+    id: string;
+    businessId: string;
+    name: string;
+    description: string;
+    imageUrl: string;
+    priceCentavos: number;
+  }>;
 } = {
-  // Address and contact number are seeded, not left blank: they are what the
-  // campaign page shows a customer, so a fresh reset that omits them makes the
-  // venue section look broken rather than empty.
+  // Venue details are seeded, not left blank: they are what the campaign page
+  // shows a customer, so a fresh reset that omits them makes the venue section
+  // look broken rather than empty.
+  //
+  // The pin matters as well as the address — `mapsLink` prefers coordinates, and
+  // without them a reset left every demo venue on "No pin set". The restaurant
+  // and shop pins are what Google's geocoder returns for their addresses; the
+  // clinic's is the Zuellig Building itself.
   businesses: [
     {
       id: "biz_demo_restaurant",
@@ -722,8 +805,12 @@ export const seedData: {
       logoText: "MM",
       industry: "restaurant",
       staffPin: "2468",
-      address: "229 Nicanor Garcia St, Makati City, Metro Manila, Philippines",
-      contactNumber: "09161234567"
+      // The PHP 5,000 network minimum, so a fresh demo starts fundable.
+      depositCentavos: 5_000_00,
+      address: "229 Nicanor Garcia St, Makati City, 1209 Metro Manila, Philippines",
+      contactNumber: "09161234567",
+      latitude: 14.563857,
+      longitude: 121.022589
     },
     {
       id: "biz_demo_shop",
@@ -731,8 +818,13 @@ export const seedData: {
       logoText: "SS",
       industry: "online_shop",
       staffPin: "1357",
+      depositCentavos: 8_000_00,
       address: "1631 31st Street, Makati City, Metro Manila, Philippines",
-      contactNumber: "09789632563"
+      contactNumber: "09789632563",
+      // BGC, not the short 31st Street near Pitogo that the Makati-suffixed
+      // address suggests. This is where Google's geocoder actually resolves it.
+      latitude: 14.552533,
+      longitude: 121.050599
     },
     {
       id: "biz_demo_clinic",
@@ -740,8 +832,11 @@ export const seedData: {
       logoText: "GL",
       industry: "beauty",
       staffPin: "9753",
+      depositCentavos: 5_000_00,
       address: "1 Zuellig Loop, Makati City, Metro Manila, Philippines",
-      contactNumber: "09471234567"
+      contactNumber: "09471234567",
+      latitude: 14.557839,
+      longitude: 121.0266
     }
   ],
   campaigns: [
@@ -904,6 +999,45 @@ export const seedData: {
     { poolId: "pool_glow_addon", slotId: "slot_glow_0708_1400" },
     { poolId: "pool_glow_addon", slotId: "slot_glow_0709_1600" },
     { poolId: "pool_glow_addon", slotId: "slot_glow_0710_1100" }
+  ],
+
+  // Priced in LP hundredths, matching every other reward amount: 500_00 is
+  // 500 LP, which settles as PHP 500 owed to the partner. Deliberately spread
+  // around the 50 LP conversion floor so a tester can exercise an affordable
+  // item and an out-of-reach one without editing data.
+  rewardProducts: [
+    {
+      id: "rprod_demo_dessert",
+      businessId: "biz_demo_restaurant",
+      name: "Signature Leche Flan",
+      description: "House dessert, redeemable at the counter with your LP voucher.",
+      imageUrl: "/images/rewards/signature-leche-flan.png",
+      priceCentavos: 150_00
+    },
+    {
+      id: "rprod_demo_rice_bowl",
+      businessId: "biz_demo_restaurant",
+      name: "Adobo Rice Bowl",
+      description: "Full lunch portion with egg and atchara.",
+      imageUrl: "/images/rewards/adobo-rice-bowl.png",
+      priceCentavos: 500_00
+    },
+    {
+      id: "rprod_demo_tote",
+      businessId: "biz_demo_shop",
+      name: "SariSari Canvas Tote",
+      description: "Screen-printed tote, collected in store or shipped free.",
+      imageUrl: "/images/rewards/sarisari-canvas-tote.png",
+      priceCentavos: 750_00
+    },
+    {
+      id: "rprod_demo_facial",
+      businessId: "biz_demo_clinic",
+      name: "Express Glow Facial",
+      description: "30-minute express facial with a licensed aesthetician.",
+      imageUrl: "/images/rewards/express-glow-facial.png",
+      priceCentavos: 1_200_00
+    }
   ]
 };
 
@@ -913,6 +1047,7 @@ async function hasCompleteSeed(c: Client) {
     ["campaigns", seedData.campaigns],
     ["slots", seedData.slots],
     ["pools", seedData.pools],
+    ["reward_products", seedData.rewardProducts],
   ];
 
   for (const [table, rows] of groups) {
@@ -940,9 +1075,30 @@ async function hasCompleteSeed(c: Client) {
   return true;
 }
 
+/**
+ * Adds bundled artwork to demo products created before product photography was
+ * introduced. A partner-provided image always wins: only blank URLs are filled.
+ */
+async function ensureSeededRewardProductImages(c: Client) {
+  const now = new Date().toISOString();
+  await c.batch(
+    seedData.rewardProducts.map((product) => ({
+      sql: `UPDATE reward_products
+            SET image_url = ?, updated_at = ?
+            WHERE id = ? AND (image_url IS NULL OR trim(image_url) = '')`,
+      args: [product.imageUrl, now, product.id],
+    })),
+    "write",
+  );
+}
+
 const INSERT_BUSINESS =
-  `INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number)
-     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber)`;
+  `INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number, latitude, longitude, deposit_balance_centavos)
+     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber, @latitude, @longitude, @depositCentavos)`;
+const INSERT_DEPOSIT_ENTRY = `INSERT OR IGNORE INTO business_deposit_entries (id, business_id, type, amount_centavos, balance_after_centavos, reference, note, recorded_by, statement_id, created_at)
+     VALUES (@id, @businessId, 'TopUp', @amountCentavos, @amountCentavos, @reference, @note, 'Seed', NULL, @createdAt)`;
+const INSERT_REWARD_PRODUCT = `INSERT OR IGNORE INTO reward_products (id, business_id, name, description, image_url, price_centavos, status, created_at, updated_at)
+     VALUES (@id, @businessId, @name, @description, @imageUrl, @priceCentavos, 'Active', @createdAt, @createdAt)`;
 const INSERT_CAMPAIGN = `INSERT OR IGNORE INTO campaigns (id, business_id, slug, title, offer_message, hero_image, mode, location, status, start_date, end_date, base_attempts, referral_daily_limit, candidate_timeout_minutes, terms, shop_url, allow_reschedule)
      VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @location, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @allowReschedule)`;
 const INSERT_SLOT = `INSERT OR IGNORE INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
@@ -970,7 +1126,36 @@ async function seed(c: Client) {
         staffPin: hashStaffPin(r.staffPin),
         // The columns are nullable, but the driver rejects `undefined`.
         address: r.address ?? null,
-        contactNumber: r.contactNumber ?? null
+        contactNumber: r.contactNumber ?? null,
+        latitude: r.latitude ?? null,
+        longitude: r.longitude ?? null,
+        depositCentavos: r.depositCentavos
+      }
+    })),
+    // The opening deposit is also a ledger row, so the balance shown on the
+    // dashboard always reconciles against a movement rather than appearing
+    // from nowhere.
+    ...seedData.businesses.map((r) => ({
+      sql: INSERT_DEPOSIT_ENTRY,
+      args: {
+        id: `bdep_seed_${r.id}`,
+        businessId: r.id,
+        amountCentavos: r.depositCentavos,
+        reference: "SEED-OPENING",
+        note: "Opening network deposit",
+        createdAt: new Date().toISOString()
+      }
+    })),
+    ...seedData.rewardProducts.map((r) => ({
+      sql: INSERT_REWARD_PRODUCT,
+      args: {
+        id: r.id,
+        businessId: r.businessId,
+        name: r.name,
+        description: r.description,
+        imageUrl: r.imageUrl,
+        priceCentavos: r.priceCentavos,
+        createdAt: new Date().toISOString()
       }
     })),
     ...seedData.campaigns.map((r) => ({
@@ -1033,7 +1218,12 @@ async function seed(c: Client) {
   await c.batch(statements, "write");
 }
 
-function manilaDateString(date = new Date()) {
+/**
+ * Today as YYYY-MM-DD in campaign time. Slot dates are stored as plain dates in
+ * Asia/Manila, so comparing them against a UTC date rolls the cutoff over eight
+ * hours early and hides the current day's slots.
+ */
+export function manilaDateString(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila",
     year: "numeric",

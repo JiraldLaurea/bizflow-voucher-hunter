@@ -23,6 +23,8 @@ import { ErrorState } from "@/components/ErrorState";
 import { StepHeader } from "@/components/HuntUi";
 import { useHunt } from "@/hunt/HuntContext";
 import {
+  availabilityLabel,
+  availabilityNotice,
   campaignInstruction,
   formatCampaignRange,
   localeFor,
@@ -238,7 +240,11 @@ export default function CampaignLandingScreen() {
     );
   }
 
-  const { business, campaign: details } = campaign;
+  const { availability, business, campaign: details } = campaign;
+  // A customer who already holds a voucher (or a live attempt) still needs the
+  // button: their next step is booking or confirming, not drawing. Only a fresh
+  // hunt is blocked, and only when the draw would refuse it anyway.
+  const huntBlocked = !canResume && !availability.bookable;
   const businessPin =
     business &&
     isCoordinate(business.latitude) &&
@@ -318,15 +324,31 @@ export default function CampaignLandingScreen() {
             <RuleRow icon="shield" text={t("campaign.ruleHigherDiscount")} last />
           </View>
 
+          {huntBlocked ? (
+            <View style={styles.notice}>
+              <View style={styles.noticeIcon}>
+                <Icon name="info" size={16} />
+              </View>
+              <Text style={styles.noticeText}>
+                {availabilityNotice(t, availability)}
+              </Text>
+            </View>
+          ) : null}
+
           {actionError ? <InlineError message={actionError} /> : null}
 
           <View style={styles.action}>
             <Button
+              disabled={huntBlocked}
               loading={busy}
               loadingLabel={t("campaign.searching")}
               onPress={startHunt}
             >
-              {canResume ? t("campaign.continue") : t("campaign.startHunt")}
+              {huntBlocked
+                ? availabilityLabel(t, availability)
+                : canResume
+                  ? t("campaign.continue")
+                  : t("campaign.startHunt")}
             </Button>
           </View>
         </View>
@@ -488,15 +510,6 @@ export default function CampaignLandingScreen() {
                   </Pressable>
                 </View>
 
-                {business.address ? (
-                  <View style={styles.fullMapAddressRow}>
-                    <View style={styles.venueIcon}>
-                      <Icon name="map-pin" size={17} />
-                    </View>
-                    <Text style={styles.fullMapAddress}>{business.address}</Text>
-                  </View>
-                ) : null}
-
                 <View style={styles.fullMapBody}>
                   <WebView
                     cacheEnabled={false}
@@ -510,6 +523,15 @@ export default function CampaignLandingScreen() {
                     style={styles.fullMap}
                   />
                 </View>
+
+                {business.address ? (
+                  <View style={styles.fullMapAddressRow}>
+                    <View style={styles.venueIcon}>
+                      <Icon name="map-pin" size={17} />
+                    </View>
+                    <Text style={styles.fullMapAddress}>{business.address}</Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.fullMapFooter}>
                   <Pressable
@@ -635,7 +657,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   venueRow: {
-    alignItems: "center",
+    alignItems: "flex-start",
     borderTopColor: colors.borderSoft,
     borderTopWidth: 1,
     flexDirection: "row",
@@ -644,6 +666,7 @@ const styles = StyleSheet.create({
   },
   venueIcon: {
     alignItems: "center",
+    paddingTop: 1,
     width: 20,
   },
   venueRowCopy: {
@@ -697,21 +720,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   venueLabel: {
-    color: colors.textMuted,
+    color: colors.ink,
     fontFamily: fonts.semibold,
     fontSize: 11,
     letterSpacing: 0.4,
     textTransform: "uppercase",
   },
   venueValue: {
-    color: colors.ink,
+    color: colors.textMuted,
     fontFamily: fonts.semibold,
     fontSize: 14,
     lineHeight: 20,
   },
   venueActions: {
-    borderTopColor: colors.borderSoft,
-    borderTopWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
     marginTop: spacing.xs,
@@ -801,7 +822,7 @@ const styles = StyleSheet.create({
     ...shadow.soft,
   },
   ruleRow: {
-    alignItems: "center",
+    alignItems: "flex-start",
     borderBottomColor: colors.borderSoft,
     borderBottomWidth: 1,
     flexDirection: "row",
@@ -813,6 +834,7 @@ const styles = StyleSheet.create({
   },
   ruleIcon: {
     alignItems: "center",
+    paddingTop: 2,
     width: 22,
   },
   ruleText: {
@@ -824,6 +846,29 @@ const styles = StyleSheet.create({
   },
   action: {
     marginTop: spacing.sm,
+  },
+  notice: {
+    alignItems: "flex-start",
+    backgroundColor: colors.page,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: spacing.md,
+    padding: spacing.md,
+  },
+  noticeIcon: {
+    alignItems: "center",
+    paddingTop: 1,
+    width: 20,
+  },
+  noticeText: {
+    color: colors.textMuted,
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
   },
   mapSheetBackdrop: {
     backgroundColor: "rgba(7, 15, 31, 0.48)",
@@ -858,7 +903,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
   },
   fullMapHeaderCopy: {
     flex: 1,
@@ -892,13 +937,10 @@ const styles = StyleSheet.create({
   },
   fullMapAddressRow: {
     alignItems: "flex-start",
-    borderTopColor: colors.borderSoft,
-    borderTopWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
     marginHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.md,
   },
   fullMapAddress: {
     color: colors.textMuted,

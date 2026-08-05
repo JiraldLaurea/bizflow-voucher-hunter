@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { FiCheck, FiCreditCard, FiGift, FiRefreshCw, FiShield, FiX } from "react-icons/fi";
+import { FiCheck, FiRefreshCw, FiShield, FiX } from "react-icons/fi";
 import { api } from "@/lib/api-client";
-import type { Business, RewardVoucher, RewardWallet } from "@/types/voucher";
+import type { Business } from "@/types/voucher";
 
 type CreditResult = {
   rewardAmount: string;
@@ -13,24 +13,6 @@ type CreditResult = {
   heldForReview?: boolean;
   idempotentReplay?: boolean;
 };
-
-type ValidateRewardResult = {
-  voucher: Pick<RewardVoucher, "voucherCode" | "remainingCentavos" | "status" | "expiresAt">;
-  wallet: Pick<RewardWallet, "maskedPhone" | "status">;
-};
-
-type RedeemResult = {
-  voucher: ValidateRewardResult["voucher"];
-  amount: string;
-  serviceFee: string;
-  settlementAmount: string;
-};
-
-function formatPoints(pointsCentavos: number) {
-  return `${(pointsCentavos / 100).toLocaleString("en-PH", {
-    maximumFractionDigits: 2,
-  })} LP`;
-}
 
 export function RewardsStaffTools({
   business,
@@ -42,9 +24,6 @@ export function RewardsStaffTools({
   const [walletToken, setWalletToken] = useState("");
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [creditIdempotencyKey, setCreditIdempotencyKey] = useState(() => crypto.randomUUID());
-  const [rewardCode, setRewardCode] = useState("");
-  const [redeemAmount, setRedeemAmount] = useState("");
-  const [rewardResult, setRewardResult] = useState<ValidateRewardResult | null>(null);
   const [toast, setToast] = useState<{ tone: "success" | "error"; title: string; detail?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -98,63 +77,19 @@ export function RewardsStaffTools({
     }
   }
 
-  async function validateReward() {
-    setBusy(true);
-    try {
-      const result = await api<ValidateRewardResult>("/api/staff/rewards/validate-voucher", {
-        method: "POST",
-        body: JSON.stringify({ codeOrToken: rewardCode.trim() }),
-      });
-      setRewardResult(result);
-      setToast({ tone: "success", title: "LP voucher loaded." });
-    } catch (error) {
-      setRewardResult(null);
-      showError(error, "Unable to validate LP voucher.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function redeemReward() {
-    setBusy(true);
-    try {
-      const result = await api<RedeemResult>("/api/staff/rewards/redeem", {
-        method: "POST",
-        body: JSON.stringify({
-          codeOrToken: rewardCode.trim(),
-          businessId,
-          amount: redeemAmount,
-        }),
-      });
-      setRewardResult({ voucher: result.voucher, wallet: rewardResult!.wallet });
-      setToast({
-        tone: "success",
-        title: `${result.amount} payment recorded`,
-        detail: `Partner receives ${result.settlementAmount}; service fee ${result.serviceFee}.`,
-      });
-      router.refresh();
-    } catch (error) {
-      showError(error, "Unable to redeem LP voucher.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const canCredit = walletToken.trim().length > 10 && businessId && purchaseAmount.trim();
-  const canValidateReward = rewardCode.trim().length >= 3;
-  const canRedeemReward =
-    rewardResult?.voucher.status === "Active" &&
-    businessId &&
-    redeemAmount.trim().length > 0;
 
   return (
     <section className="panel span-12 rewards-staff-tools">
       <div className="admin-topbar">
         <div>
-          <h2>Loyalty Points Staff Tools</h2>
+          <h2>Award points without a voucher</h2>
           <p className="muted">
-            Add 5% LP from paid purchases or accept LP vouchers for monthly
-            partner settlement.
+            For a customer who simply bought something, with no voucher to
+            scan. If they presented a booking voucher or an LP code, use{" "}
+            <a href="/dashboard/staff">Scan &amp; Redeem</a> instead — a
+            voucher already awards its 5% when you mark it used, so entering
+            the sale here as well would pay it twice.
           </p>
         </div>
         <span className="badge success">
@@ -163,72 +98,33 @@ export function RewardsStaffTools({
         </span>
       </div>
 
-      <div className="rewards-staff-grid">
-        <div className="rewards-tool-card">
-          <div className="rewards-tool-card-header">
-            <h3><FiCreditCard aria-hidden="true" /> Add 5% Loyalty Points</h3>
-          </div>
-          <label className="field">
-            <span>Customer Wallet QR Token</span>
-            <input
-              value={walletToken}
-              onChange={(event) => setWalletToken(event.target.value)}
-              placeholder="Scan or paste customer wallet token"
-            />
-          </label>
-          <label className="field">
-            <span>Actual Paid Amount (₱)</span>
-            <input
-              inputMode="decimal"
-              value={purchaseAmount}
-              onChange={(event) => setPurchaseAmount(event.target.value)}
-              placeholder="0.00"
-            />
-          </label>
-          <button className="button full" disabled={!canCredit || busy} onClick={creditWallet} type="button">
-            {busy ? <FiRefreshCw aria-hidden="true" /> : <FiCheck aria-hidden="true" />}
-            Add Loyalty Points
-          </button>
-        </div>
-
-        <div className="rewards-tool-card">
-          <div className="rewards-tool-card-header">
-            <h3><FiGift aria-hidden="true" /> Accept LP Voucher</h3>
-          </div>
-          <label className="field">
-            <span>LP Voucher Code or QR Token</span>
-            <input
-              value={rewardCode}
-              onChange={(event) => setRewardCode(event.target.value)}
-              placeholder="RWD-ABC123 or QR token"
-            />
-          </label>
-          <div className="split-actions">
-            <button className="button secondary full" disabled={!canValidateReward || busy} onClick={validateReward} type="button">
-              Validate LP Voucher
-            </button>
-          </div>
-          {rewardResult ? (
-            <div className="rewards-result-box">
-              <strong>{rewardResult.voucher.voucherCode}</strong>
-              <span>Remaining: {formatPoints(rewardResult.voucher.remainingCentavos)}</span>
-              <span>Status: {rewardResult.voucher.status}</span>
-              <span>Customer: {rewardResult.wallet.maskedPhone}</span>
-            </div>
-          ) : null}
-          <label className="field">
-            <span>LP Payment Amount</span>
-            <input
-              inputMode="decimal"
-              value={redeemAmount}
-              onChange={(event) => setRedeemAmount(event.target.value)}
-              placeholder="0.00"
-            />
-          </label>
-          <button className="button full" disabled={!canRedeemReward || busy} onClick={redeemReward} type="button">
-            Record LP Payment
-          </button>
-        </div>
+      {/* One tool, so no inner card: the panel is the card. A two-column grid
+          with a single child left half the row empty. */}
+      <div className="rewards-award-form">
+        <label className="field">
+          <span>Customer Wallet QR Token</span>
+          <input
+            value={walletToken}
+            onChange={(event) => setWalletToken(event.target.value)}
+            placeholder="Scan or paste customer wallet token"
+          />
+        </label>
+        <label className="field">
+          <span>Actual Paid Amount (₱)</span>
+          <input
+            inputMode="decimal"
+            value={purchaseAmount}
+            onChange={(event) => setPurchaseAmount(event.target.value)}
+            placeholder="0.00"
+          />
+          <small className="muted">
+            The customer earns 5% of this. ₱1,000 becomes 50 LP.
+          </small>
+        </label>
+        <button className="button" disabled={!canCredit || busy} onClick={creditWallet} type="button">
+          {busy ? <FiRefreshCw aria-hidden="true" /> : <FiCheck aria-hidden="true" />}
+          Add Loyalty Points
+        </button>
       </div>
 
       {toast ? (

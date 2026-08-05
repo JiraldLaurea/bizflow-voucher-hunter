@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { toDisplayPhone } from "@/lib/phone-display";
 import { listCustomers } from "@/server/customers";
 import { CustomerSearch } from "../_components/CustomerSearch";
+import { ClickableCustomerRow } from "./ClickableCustomerRow";
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -72,15 +72,14 @@ export default async function UsersPage({
                 </td>
               </tr>
             ) : (
-              customers.map((customer) => (
-                <tr key={customer.phone}>
+              customers.map((customer) => {
+                const href = `/dashboard/users/${encodeURIComponent(customer.phone)}`;
+                return (
+                <ClickableCustomerRow key={customer.phone} href={href}>
                   <td>
-                    <Link
-                      className="customer-link"
-                      href={`/dashboard/users/${encodeURIComponent(customer.phone)}`}
-                    >
-                      <strong>{customer.name || toDisplayPhone(customer.phone)}</strong>
-                    </Link>
+                    <span className="customer-link">
+                      {customer.name || toDisplayPhone(customer.phone)}
+                    </span>
                     {customer.name ? (
                       <div className="muted customer-phone">{toDisplayPhone(customer.phone)}</div>
                     ) : null}
@@ -94,8 +93,9 @@ export default async function UsersPage({
                     )}
                   </td>
                   <td>{formatDate(customer.lastActivityAt)}</td>
-                </tr>
-              ))
+                </ClickableCustomerRow>
+                );
+              })
             )}
           </tbody>
         </table>

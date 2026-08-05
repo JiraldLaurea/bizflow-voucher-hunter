@@ -18,6 +18,13 @@ type Row = any;
 
 const LOYALTY_RATE_BPS = 500; // 5.00%
 const SERVICE_FEE_BPS = 1_000; // 10.00%
+/**
+ * What a partner posts before joining the network. It is a floor to top back up
+ * to, not a hard cut-off: trading continues below it (with a dashboard warning)
+ * and only stops once the deposit is actually exhausted, so a busy day cannot
+ * strand customers mid-transaction over a shortfall the partner can settle.
+ */
+export const MIN_DEPOSIT_CENTAVOS = 5_000_00; // PHP 5,000
 const DAILY_APP_USE_POINTS_CENTAVOS = 10_00; // 10 LP
 const DAILY_REFERRAL_POINTS_CENTAVOS = 10_00; // 10 LP
 const MAX_PURCHASE_CENTAVOS = 1_000_000_00; // PHP 1,000,000 per scan
@@ -47,7 +54,10 @@ export function moneyToCentavos(value: unknown, fieldName = "amount") {
 }
 
 export function centavosToMoney(amountCentavos: number) {
-  return `₱${(amountCentavos / 100).toLocaleString("en-PH", {
+  // The sign belongs outside the symbol: deposit ledger rows are signed, and
+  // "₱-1,000.00" reads as a currency code rather than a debit.
+  const sign = amountCentavos < 0 ? "-" : "";
+  return `${sign}₱${(Math.abs(amountCentavos) / 100).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -238,9 +248,19 @@ async function audit(
 }
 
 async function getBusinessOrThrow(db: Exec, businessId: string) {
-  const row = await one(db, "SELECT id, name FROM businesses WHERE id = ?", [businessId]);
+  const row = await one(
+    db,
+    "SELECT id, name, deposit_balance_centavos FROM businesses WHERE id = ?",
+    [businessId],
+  );
   if (!row) throw new AppError("E-BUSINESS-404", "Business was not found", 404);
-  return { id: String(row.id), name: String(row.name) };
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    // The partner's funding position gates LP issuance, so every caller that
+    // already loads the business gets it without a second query.
+    deposit_balance_centavos: Number(row.deposit_balance_centavos ?? 0),
+  };
 }
 
 // The reward endpoints authenticate the caller from the httpOnly sign-in cookie
@@ -551,7 +571,18 @@ export async function creditRewardFromPurchase(input: {
     }
 
     const wallet = await walletByToken(tx, input.walletToken);
-    await getBusinessOrThrow(tx, input.businessId);
+    const business = await getBusinessOrThrow(tx, input.businessId);
+    // Issuing LP creates a liability the partner settles from their deposit. An
+    // exhausted deposit means the next point issued is unfunded, so the till
+    // stops earning until they top up. Being under the minimum is only a
+    // warning — see MIN_DEPOSIT_CENTAVOS.
+    if (Number(business.deposit_balance_centavos ?? 0) <= 0) {
+      throw new AppError(
+        "E-DEPOSIT-EXHAUSTED",
+        "This partner's network deposit is used up. Loyalty Points cannot be issued until it is topped up.",
+        409,
+      );
+    }
     const staffName = input.staffName.trim();
     if (staffName.length < 2) throw new AppError("E-STAFF-NAME", "Staff name is required", 400);
 
@@ -762,7 +793,27 @@ export async function validateRewardVoucher(input: { codeOrToken: string }) {
       voucher.status = "Expired";
     }
     const wallet = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [voucher.walletId]));
-    return { voucher, wallet };
+    // A storefront voucher buys one named item. Staff scanning it need to know
+    // what to hand over; the amount alone does not say.
+    const productRow = await one(
+      tx,
+      `SELECT p.id, p.name, p.description, b.id AS business_id, b.name AS business_name
+       FROM reward_vouchers v
+       JOIN reward_products p ON p.id = v.product_id
+       JOIN businesses b ON b.id = v.business_id
+       WHERE v.id = ?`,
+      [voucher.id],
+    );
+    const product = productRow
+      ? {
+          id: String(productRow.id),
+          name: String(productRow.name),
+          description: productRow.description ? String(productRow.description) : "",
+          businessId: String(productRow.business_id),
+          businessName: String(productRow.business_name),
+        }
+      : undefined;
+    return { voucher, wallet, product };
   });
 }
 
@@ -798,11 +849,39 @@ export async function redeemRewardVoucher(input: {
       );
     }
 
-    const serviceFeeCentavos = Math.floor(
-      (amountCentavos * SERVICE_FEE_BPS) / 10_000,
+    // A voucher bought against a specific item is not a balance to spend down:
+    // it is that item, at that partner. Redeeming part of it would leave a
+    // remainder the customer could never use and bill the partner for less
+    // than the item cost; redeeming it elsewhere would bill the wrong partner.
+    const pinned = await one(
+      tx,
+      "SELECT business_id, product_id FROM reward_vouchers WHERE id = ?",
+      [voucher.id],
     );
-    const settlementAmountCentavos =
-      amountCentavos - serviceFeeCentavos;
+    if (pinned?.product_id) {
+      if (String(pinned.business_id) !== input.businessId) {
+        throw new AppError(
+          "E-REWARD-VOUCHER-BUSINESS",
+          "This item was bought from another partner and can only be collected there",
+          409,
+        );
+      }
+      if (amountCentavos !== voucher.remainingCentavos) {
+        throw new AppError(
+          "E-REWARD-VOUCHER-PARTIAL",
+          "An item voucher must be redeemed in full",
+          409,
+        );
+      }
+    }
+
+    // The service fee is no longer charged here. It is charged once a month, on
+    // the net of LP issued against LP redeemed, so a partner whose customers
+    // spend less than their till hands out pays no fee at all. Redemptions
+    // therefore record their full value and `closeBusinessStatement` does the
+    // arithmetic. See BusinessStatementTotals.
+    const serviceFeeCentavos = 0;
+    const settlementAmountCentavos = amountCentavos;
     const remaining = voucher.remainingCentavos - amountCentavos;
     const status = remaining === 0 ? "Redeemed" : "Active";
     const now = isoNow();
@@ -916,176 +995,6 @@ export async function reviewHeldRewardPurchase(input: {
       purchase: mapPurchase(await one(tx, "SELECT * FROM reward_purchases WHERE id = ?", [purchase.id])),
       balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
     };
-  });
-}
-
-export async function processRewardSettlements(input: { redemptionIds: string[]; reviewer: string }) {
-  return withTx(async (tx) => {
-    const ids = Array.from(new Set(input.redemptionIds.map((item) => item.trim()).filter(Boolean)));
-    if (ids.length === 0) throw new AppError("E-SETTLEMENT-EMPTY", "Choose at least one redemption to process", 400);
-    const placeholders = ids.map(() => "?").join(",");
-    const rows = await all(
-      tx,
-      `SELECT * FROM reward_voucher_redemptions WHERE id IN (${placeholders}) AND settlement_status = 'Pending'`,
-      ids,
-    );
-    if (rows.length !== ids.length) throw new AppError("E-SETTLEMENT-INVALID", "Only pending redemptions can be processed", 409);
-
-    const reviewer = input.reviewer.trim() || "Settlement Reviewer";
-    const now = isoNow();
-    const currentManilaDate = manilaDateParts();
-    if (currentManilaDate.day > 7) {
-      throw new AppError(
-        "E-SETTLEMENT-WINDOW",
-        "Partner settlements can only be processed during the first 7 days of each month",
-        409,
-      );
-    }
-    for (const row of rows) {
-      const redemptionPeriod = manilaDateParts(
-        new Date(String(row.created_at)),
-      ).period;
-      if (redemptionPeriod >= currentManilaDate.period) {
-        throw new AppError(
-          "E-SETTLEMENT-PERIOD",
-          "Only redemptions from a completed month are eligible for settlement",
-          409,
-        );
-      }
-    }
-    const byBusiness = new Map<string, Row[]>();
-    rows.forEach((row) => {
-      const period = manilaDateParts(new Date(String(row.created_at))).period;
-      const key = `${row.business_id}:${period}`;
-      const list = byBusiness.get(key) ?? [];
-      list.push(row);
-      byBusiness.set(key, list);
-    });
-
-    const settlements: Array<{
-      settlementId: string;
-      businessId: string;
-      period: string;
-      grossAmount: string;
-      serviceFee: string;
-      totalAmount: string;
-      redemptionCount: number;
-    }> = [];
-    for (const [key, businessRows] of byBusiness) {
-      const [businessId, period] = key.split(":");
-      const gross = businessRows.reduce(
-        (sum, row) => sum + Number(row.amount_centavos),
-        0,
-      );
-      const fee = businessRows.reduce(
-        (sum, row) => sum + Number(row.service_fee_centavos ?? 0),
-        0,
-      );
-      const total = businessRows.reduce(
-        (sum, row) =>
-          sum +
-          Number(row.settlement_amount_centavos ?? row.amount_centavos),
-        0,
-      );
-      const existing = await one(
-        tx,
-        "SELECT * FROM reward_settlements WHERE business_id = ? AND period = ?",
-        [businessId, period],
-      );
-      let settlementId: string;
-      if (existing) {
-        if (existing.status !== "Processed") {
-          throw new AppError(
-            "E-SETTLEMENT-CLOSED",
-            "This business settlement period is already closed",
-            409,
-          );
-        }
-        settlementId = String(existing.id);
-        await run(
-          tx,
-          `UPDATE reward_settlements
-           SET gross_amount_centavos = gross_amount_centavos + ?,
-               service_fee_centavos = service_fee_centavos + ?,
-               total_amount_centavos = total_amount_centavos + ?
-           WHERE id = ?`,
-          [gross, fee, total, settlementId],
-        );
-      } else {
-        settlementId = id("rset");
-        await run(
-          tx,
-          `INSERT INTO reward_settlements
-           (id, business_id, period, gross_amount_centavos, service_fee_centavos, total_amount_centavos, status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'Processed', ?)`,
-          [settlementId, businessId, period, gross, fee, total, now],
-        );
-      }
-      const businessIds = businessRows.map((row) => row.id);
-      await run(
-        tx,
-        `UPDATE reward_voucher_redemptions
-         SET settlement_status = 'Processed', settlement_id = ?, settlement_verified_by = ?, settlement_verified_at = ?
-         WHERE id IN (${businessIds.map(() => "?").join(",")})`,
-        [settlementId, reviewer, now, ...businessIds],
-      );
-      await audit(tx, {
-        actorType: "staff",
-        actorId: reviewer,
-        action: "reward_settlement_processed",
-        entityType: "reward_settlement",
-        entityId: settlementId,
-        metadata: {
-          businessId,
-          period,
-          redemptionIds: businessIds,
-          grossAmountCentavos: gross,
-          serviceFeeCentavos: fee,
-          totalAmountCentavos: total,
-        },
-      });
-      settlements.push({
-        settlementId,
-        businessId,
-        period,
-        grossAmount: centavosToLoyaltyPoints(gross),
-        serviceFee: centavosToLoyaltyPoints(fee),
-        totalAmount: centavosToLoyaltyPoints(total),
-        redemptionCount: businessRows.length,
-      });
-    }
-    return { settlements };
-  });
-}
-
-export async function completeRewardSettlement(input: { settlementId: string; gcashReference: string; reviewer: string }) {
-  return withTx(async (tx) => {
-    const settlement = await one(tx, "SELECT * FROM reward_settlements WHERE id = ?", [input.settlementId]);
-    if (!settlement) throw new AppError("E-SETTLEMENT-404", "Settlement was not found", 404);
-    if (settlement.status !== "Processed") throw new AppError("E-SETTLEMENT-STATUS", "Only processed settlements can be completed", 409);
-    const reference = input.gcashReference.trim();
-    if (reference.length < 3) throw new AppError("E-GCASH-REFERENCE", "GCash reference is required", 400);
-    const reviewer = input.reviewer.trim() || "Settlement Reviewer";
-    const now = isoNow();
-    await run(
-      tx,
-      "UPDATE reward_settlements SET status = 'Completed', gcash_reference = ?, processed_at = ? WHERE id = ?",
-      [reference, now, input.settlementId],
-    );
-    await run(
-      tx,
-      "UPDATE reward_voucher_redemptions SET settlement_status = 'Completed', settlement_verified_by = ?, settlement_verified_at = ? WHERE settlement_id = ?",
-      [reviewer, now, input.settlementId],
-    );
-    await audit(tx, {
-      actorType: "staff",
-      actorId: reviewer,
-      action: "reward_settlement_completed",
-      entityType: "reward_settlement",
-      entityId: input.settlementId,
-      metadata: { gcashReference: reference },
-    });
-    return { settlementId: input.settlementId, status: "Completed" as const };
   });
 }
 
@@ -1291,4 +1200,1100 @@ export function rewardAuditRowsToCsv(rows: Awaited<ReturnType<typeof listRewardA
     headers.join(","),
     ...rows.map((row) => headers.map((header) => escape(row[header as keyof typeof row])).join(",")),
   ].join("\n");
+}
+
+// ---- Partner deposits ----
+
+export type BusinessDepositEntry = {
+  id: string;
+  businessId: string;
+  type: "TopUp" | "StatementDeduction" | "Adjustment" | "Refund";
+  amountCentavos: number;
+  amount: string;
+  balanceAfterCentavos: number;
+  balanceAfter: string;
+  reference: string;
+  note: string;
+  recordedBy: string;
+  statementId: string;
+  createdAt: string;
+};
+
+function mapDepositEntry(row: Row): BusinessDepositEntry {
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    type: row.type,
+    amountCentavos: Number(row.amount_centavos),
+    amount: centavosToMoney(Number(row.amount_centavos)),
+    balanceAfterCentavos: Number(row.balance_after_centavos),
+    balanceAfter: centavosToMoney(Number(row.balance_after_centavos)),
+    reference: row.reference ?? "",
+    note: row.note ?? "",
+    recordedBy: row.recorded_by,
+    statementId: row.statement_id ?? "",
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * Moves a partner's deposit and records the movement in one step. `amountCentavos`
+ * is signed, and a statement deduction is allowed to push the balance negative:
+ * that shortfall is real money owed, and hiding it behind a floor of zero would
+ * quietly forgive it. New LP issuance is what stops at zero, not this.
+ */
+async function applyDepositMovement(
+  db: Exec,
+  input: {
+    businessId: string;
+    type: BusinessDepositEntry["type"];
+    amountCentavos: number;
+    reference?: string;
+    note?: string;
+    recordedBy: string;
+    statementId?: string;
+  },
+) {
+  const business = await getBusinessOrThrow(db, input.businessId);
+  const balanceBefore = Number(business.deposit_balance_centavos ?? 0);
+  const balanceAfter = balanceBefore + input.amountCentavos;
+  const entryId = id("bdep");
+  await run(db, "UPDATE businesses SET deposit_balance_centavos = ? WHERE id = ?", [
+    balanceAfter,
+    input.businessId,
+  ]);
+  await run(
+    db,
+    `INSERT INTO business_deposit_entries
+     (id, business_id, type, amount_centavos, balance_after_centavos, reference, note, recorded_by, statement_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      entryId,
+      input.businessId,
+      input.type,
+      input.amountCentavos,
+      balanceAfter,
+      input.reference?.trim() || null,
+      input.note?.trim() || null,
+      input.recordedBy,
+      input.statementId ?? null,
+      isoNow(),
+    ],
+  );
+  await audit(db, {
+    actorType: "staff",
+    actorId: input.recordedBy,
+    action: "business_deposit_movement",
+    entityType: "business_deposit_entry",
+    entityId: entryId,
+    metadata: {
+      businessId: input.businessId,
+      type: input.type,
+      amountCentavos: input.amountCentavos,
+      balanceBeforeCentavos: balanceBefore,
+      balanceAfterCentavos: balanceAfter,
+      statementId: input.statementId ?? null,
+    },
+  });
+  return { entryId, balanceBefore, balanceAfter };
+}
+
+export type BusinessDepositStatus = {
+  businessId: string;
+  balanceCentavos: number;
+  balance: string;
+  minimumCentavos: number;
+  minimum: string;
+  /** Under the network minimum: trading continues, the dashboard nags. */
+  belowMinimum: boolean;
+  /** Exhausted: no further LP can be issued at this partner's till. */
+  blocked: boolean;
+  topUpDueCentavos: number;
+  topUpDue: string;
+};
+
+export function depositStatusFor(
+  businessId: string,
+  balanceCentavos: number,
+): BusinessDepositStatus {
+  return {
+    businessId,
+    balanceCentavos,
+    balance: centavosToMoney(balanceCentavos),
+    minimumCentavos: MIN_DEPOSIT_CENTAVOS,
+    minimum: centavosToMoney(MIN_DEPOSIT_CENTAVOS),
+    belowMinimum: balanceCentavos < MIN_DEPOSIT_CENTAVOS,
+    blocked: balanceCentavos <= 0,
+    topUpDueCentavos: Math.max(0, MIN_DEPOSIT_CENTAVOS - balanceCentavos),
+    topUpDue: centavosToMoney(Math.max(0, MIN_DEPOSIT_CENTAVOS - balanceCentavos)),
+  };
+}
+
+export async function businessDepositStatus(businessId: string) {
+  const db = await getDb();
+  const business = await getBusinessOrThrow(db, businessId);
+  return depositStatusFor(businessId, Number(business.deposit_balance_centavos ?? 0));
+}
+
+export async function recordBusinessDeposit(input: {
+  businessId: string;
+  amount: string | number;
+  reference?: string;
+  note?: string;
+  recordedBy: string;
+}) {
+  return withTx(async (tx) => {
+    const amountCentavos = moneyToCentavos(input.amount, "deposit amount");
+    if (amountCentavos <= 0) {
+      throw new AppError("E-DEPOSIT-AMOUNT", "Deposit amount must be greater than zero", 400);
+    }
+    const recordedBy = input.recordedBy.trim() || "Finance";
+    const movement = await applyDepositMovement(tx, {
+      businessId: input.businessId,
+      type: "TopUp",
+      amountCentavos,
+      reference: input.reference,
+      note: input.note,
+      recordedBy,
+    });
+    return {
+      entryId: movement.entryId,
+      amount: centavosToMoney(amountCentavos),
+      status: depositStatusFor(input.businessId, movement.balanceAfter),
+    };
+  });
+}
+
+export async function listBusinessDepositEntries(businessId: string, limit = 50) {
+  const db = await getDb();
+  const rows = await all(
+    db,
+    // Newest first, breaking ties on insertion order rather than id: a top-up
+    // and the deduction that follows it can land in the same second, and a
+    // random-hex id would then order the ledger arbitrarily.
+    `SELECT * FROM business_deposit_entries
+     WHERE business_id = ?
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT ?`,
+    [businessId, limit],
+  );
+  return rows.map(mapDepositEntry);
+}
+
+// ---- Monthly statements ----
+
+/**
+ * A partner's two sides for a calendar month, in LP hundredths:
+ *
+ *   issued    LP their till handed out on purchases â€” money they owe us, since
+ *             we carry the liability until the customer spends it.
+ *   redeemed  LP their customers spent with them â€” money we owe them.
+ *
+ * The sides are netted once, at close. The 10% service fee is charged on the
+ * net payout only: a month the partner finishes owing us costs them no fee,
+ * and a month they finish owed PHP 1,000 pays out PHP 900.
+ */
+export type BusinessStatementTotals = {
+  businessId: string;
+  period: string;
+  issuedCentavos: number;
+  issued: string;
+  issuedCount: number;
+  redeemedCentavos: number;
+  redeemed: string;
+  redeemedCount: number;
+  /** Positive: we owe the partner. Negative: the partner owes us. */
+  netCentavos: number;
+  net: string;
+  direction: "Payout" | "Collection" | "Balanced";
+  serviceFeeCentavos: number;
+  serviceFee: string;
+  /** What we hand over after the fee, when the net runs their way. */
+  payoutCentavos: number;
+  payout: string;
+  /** What comes off the deposit, when the net runs our way. */
+  depositDeductionCentavos: number;
+  depositDeduction: string;
+};
+
+function settleNet(
+  businessId: string,
+  period: string,
+  issued: { centavos: number; count: number },
+  redeemed: { centavos: number; count: number },
+): BusinessStatementTotals {
+  const netCentavos = redeemed.centavos - issued.centavos;
+  const serviceFeeCentavos =
+    netCentavos > 0 ? Math.floor((netCentavos * SERVICE_FEE_BPS) / 10_000) : 0;
+  const payoutCentavos = netCentavos > 0 ? netCentavos - serviceFeeCentavos : 0;
+  const depositDeductionCentavos = netCentavos < 0 ? Math.abs(netCentavos) : 0;
+  return {
+    businessId,
+    period,
+    issuedCentavos: issued.centavos,
+    issued: centavosToMoney(issued.centavos),
+    issuedCount: issued.count,
+    redeemedCentavos: redeemed.centavos,
+    redeemed: centavosToMoney(redeemed.centavos),
+    redeemedCount: redeemed.count,
+    netCentavos,
+    net: centavosToMoney(Math.abs(netCentavos)),
+    direction:
+      netCentavos > 0 ? "Payout" : netCentavos < 0 ? "Collection" : "Balanced",
+    serviceFeeCentavos,
+    serviceFee: centavosToMoney(serviceFeeCentavos),
+    payoutCentavos,
+    payout: centavosToMoney(payoutCentavos),
+    depositDeductionCentavos,
+    depositDeduction: centavosToMoney(depositDeductionCentavos),
+  };
+}
+
+/**
+ * The month's running totals, straight from the source rows. Only accepted
+ * purchases count: one still Held for fraud review has not credited the
+ * customer's wallet either, so billing the partner for it would have to be
+ * clawed back if the review rejects it. An approved review flips the row to
+ * Accepted, which brings it into the next total.
+ */
+async function statementTotals(db: Exec, businessId: string, period: string) {
+  const issuedRow = await one(
+    db,
+    `SELECT COALESCE(SUM(reward_amount_centavos), 0) AS total, COUNT(*) AS count
+     FROM reward_purchases
+     WHERE business_id = ? AND status = 'Accepted'
+       AND substr(created_at, 1, 7) = ?`,
+    [businessId, period],
+  );
+  const redeemedRow = await one(
+    db,
+    `SELECT COALESCE(SUM(amount_centavos), 0) AS total, COUNT(*) AS count
+     FROM reward_voucher_redemptions
+     WHERE business_id = ? AND substr(created_at, 1, 7) = ?`,
+    [businessId, period],
+  );
+  return settleNet(
+    businessId,
+    period,
+    {
+      centavos: Number(issuedRow?.total ?? 0),
+      count: Number(issuedRow?.count ?? 0),
+    },
+    {
+      centavos: Number(redeemedRow?.total ?? 0),
+      count: Number(redeemedRow?.count ?? 0),
+    },
+  );
+}
+
+/** Live totals for a month that has not been closed yet. */
+export async function businessStatementPreview(input: {
+  businessId: string;
+  period?: string;
+}) {
+  const db = await getDb();
+  await getBusinessOrThrow(db, input.businessId);
+  const period = input.period ?? manilaDateParts().period;
+  return statementTotals(db, input.businessId, period);
+}
+
+export type BusinessStatement = BusinessStatementTotals & {
+  id: string;
+  status: string;
+  paymentReference: string;
+  paymentRecordedBy: string;
+  paidAt: string;
+  createdAt: string;
+  processedAt: string;
+};
+
+function mapStatement(row: Row): BusinessStatement {
+  const issued = Number(row.lp_issued_centavos ?? 0);
+  const redeemed = Number(
+    row.lp_redeemed_centavos ?? row.gross_amount_centavos ?? 0,
+  );
+  return {
+    ...settleNet(
+      row.business_id,
+      row.period,
+      { centavos: issued, count: 0 },
+      { centavos: redeemed, count: 0 },
+    ),
+    id: row.id,
+    status: row.status,
+    paymentReference: row.payment_reference ?? row.gcash_reference ?? "",
+    paymentRecordedBy: row.payment_recorded_by ?? "",
+    paidAt: row.paid_at ?? "",
+    createdAt: row.created_at,
+    processedAt: row.processed_at ?? "",
+  };
+}
+
+/**
+ * Closes a month for one partner: nets the two sides, charges the fee if the
+ * balance runs their way, and draws the deposit down if it runs ours. Runs in
+ * the same 1st-7th window as the legacy payout run, and refuses a month that
+ * has not finished â€” a period still taking transactions cannot be reconciled.
+ */
+export async function closeBusinessStatement(input: {
+  businessId: string;
+  period: string;
+  reviewer: string;
+  /**
+   * Skips the 1st-7th gate. Refused outside development: the window is a real
+   * finance rule, but it also makes the settlement leg untestable for three
+   * weeks of every month.
+   */
+  devIgnoreWindow?: boolean;
+}) {
+  return withTx(async (tx) => {
+    await getBusinessOrThrow(tx, input.businessId);
+    const reviewer = input.reviewer.trim() || "Settlement Reviewer";
+    const today = manilaDateParts();
+    if (input.period >= today.period) {
+      throw new AppError(
+        "E-STATEMENT-PERIOD",
+        "Only a completed month can be closed",
+        409,
+      );
+    }
+    const ignoreWindow =
+      input.devIgnoreWindow === true && process.env.NODE_ENV !== "production";
+    if (today.day > 7 && !ignoreWindow) {
+      throw new AppError(
+        "E-STATEMENT-WINDOW",
+        "Statements can only be closed during the first 7 days of each month",
+        409,
+      );
+    }
+    const existing = await one(
+      tx,
+      "SELECT * FROM reward_settlements WHERE business_id = ? AND period = ?",
+      [input.businessId, input.period],
+    );
+    if (existing) {
+      throw new AppError(
+        "E-STATEMENT-CLOSED",
+        "This period has already been closed for this business",
+        409,
+      );
+    }
+
+    const totals = await statementTotals(tx, input.businessId, input.period);
+    const statementId = id("rset");
+    const now = isoNow();
+    await run(
+      tx,
+      `INSERT INTO reward_settlements
+       (id, business_id, period, gross_amount_centavos, service_fee_centavos, total_amount_centavos,
+        lp_issued_centavos, lp_redeemed_centavos, net_centavos, direction, deposit_deduction_centavos,
+        status, created_at, processed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        statementId,
+        input.businessId,
+        input.period,
+        totals.redeemedCentavos,
+        totals.serviceFeeCentavos,
+        totals.payoutCentavos,
+        totals.issuedCentavos,
+        totals.redeemedCentavos,
+        totals.netCentavos,
+        totals.direction,
+        totals.depositDeductionCentavos,
+        // A collection is settled the moment the deposit is drawn; a payout
+        // waits on a manual transfer being recorded against it.
+        totals.direction === "Payout" ? "Processed" : "Collected",
+        now,
+        now,
+      ],
+    );
+
+    if (totals.depositDeductionCentavos > 0) {
+      await applyDepositMovement(tx, {
+        businessId: input.businessId,
+        type: "StatementDeduction",
+        amountCentavos: -totals.depositDeductionCentavos,
+        note: `Net LP owed for ${input.period}`,
+        recordedBy: reviewer,
+        statementId,
+      });
+    }
+
+    await run(
+      tx,
+      `UPDATE reward_voucher_redemptions
+       SET settlement_status = 'Processed', settlement_id = ?, settlement_verified_by = ?, settlement_verified_at = ?
+       WHERE business_id = ? AND substr(created_at, 1, 7) = ? AND settlement_status = 'Pending'`,
+      [statementId, reviewer, now, input.businessId, input.period],
+    );
+
+    await audit(tx, {
+      actorType: "staff",
+      actorId: reviewer,
+      action: "business_statement_closed",
+      entityType: "reward_settlement",
+      entityId: statementId,
+      metadata: {
+        businessId: input.businessId,
+        period: input.period,
+        issuedCentavos: totals.issuedCentavos,
+        redeemedCentavos: totals.redeemedCentavos,
+        netCentavos: totals.netCentavos,
+        serviceFeeBps: SERVICE_FEE_BPS,
+        serviceFeeCentavos: totals.serviceFeeCentavos,
+        payoutCentavos: totals.payoutCentavos,
+        depositDeductionCentavos: totals.depositDeductionCentavos,
+      },
+    });
+
+    return { statementId, ...totals };
+  });
+}
+
+/**
+ * Records a payout we have actually sent. The transfer itself is manual, so
+ * this row is the only proof it happened â€” a reference is required.
+ */
+export async function recordStatementPayment(input: {
+  statementId: string;
+  reference: string;
+  recordedBy: string;
+}) {
+  return withTx(async (tx) => {
+    const reference = input.reference.trim();
+    if (reference.length < 4) {
+      throw new AppError(
+        "E-STATEMENT-REFERENCE",
+        "A payment reference is required",
+        400,
+      );
+    }
+    const row = await one(tx, "SELECT * FROM reward_settlements WHERE id = ?", [
+      input.statementId,
+    ]);
+    if (!row) throw new AppError("E-STATEMENT-404", "Statement was not found", 404);
+    if (row.direction === "Collection" || row.direction === "Balanced") {
+      throw new AppError(
+        "E-STATEMENT-DIRECTION",
+        "This period was settled against the partner's deposit, so there is nothing to pay",
+        409,
+      );
+    }
+    if (row.paid_at) {
+      throw new AppError(
+        "E-STATEMENT-PAID",
+        "This statement is already marked paid",
+        409,
+      );
+    }
+    const recordedBy = input.recordedBy.trim() || "Finance";
+    const now = isoNow();
+    await run(
+      tx,
+      `UPDATE reward_settlements
+       SET status = 'Paid', paid_at = ?, payment_reference = ?, payment_recorded_by = ?, gcash_reference = ?
+       WHERE id = ?`,
+      [now, reference, recordedBy, reference, input.statementId],
+    );
+    await audit(tx, {
+      actorType: "staff",
+      actorId: recordedBy,
+      action: "business_statement_paid",
+      entityType: "reward_settlement",
+      entityId: input.statementId,
+      metadata: {
+        businessId: row.business_id,
+        period: row.period,
+        payoutCentavos: Number(row.total_amount_centavos ?? 0),
+        reference,
+      },
+    });
+    return mapStatement(
+      await one(tx, "SELECT * FROM reward_settlements WHERE id = ?", [
+        input.statementId,
+      ]),
+    );
+  });
+}
+
+export async function listBusinessStatements(input: { businessId?: string } = {}) {
+  const db = await getDb();
+  const rows = input.businessId
+    ? await all(
+        db,
+        "SELECT * FROM reward_settlements WHERE business_id = ? ORDER BY period DESC, created_at DESC",
+        [input.businessId],
+      )
+    : await all(
+        db,
+        "SELECT * FROM reward_settlements ORDER BY period DESC, created_at DESC",
+      );
+  return rows.map(mapStatement);
+}
+
+/** Everything the partner-facing billing page needs, in one pass. */
+export async function businessBillingOverview(businessId: string) {
+  const db = await getDb();
+  const business = await getBusinessOrThrow(db, businessId);
+  const period = manilaDateParts().period;
+  const [current, statements, deposits] = await Promise.all([
+    statementTotals(db, businessId, period),
+    listBusinessStatements({ businessId }),
+    listBusinessDepositEntries(businessId),
+  ]);
+  return {
+    business: { id: businessId, name: String(business.name) },
+    deposit: depositStatusFor(
+      businessId,
+      Number(business.deposit_balance_centavos ?? 0),
+    ),
+    current,
+    statements,
+    deposits,
+  };
+}
+
+// ---- LP storefront ----
+
+export type RewardProduct = {
+  id: string;
+  businessId: string;
+  businessName: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  priceCentavos: number;
+  price: string;
+  status: "Active" | "Hidden";
+  createdAt: string;
+  /**
+   * Artwork for the partner, borrowed from their current campaign. Items have
+   * no photography of their own, and an unillustrated storefront next to the
+   * campaign directory reads as broken rather than minimal.
+   */
+  campaign?: {
+    heroImage: string;
+    slug: string;
+    title: string;
+    mode: string;
+  };
+};
+
+function mapRewardProduct(row: Row): RewardProduct {
+  return {
+    campaign: row.campaign_slug
+      ? {
+          heroImage: String(row.campaign_hero_image ?? ""),
+          slug: String(row.campaign_slug),
+          title: String(row.campaign_title ?? ""),
+          mode: String(row.campaign_mode ?? "other"),
+        }
+      : undefined,
+    id: row.id,
+    businessId: row.business_id,
+    businessName: row.business_name ?? "",
+    name: row.name,
+    description: row.description ?? "",
+    imageUrl: row.image_url ?? "",
+    priceCentavos: Number(row.price_centavos),
+    price: centavosToLoyaltyPoints(Number(row.price_centavos)),
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * Storefront rows always carry their partner's name and current campaign
+ * artwork; the campaign join picks the newest active one, and stays a LEFT JOIN
+ * so a partner between campaigns still sells.
+ */
+const PRODUCT_SELECT = `SELECT p.*, b.name AS business_name,
+            c.hero_image AS campaign_hero_image, c.slug AS campaign_slug,
+            c.title AS campaign_title, c.mode AS campaign_mode
+     FROM reward_products p
+     JOIN businesses b ON b.id = p.business_id
+     LEFT JOIN campaigns c ON c.id = (
+       SELECT id FROM campaigns
+       WHERE business_id = p.business_id AND status = 'active'
+       ORDER BY start_date DESC, id DESC
+       LIMIT 1
+     )`;
+
+/**
+ * The storefront. Hidden items stay in the table rather than being deleted so
+ * that a voucher already bought against one still resolves to its product.
+ */
+export async function listRewardProducts(
+  input: { businessId?: string; includeHidden?: boolean } = {},
+) {
+  const db = await getDb();
+  const clauses: string[] = [];
+  const args: Array<string> = [];
+  if (input.businessId) {
+    clauses.push("p.business_id = ?");
+    args.push(input.businessId);
+  }
+  if (!input.includeHidden) clauses.push("p.status = 'Active'");
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+  const rows = await all(
+    db,
+    `${PRODUCT_SELECT}
+     ${where}
+     ORDER BY p.price_centavos ASC, p.name ASC`,
+    args,
+  );
+  return rows.map(mapRewardProduct);
+}
+
+export async function getRewardProduct(productId: string) {
+  const db = await getDb();
+  const row = await one(db, `${PRODUCT_SELECT} WHERE p.id = ?`, [productId]);
+  if (!row) throw new AppError("E-PRODUCT-404", "Item was not found", 404);
+  return mapRewardProduct(row);
+}
+
+export async function saveRewardProduct(input: {
+  id?: string;
+  businessId: string;
+  name: string;
+  description?: string;
+  imageUrl?: string;
+  price: string | number;
+  status?: "Active" | "Hidden";
+  actor: string;
+}) {
+  return withTx(async (tx) => {
+    await getBusinessOrThrow(tx, input.businessId);
+    const name = input.name.trim();
+    if (name.length < 2) {
+      throw new AppError("E-PRODUCT-NAME", "An item name is required", 400);
+    }
+    const priceCentavos = loyaltyPointsToCentavos(input.price, "item price");
+    if (priceCentavos < MIN_CONVERSION_CENTAVOS) {
+      throw new AppError(
+        "E-PRODUCT-PRICE",
+        `An item must cost at least ${centavosToLoyaltyPoints(MIN_CONVERSION_CENTAVOS)}`,
+        400,
+      );
+    }
+    const now = isoNow();
+    const productId = input.id ?? id("rprod");
+    if (input.id) {
+      const updated = await run(
+        tx,
+        `UPDATE reward_products
+         SET name = ?, description = ?, image_url = ?, price_centavos = ?, status = ?, updated_at = ?
+         WHERE id = ? AND business_id = ?`,
+        [
+          name,
+          input.description?.trim() || null,
+          input.imageUrl?.trim() || null,
+          priceCentavos,
+          input.status ?? "Active",
+          now,
+          input.id,
+          input.businessId,
+        ],
+      );
+      if (updated !== 1) {
+        throw new AppError("E-PRODUCT-404", "Item was not found", 404);
+      }
+    } else {
+      await run(
+        tx,
+        `INSERT INTO reward_products
+         (id, business_id, name, description, image_url, price_centavos, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          productId,
+          input.businessId,
+          name,
+          input.description?.trim() || null,
+          input.imageUrl?.trim() || null,
+          priceCentavos,
+          input.status ?? "Active",
+          now,
+          now,
+        ],
+      );
+    }
+    await audit(tx, {
+      actorType: "staff",
+      actorId: input.actor,
+      action: input.id ? "reward_product_updated" : "reward_product_created",
+      entityType: "reward_product",
+      entityId: productId,
+      metadata: { businessId: input.businessId, name, priceCentavos },
+    });
+    return getRewardProductIn(tx, productId);
+  });
+}
+
+async function getRewardProductIn(db: Exec, productId: string) {
+  const row = await one(db, `${PRODUCT_SELECT} WHERE p.id = ?`, [productId]);
+  if (!row) throw new AppError("E-PRODUCT-404", "Item was not found", 404);
+  return mapRewardProduct(row);
+}
+
+/**
+ * Buys a storefront item with LP. Mechanically this is a conversion pinned to
+ * one item: the points leave the wallet now and become a voucher the partner's
+ * staff scans at handover, which is what puts the amount on their statement.
+ * Pinning `business_id` stops an item bought at one partner being spent at
+ * another, which a plain LP voucher deliberately allows.
+ */
+export async function purchaseRewardProduct(input: {
+  phone: string;
+  walletSecret: string;
+  productId: string;
+}) {
+  return withTx(async (tx) => {
+    const wallet = await walletByPhoneAndSecret(
+      tx,
+      requireWalletPhone(input.phone),
+      input.walletSecret,
+    );
+    const product = await getRewardProductIn(tx, input.productId);
+    if (product.status !== "Active") {
+      throw new AppError("E-PRODUCT-UNAVAILABLE", "This item is not available", 409);
+    }
+
+    const now = isoNow();
+    const amountCentavos = product.priceCentavos;
+    const affected = await run(
+      tx,
+      `UPDATE reward_wallets
+       SET balance_centavos = balance_centavos - ?,
+           lifetime_converted_centavos = lifetime_converted_centavos + ?,
+           updated_at = ?
+       WHERE id = ? AND balance_centavos >= ? AND status = 'Active'`,
+      [amountCentavos, amountCentavos, now, wallet.id, amountCentavos],
+    );
+    if (affected !== 1) {
+      throw new AppError(
+        "E-REWARD-BALANCE",
+        "Not enough Loyalty Points for this item",
+        409,
+      );
+    }
+
+    const updated = mapWallet(
+      await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]),
+    );
+    const voucherId = id("rvch");
+    const voucherCode = `RWD-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    const qrToken = token("rvoucher");
+    const expires = new Date();
+    expires.setFullYear(expires.getFullYear() + 1);
+
+    await run(
+      tx,
+      `INSERT INTO reward_vouchers
+       (id, wallet_id, business_id, product_id, voucher_code, qr_token, amount_centavos, remaining_centavos, status, issued_at, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?)`,
+      [
+        voucherId,
+        wallet.id,
+        product.businessId,
+        product.id,
+        voucherCode,
+        qrToken,
+        amountCentavos,
+        amountCentavos,
+        now,
+        expires.toISOString(),
+        now,
+      ],
+    );
+    await run(
+      tx,
+      `INSERT INTO reward_ledger_entries
+       (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, business_id, metadata, created_at)
+       VALUES (?, ?, 'product_purchased', ?, ?, 'customer_purchase', ?, ?, ?, ?)`,
+      [
+        id("rled"),
+        wallet.id,
+        -amountCentavos,
+        updated.balanceCentavos,
+        voucherId,
+        product.businessId,
+        JSON.stringify({ voucherCode, productId: product.id, productName: product.name }),
+        now,
+      ],
+    );
+    await audit(tx, {
+      actorType: "customer",
+      actorId: wallet.id,
+      action: "reward_product_purchased",
+      entityType: "reward_voucher",
+      entityId: voucherId,
+      metadata: {
+        productId: product.id,
+        businessId: product.businessId,
+        amountCentavos,
+      },
+    });
+
+    return {
+      wallet: updated,
+      product,
+      voucher: mapRewardVoucher(
+        await one(tx, "SELECT * FROM reward_vouchers WHERE id = ?", [voucherId]),
+      ),
+      balance: centavosToLoyaltyPoints(updated.balanceCentavos),
+    };
+  });
+}
+
+/**
+ * Tops a wallet up with Loyalty Points, for development only.
+ *
+ * Earning LP legitimately means a partner scanning a purchase, which puts a
+ * matching liability on that partner's statement. This grants points with no
+ * purchase behind them, so nothing is billed to anyone — which is exactly why
+ * it must never run in production, and why the ledger entry is labelled as a
+ * grant rather than dressed up as a purchase.
+ */
+export async function grantDevLoyaltyPoints(input: {
+  phone: string;
+  amount: string | number;
+}) {
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError(
+      "E-DEV-ONLY",
+      "Granting Loyalty Points is a development-only tool",
+      403,
+    );
+  }
+  return withTx(async (tx) => {
+    const wallet = await walletByPhone(tx, requireWalletPhone(input.phone));
+    if (!wallet) {
+      throw new AppError(
+        "E-REWARD-WALLET-404",
+        "This number has no Loyalty Points wallet yet. Open the More tab once to create it.",
+        404,
+      );
+    }
+    const amountCentavos = loyaltyPointsToCentavos(input.amount, "LP amount");
+    if (amountCentavos <= 0 || amountCentavos > MAX_REDEMPTION_CENTAVOS) {
+      throw new AppError(
+        "E-MONEY-RANGE",
+        `Grant must be between 0.01 LP and ${centavosToLoyaltyPoints(MAX_REDEMPTION_CENTAVOS)}`,
+        400,
+      );
+    }
+
+    const now = isoNow();
+    await run(
+      tx,
+      `UPDATE reward_wallets
+       SET balance_centavos = balance_centavos + ?,
+           lifetime_earned_centavos = lifetime_earned_centavos + ?,
+           updated_at = ?
+       WHERE id = ? AND status = 'Active'`,
+      [amountCentavos, amountCentavos, now, wallet.id],
+    );
+    const updated = mapWallet(
+      await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]),
+    );
+    await run(
+      tx,
+      `INSERT INTO reward_ledger_entries
+       (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, metadata, created_at)
+       VALUES (?, ?, 'dev_grant', ?, ?, 'dev_tool', NULL, ?, ?)`,
+      [
+        id("rled"),
+        wallet.id,
+        amountCentavos,
+        updated.balanceCentavos,
+        JSON.stringify({ grantedBy: "dev_tools" }),
+        now,
+      ],
+    );
+    await audit(tx, {
+      actorType: "system",
+      actorId: "dev_tools",
+      action: "loyalty_points_granted_dev",
+      entityType: "reward_wallet",
+      entityId: wallet.id,
+      metadata: { amountCentavos },
+    });
+
+    return {
+      wallet: updated,
+      granted: centavosToLoyaltyPoints(amountCentavos),
+      balance: centavosToLoyaltyPoints(updated.balanceCentavos),
+    };
+  });
+}
+
+export type RewardPurchasedItem = {
+  voucherId: string;
+  voucherCode: string;
+  qrToken: string;
+  productId: string;
+  productName: string;
+  productDescription: string;
+  productImageUrl: string;
+  businessId: string;
+  businessName: string;
+  priceCentavos: number;
+  price: string;
+  /** Active | Redeemed | Expired â€” the voucher's own state. */
+  status: string;
+  /** Whether staff can still scan it. */
+  collectable: boolean;
+  issuedAt: string;
+  redeemedAt: string;
+  expiresAt: string;
+  campaign?: RewardProduct["campaign"];
+};
+
+/**
+ * Everything this wallet has bought from the storefront, newest first.
+ *
+ * Joined from `reward_vouchers` rather than kept in a separate purchases table:
+ * the voucher *is* the purchase â€” it holds the QR staff scan, and its status is
+ * what tells the customer whether the item is still waiting to be collected.
+ * Only vouchers with a `product_id` are storefront buys; a plain LP conversion
+ * has none and belongs in the wallet, not here.
+ */
+export async function listWalletPurchases(input: { phone: string }) {
+  const db = await getDb();
+  const wallet = await walletByPhone(db, requireWalletPhone(input.phone));
+  if (!wallet) return [];
+
+  const rows = await all(
+    db,
+    `SELECT v.id, v.voucher_code, v.qr_token, v.status, v.issued_at, v.redeemed_at, v.expires_at,
+            v.amount_centavos,
+            p.id AS product_id, p.name AS product_name, p.description AS product_description,
+            p.image_url AS product_image_url,
+            b.id AS business_id, b.name AS business_name,
+            c.hero_image AS campaign_hero_image, c.slug AS campaign_slug,
+            c.title AS campaign_title, c.mode AS campaign_mode
+     FROM reward_vouchers v
+     JOIN reward_products p ON p.id = v.product_id
+     JOIN businesses b ON b.id = v.business_id
+     LEFT JOIN campaigns c ON c.id = (
+       SELECT id FROM campaigns
+       WHERE business_id = b.id AND status = 'active'
+       ORDER BY start_date DESC, id DESC
+       LIMIT 1
+     )
+     WHERE v.wallet_id = ? AND v.product_id IS NOT NULL
+     ORDER BY v.issued_at DESC, v.rowid DESC`,
+    [wallet.id],
+  );
+
+  const now = Date.now();
+  return rows.map((row): RewardPurchasedItem => {
+    const expired =
+      row.expires_at && new Date(String(row.expires_at)).getTime() < now;
+    // Expiry is enforced lazily at redemption, so a voucher can still read
+    // "Active" here after its date has passed. Report what staff would find.
+    const status = expired && row.status === "Active" ? "Expired" : String(row.status);
+    return {
+      voucherId: String(row.id),
+      voucherCode: String(row.voucher_code),
+      qrToken: String(row.qr_token),
+      productId: String(row.product_id),
+      productName: String(row.product_name),
+      productDescription: row.product_description
+        ? String(row.product_description)
+        : "",
+      productImageUrl: row.product_image_url ? String(row.product_image_url) : "",
+      businessId: String(row.business_id),
+      businessName: String(row.business_name),
+      priceCentavos: Number(row.amount_centavos),
+      price: centavosToLoyaltyPoints(Number(row.amount_centavos)),
+      status,
+      collectable: status === "Active",
+      issuedAt: String(row.issued_at),
+      redeemedAt: row.redeemed_at ? String(row.redeemed_at) : "",
+      expiresAt: row.expires_at ? String(row.expires_at) : "",
+      campaign: row.campaign_slug
+        ? {
+            heroImage: String(row.campaign_hero_image ?? ""),
+            slug: String(row.campaign_slug),
+            title: String(row.campaign_title ?? ""),
+            mode: String(row.campaign_mode ?? "other"),
+          }
+        : undefined,
+    };
+  });
+}
+
+/**
+ * Development-only: moves a partner's current-month LP activity into last
+ * month, so the settlement leg can be exercised without waiting for a real
+ * month to end.
+ *
+ * Only timestamps move — no amounts, no statuses, and none of the netting
+ * logic is reimplemented here. Whatever `closeBusinessStatement` then produces
+ * is the same arithmetic production runs.
+ */
+export async function devBackdateLpActivity(input: { businessId: string }) {
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError(
+      "E-DEV-ONLY",
+      "Backdating LP activity is a development-only tool",
+      403,
+    );
+  }
+  return withTx(async (tx) => {
+    await getBusinessOrThrow(tx, input.businessId);
+    const current = manilaDateParts().period;
+    const [year, month] = current.split("-").map(Number);
+    const previous = new Date(Date.UTC(year, month - 2, 1));
+    const period = `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, "0")}`;
+    // Mid-month, so the shifted rows cannot land outside the target period in
+    // any timezone.
+    const stamp = `${period}-15T04:00:00.000Z`;
+
+    const purchases = await run(
+      tx,
+      `UPDATE reward_purchases SET created_at = ?
+       WHERE business_id = ? AND substr(created_at, 1, 7) = ?`,
+      [stamp, input.businessId, current],
+    );
+    const redemptions = await run(
+      tx,
+      `UPDATE reward_voucher_redemptions SET created_at = ?
+       WHERE business_id = ? AND substr(created_at, 1, 7) = ?`,
+      [stamp, input.businessId, current],
+    );
+    return { period, purchases, redemptions };
+  });
+}
+
+/**
+ * Awards the 5% when staff mark a campaign voucher as used.
+ *
+ * A thin wrapper over `creditRewardFromPurchase` rather than a second earning
+ * path: the partner must be billed, fraud-flagged and audited identically
+ * however the sale reached us. Two differences are deliberate:
+ *
+ * - The wallet is created if the customer has never opened one, but without the
+ *   daily app-use bonus that opening the app grants. Points are for the sale.
+ * - The voucher id is the idempotency key, so a replayed redemption cannot
+ *   award the same sale twice.
+ */
+export async function awardLoyaltyPointsForRedemption(input: {
+  phone: string;
+  businessId: string;
+  purchaseAmount: string | number;
+  staffName: string;
+  voucherId: string;
+}) {
+  const db = await getDb();
+  const wallet = await ensureRewardWallet(db, { phone: input.phone });
+  return creditRewardFromPurchase({
+    walletToken: wallet.walletToken,
+    businessId: input.businessId,
+    purchaseAmount: input.purchaseAmount,
+    staffName: input.staffName,
+    idempotencyKey: `voucher-redemption-${input.voucherId}`,
+  });
 }

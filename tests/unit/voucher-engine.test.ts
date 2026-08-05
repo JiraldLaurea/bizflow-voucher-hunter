@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetDb } from "@/server/db";
+import { all, getDb, mapCampaign, mapPool, one, resetDb, run } from "@/server/db";
 import { AppError } from "@/server/errors";
 import {
   generateCandidate,
   getHuntSnapshot,
+  getPublicCampaign,
+  listPublicCampaignCards,
   listSlotsForAttempt,
   redeemVoucher,
   resetHuntForPhone,
@@ -18,6 +20,61 @@ const base = { campaignSlug: "july-dinner", phone: "+639171234567", sessionId: "
 describe("voucher engine (hunt-first flow)", () => {
   beforeEach(async () => {
     await resetDb();
+  });
+
+  // Winning a tier with nothing left to book stranded the customer on an empty
+  // date picker, having already spent an attempt and decremented that tier's
+  // stock. The draw skips such tiers instead.
+  describe("tiers with no bookable slot", () => {
+    async function julyDinnerId() {
+      const db = await getDb();
+      return mapCampaign(
+        await one(db, "SELECT * FROM campaigns WHERE slug = ?", ["july-dinner"]),
+      ).id;
+    }
+
+    it("refuses the draw when every tier is unbookable", async () => {
+      const db = await getDb();
+      await run(db, "UPDATE slots SET status = 'closed' WHERE campaign_id = ?", [
+        await julyDinnerId(),
+      ]);
+
+      await startHunt({ ...base, name: "Jane Doe" });
+      await expect(generateCandidate(base)).rejects.toThrow(AppError);
+    });
+
+    it("draws only the tier that still has one", async () => {
+      const db = await getDb();
+      const campaignId = await julyDinnerId();
+      const pools = (
+        await all(db, "SELECT * FROM pools WHERE campaign_id = ?", [campaignId])
+      ).map(mapPool);
+      // Leave exactly one tier bookable, so the expected result is not a matter
+      // of which way a weighted draw happens to fall. The mappings are dropped
+      // rather than the slots closed: tiers share slots, so closing "everything
+      // but the survivor's" leaves the shared ones open for everyone.
+      const survivor = pools[0];
+      await run(
+        db,
+        `DELETE FROM pool_slots
+         WHERE pool_id IN (SELECT id FROM pools WHERE campaign_id = ?)
+           AND pool_id != ?`,
+        [campaignId, survivor.id],
+      );
+
+      await startHunt({ ...base, name: "Jane Doe" });
+      // Drawn only as many times as the tier has stock; a third would deplete it
+      // and raise E-POOL-EMPTY for reasons unrelated to availability.
+      const drawn = [
+        await generateCandidate(base),
+        await generateCandidate(base),
+      ];
+      expect(drawn.map((attempt) => attempt.displayLabel)).toEqual([
+        survivor.displayLabel,
+        survivor.displayLabel,
+      ]);
+      expect(survivor.totalQuantity).toBeGreaterThanOrEqual(drawn.length);
+    });
   });
 
   it("generates exactly three base candidates and blocks the fourth", async () => {
@@ -134,5 +191,80 @@ describe("voucher engine (hunt-first flow)", () => {
     const redeemed = await redeemVoucher({ codeOrToken: issued.voucher.voucherCode, staffName: "Front Desk", purchaseAmount: 2200 });
     expect(redeemed.voucher.status).toBe("Redeemed");
     await expect(redeemVoucher({ codeOrToken: issued.voucher.voucherCode, staffName: "Front Desk" })).rejects.toThrow(AppError);
+  });
+});
+
+// A campaign that cannot be hunted right now is not the same as one that is
+// over: slot capacity returns when a booking is cancelled, so a full campaign
+// stays listed (its page still serves anyone holding an unbooked voucher)
+// while a finished one leaves the directory for good.
+describe("public campaign directory", () => {
+  const SOLD_OUT_JULY_DINNER = `UPDATE slots SET remaining_capacity = 0, status = 'sold_out'
+     WHERE campaign_id = (SELECT id FROM campaigns WHERE slug = 'july-dinner')`;
+
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  async function cardFor(slug: string) {
+    return (await listPublicCampaignCards()).find(
+      (card) => card.campaign.slug === slug,
+    );
+  }
+
+  it("lists every running campaign as bookable", async () => {
+    const cards = await listPublicCampaignCards();
+    expect(cards.length).toBeGreaterThan(0);
+    expect(cards.every((card) => card.availability.bookable)).toBe(true);
+  });
+
+  it("drops a campaign whose end date has passed", async () => {
+    const db = await getDb();
+    await run(db, "UPDATE campaigns SET end_date = ? WHERE slug = ?", [
+      "2026-07-02",
+      "july-dinner",
+    ]);
+
+    expect(await cardFor("july-dinner")).toBeUndefined();
+  });
+
+  it("keeps a full campaign listed, unbookable, and sorted below the rest", async () => {
+    const db = await getDb();
+    await run(db, SOLD_OUT_JULY_DINNER);
+
+    const cards = await listPublicCampaignCards();
+    const card = cards.find((entry) => entry.campaign.slug === "july-dinner");
+    expect(card?.availability).toMatchObject({
+      bookable: false,
+      remainingCapacity: 0,
+    });
+    // Full, not given away: the tiers still hold stock.
+    expect(card?.availability.remainingPrizes).toBeGreaterThan(0);
+    expect(cards.at(-1)?.campaign.slug).toBe("july-dinner");
+  });
+
+  it("reports exhausted stock apart from full slots", async () => {
+    const db = await getDb();
+    await run(
+      db,
+      `UPDATE pools SET remaining_quantity = 0
+       WHERE campaign_id = (SELECT id FROM campaigns WHERE slug = 'july-dinner')`,
+    );
+
+    const card = await cardFor("july-dinner");
+    expect(card?.availability).toMatchObject({
+      bookable: false,
+      remainingPrizes: 0,
+    });
+    expect(card?.availability.remainingCapacity).toBeGreaterThan(0);
+  });
+
+  it("gives the campaign page the same availability as its card", async () => {
+    const db = await getDb();
+    await run(db, SOLD_OUT_JULY_DINNER);
+
+    const { availability } = await getPublicCampaign("july-dinner");
+    expect(availability.bookable).toBe(false);
+    expect(availability).toEqual((await cardFor("july-dinner"))?.availability);
   });
 });

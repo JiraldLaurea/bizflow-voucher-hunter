@@ -16,6 +16,8 @@ describe("business venue details", () => {
     logoText: "MM",
     industry: "restaurant" as const,
     staffPin: "1234",
+    address: "123 Ayala Ave, Makati City",
+    contactNumber: "+63 2 8123 4567",
   };
 
   it("stores an address and contact number on create", async () => {
@@ -31,13 +33,13 @@ describe("business venue details", () => {
     expect(listed?.address).toBe("123 Ayala Ave, Makati City");
   });
 
-  it("leaves both undefined when not supplied", async () => {
-    const created = await createBusiness(base);
-    expect(created.address).toBeUndefined();
-    expect(created.contactNumber).toBeUndefined();
+  it("rejects a blank required address", async () => {
+    await expect(createBusiness({ ...base, address: "   " })).rejects.toBeInstanceOf(
+      AppError,
+    );
   });
 
-  it("adds details to a business that was created without them", async () => {
+  it("updates the details of an existing business", async () => {
     const created = await createBusiness(base);
     const updated = await updateBusiness(created.id, {
       address: "9 Bonifacio High Street, Taguig",
@@ -59,10 +61,11 @@ describe("business venue details", () => {
     expect(updated.contactNumber).toBe("09171234567");
   });
 
-  it("clears a field when given an empty string", async () => {
-    const created = await createBusiness({ ...base, address: "123 Ayala Ave" });
-    const updated = await updateBusiness(created.id, { address: "" });
-    expect(updated.address).toBeUndefined();
+  it("refuses to clear a required address", async () => {
+    const created = await createBusiness(base);
+    await expect(updateBusiness(created.id, { address: "" })).rejects.toBeInstanceOf(
+      AppError,
+    );
   });
 
   it("trims surrounding whitespace", async () => {
@@ -100,10 +103,9 @@ describe("business venue details", () => {
     }
   });
 
-  it("omits the fields entirely for a venue with no details", async () => {
-    const created = await createBusiness(base);
-    const listed = (await listBusinesses()).find((b) => b.id === created.id);
-    expect(listed?.address).toBeUndefined();
-    expect(listed?.contactNumber).toBeUndefined();
+  it("rejects a blank required contact number", async () => {
+    await expect(
+      createBusiness({ ...base, contactNumber: "   " }),
+    ).rejects.toBeInstanceOf(AppError);
   });
 });

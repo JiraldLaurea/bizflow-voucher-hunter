@@ -20,6 +20,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { useLanguage } from "@/i18n/LanguageContext";
 import {
+  availabilityLabel,
   CAMPAIGN_MODES,
   campaignModeLabel,
   formatCampaignRange,
@@ -189,12 +190,17 @@ export default function HomeScreen() {
         ) : (
           <View style={styles.list}>
             {filtered.map(({
+              availability,
               businessAddress,
               businessIndustry,
               businessName,
               campaign,
             }) => {
               const chip = MODE_CHIPS[businessIndustry] ?? MODE_CHIPS.other;
+              // A full campaign stays tappable: its page still carries the
+              // venue, the terms, and the booking step for anyone already
+              // holding a voucher from it. Only the call to action changes.
+              const bookable = availability.bookable;
               return (
                 <Pressable
                   key={campaign.id}
@@ -206,6 +212,7 @@ export default function HomeScreen() {
                   }
                   style={({ pressed }) => [
                     styles.card,
+                    !bookable && styles.cardUnavailable,
                     pressed && styles.cardPressed,
                   ]}
                 >
@@ -253,10 +260,18 @@ export default function HomeScreen() {
                         localeFor(language),
                       )}
                     </Text>
-                    <View style={styles.cardCtaRow}>
-                      <Text style={styles.cardCta}>{t("home.huntNow")}</Text>
-                      <Icon name="arrow-right" size={15} />
-                    </View>
+                    {bookable ? (
+                      <View style={styles.cardCtaRow}>
+                        <Text style={styles.cardCta}>{t("home.huntNow")}</Text>
+                        <Icon name="arrow-right" size={15} />
+                      </View>
+                    ) : (
+                      <View style={styles.cardStatus}>
+                        <Text style={styles.cardStatusText}>
+                          {availabilityLabel(t, availability)}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </Pressable>
               );
@@ -361,6 +376,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(92, 61, 255, 0.35)",
     transform: [{ scale: 0.99 }],
   },
+  // Dimmed rather than greyed out: the card is still a link to the campaign,
+  // it just cannot be hunted right now.
+  cardUnavailable: {
+    opacity: 0.62,
+  },
   cardTop: {
     // Without this the chip stretches to the row's full height and its pill
     // radius renders as a large ellipse (`.directory-card-top` is flex-start).
@@ -399,6 +419,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 5,
+  },
+  cardStatus: {
+    backgroundColor: colors.page,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  cardStatusText: {
+    color: colors.textMuted,
+    fontFamily: fonts.semibold,
+    fontSize: 12,
   },
   chip: {
     borderRadius: radius.pill,

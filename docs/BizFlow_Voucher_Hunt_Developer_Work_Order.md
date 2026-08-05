@@ -33,6 +33,12 @@ This new flow simplifies the user journey, improves booking clarity for restaura
 
 ## 2.2 Key Change from Previous Flow
 
+> **Historical.** This work order records what was originally commissioned. The
+> "Revised Flow" column below — slot first, voucher after — describes an
+> intermediate design that has since been superseded: the voucher is now drawn
+> first and the slot is picked from the windows that prize is valid at. Kept for
+> the record; see `README.md` for the flow as built.
+
 | Area | Previous Flow | Revised Flow |
 | --- | --- | --- |
 | Voucher timing | Voucher is issued after a user submits a form | User selects date/time first, then challenges for voucher candidates |

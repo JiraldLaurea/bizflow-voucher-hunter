@@ -1,9 +1,12 @@
 import { listBusinesses, listCampaignsWithIndustry, listPools } from "@/server/admin";
+import { FiAlertTriangle } from "react-icons/fi";
+import { manilaDateString } from "@/server/db";
 import { dashboardMetrics } from "@/server/voucher-engine";
-import { NewPoolForm } from "../_components/NewPoolForm";
+import Link from "next/link";
 import { ChangeRequestActions } from "../_components/ChangeRequestActions";
+import { FlashNotice } from "../_components/FlashNotice";
 import { RedemptionImport } from "../_components/RedemptionImport";
-import { selectScope } from "../_components/selectCampaign";
+import { scopedHref, selectScope } from "../_components/selectCampaign";
 import { ScopeSelector } from "../_components/ScopeSelector";
 import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
@@ -32,7 +35,7 @@ function shortDate(iso: string) {
 export default async function VouchersPage({
   searchParams,
 }: {
-  searchParams: { business?: string; campaign?: string };
+  searchParams: { business?: string; campaign?: string; done?: string };
 }) {
   const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
   const campaigns = filterCampaignsForSession(session!, await listCampaignsWithIndustry());
@@ -90,6 +93,29 @@ export default async function VouchersPage({
   // the campaign's total rather than as a bare number.
   const totalWeight = pools.reduce((sum, pool) => sum + pool.probabilityWeight, 0);
 
+  /**
+   * A tier whose slots have all passed, sold out or been closed can no longer be
+   * booked, so the draw skips it entirely. Flagged here because the cause is a
+   * configuration drift an admin cannot otherwise see: the tier still reads as
+   * "active" with stock remaining.
+   */
+  const today = manilaDateString();
+  const isBookable = (slotIds: string[]) =>
+    slotIds.some((slotId) => {
+      const slot = slotRows.find((row) => row.slot.id === slotId)?.slot;
+      return (
+        slot !== undefined &&
+        slot.date >= today &&
+        slot.status === "active" &&
+        slot.remainingCapacity > 0
+      );
+    });
+
+  // The form is on its own route now, so the scope has to travel with the link.
+  const newPoolQuery = selectedCampaign
+    ? scopedHref("", scope.business?.id, selectedCampaign.slug).slice(1)
+    : "";
+
   return (
     <>
       <header className="admin-topbar">
@@ -105,14 +131,16 @@ export default async function VouchersPage({
         selectedCampaignSlug={selectedCampaign?.slug}
         showBusiness={session?.role !== "staff"}
       />
+      <FlashNotice />
       <section className="panel table-wrap">
         {selectedCampaign ? (
           <div className="admin-form-actions">
-            <NewPoolForm
-              campaignId={selectedCampaign.id}
-              requestMode={isBusinessScoped}
-              slots={slotRows.map((row) => row.slot)}
-            />
+            <Link
+              className="button admin-form-toggle"
+              href={`/dashboard/vouchers/new?${newPoolQuery}`}
+            >
+              {isBusinessScoped ? "Request Benefit Tier" : "Add Benefit Tier"}
+            </Link>
             <RedemptionImport campaignId={selectedCampaign.id} />
           </div>
         ) : null}
@@ -143,10 +171,20 @@ export default async function VouchersPage({
                 const share = totalWeight
                   ? Math.round((pool.probabilityWeight / totalWeight) * 100)
                   : 0;
+                const bookable = isBookable(pool.slotIds);
                 return (
                   <tr key={pool.id}>
                     <td>
                       <div className="cell-title">{pool.displayLabel}</div>
+                      {pool.status === "active" && !bookable ? (
+                        <div className="pool-warning">
+                          <FiAlertTriangle aria-hidden="true" />
+                          <span>
+                            No bookable slots — this tier is skipped in the draw.
+                            Add an upcoming slot with capacity.
+                          </span>
+                        </div>
+                      ) : null}
                     </td>
                     <td className="cell-numeric">{pool.totalQuantity}</td>
                     <td className="cell-numeric">
@@ -316,13 +354,12 @@ export default async function VouchersPage({
                               ? ` · ${request.reviewedAt.replace("T", " ").slice(0, 16)}`
                               : ""}
                             </span>
-                            <NewPoolForm
-                              campaignId={selectedCampaign!.id}
-                              initialValues={pool}
-                              revisionMode
-                              revisionRequestId={request.id}
-                              slots={slotRows.map((row) => row.slot)}
-                            />
+                            <Link
+                              className="button secondary compact-button"
+                              href={`/dashboard/vouchers/new?${newPoolQuery}&revise=${request.id}`}
+                            >
+                              Revise
+                            </Link>
                           </div>
                         )}
                       </td>

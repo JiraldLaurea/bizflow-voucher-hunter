@@ -63,38 +63,26 @@ export function SettlementRowActions({
     }
   }
 
-  async function complete() {
-    const gcashReference = window.prompt("GCash settlement reference");
-    if (!gcashReference) return;
-    await post({ action: "complete", settlementId, gcashReference });
-  }
-
   async function adjust() {
     const note = window.prompt("Adjustment note");
     if (!note) return;
     await post({ action: "adjust", redemptionId, note });
   }
 
+  // Redemptions are no longer settled one at a time. A month is closed for a
+  // whole partner on the Billing page, where LP they issued is netted against
+  // LP their customers spent — settling a single row here would bill the
+  // service fee on gross spend and ignore the other side of the ledger.
   return (
     <div className="reward-row-actions">
       {status === "Pending" ? (
         settlementEligible ? (
-          <button
-            className="button compact-button"
-            disabled={busy}
-            onClick={() => void post({ action: "process", redemptionIds: [redemptionId] })}
-            type="button"
-          >
-            Process
-          </button>
+          <a className="button compact-button" href="/dashboard/billing">
+            Close month
+          </a>
         ) : (
           <small className="muted">Scheduled {settlementWindow}</small>
         )
-      ) : null}
-      {status === "Processed" && settlementId ? (
-        <button className="button compact-button" disabled={busy} onClick={() => void complete()} type="button">
-          Complete
-        </button>
       ) : null}
       {status !== "Completed" && status !== "Adjusted" ? (
         <button className="button secondary compact-button" disabled={busy} onClick={() => void adjust()} type="button">

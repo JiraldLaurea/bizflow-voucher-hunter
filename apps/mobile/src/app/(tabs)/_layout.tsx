@@ -61,6 +61,15 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="shopping-bag" />,
         }}
       />
+      {/* One button for the whole storefront: the stack behind it (partners →
+          items → checkout) is a single route as far as the bar is concerned. */}
+      <Tabs.Screen
+        name="shop"
+        options={{
+          title: t("tab.shop"),
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} name="gift" />,
+        }}
+      />
       <Tabs.Screen
         name="more"
         options={{

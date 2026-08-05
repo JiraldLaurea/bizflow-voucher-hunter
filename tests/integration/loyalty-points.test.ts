@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, one, resetDb, run } from "@/server/db";
 import {
+  businessDepositStatus,
+  businessStatementPreview,
+  closeBusinessStatement,
   convertRewardCreditToVoucher,
   creditRewardFromPurchase,
   getOrCreateRewardWallet,
-  processRewardSettlements,
+  listBusinessDepositEntries,
+  listRewardProducts,
+  listWalletPurchases,
+  purchaseRewardProduct,
+  recordBusinessDeposit,
+  recordStatementPayment,
   redeemRewardVoucher,
   rewardWalletSnapshot,
 } from "@/server/rewards-network";
@@ -102,8 +110,12 @@ describe("Loyalty Points", () => {
     expect(second.balance).toBe("60 LP");
   });
 
-  it("deducts a 10% service fee and settles the 90% partner payout", async () => {
+  // The partner's two sides are netted once, at month end. Charging the 10%
+  // fee per redemption instead would bill them on gross LP spend even in a
+  // month they finish owing us money.
+  it("nets LP issued against LP redeemed and charges the fee on the payout", async () => {
     const wallet = await getOrCreateRewardWallet({ phone });
+    // PHP 10,000 spent earns 500 LP, so the partner owes us PHP 500.
     await creditRewardFromPurchase({
       walletToken: wallet.wallet.walletToken,
       businessId,
@@ -123,54 +135,257 @@ describe("Loyalty Points", () => {
       staffName: "staff@bizflow.local",
     });
 
+    // No fee at the till any more: the redemption carries its full value.
     expect(redeemed.amount).toBe("500 LP");
-    expect(redeemed.serviceFee).toBe("50 LP");
-    expect(redeemed.settlementAmount).toBe("450 LP");
+    expect(redeemed.serviceFee).toBe("0 LP");
+    expect(redeemed.settlementAmount).toBe("500 LP");
+
+    const db = await getDb();
+    // Move both sides into June so July 1-7 can close them.
+    await run(db, "UPDATE reward_purchases SET created_at = ?", [
+      "2026-06-15T12:00:00.000Z",
+    ]);
+    await run(db, "UPDATE reward_voucher_redemptions SET created_at = ?", [
+      "2026-06-30T12:00:00.000Z",
+    ]);
+
+    // 500 LP issued against 500 LP redeemed leaves nothing owed either way.
+    const balanced = await businessStatementPreview({ businessId, period: "2026-06" });
+    expect(balanced).toMatchObject({
+      issued: "₱500.00",
+      redeemed: "₱500.00",
+      direction: "Balanced",
+      serviceFee: "₱0.00",
+    });
+
+    // A second redemption, funded by LP earned at another partner, tips the
+    // month in the partner's favour: PHP 1,000 net, fee PHP 100, payout PHP 900.
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 200000");
+    const second = await convertRewardCreditToVoucher({
+      phone,
+      walletSecret: wallet.walletSecret,
+      amount: "1000",
+    });
+    const secondRedemption = await redeemRewardVoucher({
+      codeOrToken: second.voucher.voucherCode,
+      businessId,
+      amount: "1000",
+      staffName: "staff@bizflow.local",
+    });
+    await run(db, "UPDATE reward_voucher_redemptions SET created_at = ? WHERE id = ?", [
+      "2026-06-30T13:00:00.000Z",
+      secondRedemption.redemption.id,
+    ]);
 
     await expect(
-      processRewardSettlements({
-        redemptionIds: [redeemed.redemption.id],
+      closeBusinessStatement({
+        businessId,
+        period: "2026-07",
         reviewer: "admin@bizflow.local",
       }),
     ).rejects.toThrow(/completed month/);
 
-    // The test clock is July 3. A June redemption is eligible for the July
-    // 1–7 settlement window.
-    await run(
-      await getDb(),
-      "UPDATE reward_voucher_redemptions SET created_at = ? WHERE id = ?",
-      ["2026-06-30T12:00:00.000Z", redeemed.redemption.id],
-    );
     vi.setSystemTime(new Date("2026-07-10T12:00:00+08:00"));
     await expect(
-      processRewardSettlements({
-        redemptionIds: [redeemed.redemption.id],
+      closeBusinessStatement({
+        businessId,
+        period: "2026-06",
         reviewer: "admin@bizflow.local",
       }),
     ).rejects.toThrow(/first 7 days/);
-
     vi.setSystemTime(new Date("2026-07-03T12:00:00+08:00"));
-    const processed = await processRewardSettlements({
-      redemptionIds: [redeemed.redemption.id],
+
+    const closed = await closeBusinessStatement({
+      businessId,
+      period: "2026-06",
       reviewer: "admin@bizflow.local",
     });
-    expect(processed.settlements).toEqual([
-      expect.objectContaining({
+    expect(closed).toMatchObject({
+      period: "2026-06",
+      issued: "₱500.00",
+      redeemed: "₱1,500.00",
+      net: "₱1,000.00",
+      direction: "Payout",
+      serviceFee: "₱100.00",
+      payout: "₱900.00",
+      depositDeduction: "₱0.00",
+    });
+
+    // The deposit is untouched when the month runs the partner's way.
+    const afterClose = await businessDepositStatus(businessId);
+    expect(afterClose.balance).toBe("₱5,000.00");
+
+    // Closing twice would double-pay.
+    await expect(
+      closeBusinessStatement({
+        businessId,
         period: "2026-06",
-        grossAmount: "500 LP",
-        serviceFee: "50 LP",
-        totalAmount: "450 LP",
+        reviewer: "admin@bizflow.local",
       }),
+    ).rejects.toThrow(/already been closed/);
+
+    const paid = await recordStatementPayment({
+      statementId: closed.statementId,
+      reference: "GCASH-88231",
+      recordedBy: "finance@bizflow.local",
+    });
+    expect(paid).toMatchObject({ status: "Paid", paymentReference: "GCASH-88231" });
+  });
+
+  it("draws the deposit down when the partner owes more than they are owed", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    await creditRewardFromPurchase({
+      walletToken: wallet.wallet.walletToken,
+      businessId,
+      purchaseAmount: "20,000",
+      staffName: "staff@bizflow.local",
+      idempotencyKey: "purchase-with-no-redemption",
+    });
+
+    const db = await getDb();
+    await run(db, "UPDATE reward_purchases SET created_at = ?", [
+      "2026-06-15T12:00:00.000Z",
     ]);
 
-    const settlement = await one(
-      await getDb(),
-      "SELECT gross_amount_centavos, service_fee_centavos, total_amount_centavos FROM reward_settlements LIMIT 1",
-    );
-    expect(settlement).toMatchObject({
-      gross_amount_centavos: 50_000,
-      service_fee_centavos: 5_000,
-      total_amount_centavos: 45_000,
+    // 1,000 LP issued, nothing spent back: PHP 1,000 comes off the deposit and
+    // no service fee applies, because we are not paying them anything.
+    const closed = await closeBusinessStatement({
+      businessId,
+      period: "2026-06",
+      reviewer: "admin@bizflow.local",
     });
+    expect(closed).toMatchObject({
+      direction: "Collection",
+      issued: "₱1,000.00",
+      redeemed: "₱0.00",
+      serviceFee: "₱0.00",
+      payout: "₱0.00",
+      depositDeduction: "₱1,000.00",
+    });
+
+    const status = await businessDepositStatus(businessId);
+    expect(status.balance).toBe("₱4,000.00");
+    // Under the PHP 5,000 minimum, but still trading.
+    expect(status).toMatchObject({ belowMinimum: true, blocked: false, topUpDue: "₱1,000.00" });
+
+    const entries = await listBusinessDepositEntries(businessId);
+    expect(entries[0]).toMatchObject({
+      type: "StatementDeduction",
+      amount: "-₱1,000.00",
+      balanceAfter: "₱4,000.00",
+    });
+
+    // Nothing to pay out, so the payout recorder refuses the statement.
+    await expect(
+      recordStatementPayment({
+        statementId: closed.statementId,
+        reference: "GCASH-00001",
+        recordedBy: "finance@bizflow.local",
+      }),
+    ).rejects.toThrow(/nothing to pay/);
+  });
+
+  it("stops issuing LP once a partner's deposit is exhausted, and resumes on top-up", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    const db = await getDb();
+    await run(db, "UPDATE businesses SET deposit_balance_centavos = 0 WHERE id = ?", [
+      businessId,
+    ]);
+
+    await expect(
+      creditRewardFromPurchase({
+        walletToken: wallet.wallet.walletToken,
+        businessId,
+        purchaseAmount: "1,000",
+        staffName: "staff@bizflow.local",
+        idempotencyKey: "purchase-while-deposit-empty",
+      }),
+    ).rejects.toThrow(/deposit is used up/);
+
+    const topUp = await recordBusinessDeposit({
+      businessId,
+      amount: "5,000",
+      reference: "BPI-4471",
+      recordedBy: "finance@bizflow.local",
+    });
+    expect(topUp.status).toMatchObject({ blocked: false, belowMinimum: false });
+
+    const credited = await creditRewardFromPurchase({
+      walletToken: wallet.wallet.walletToken,
+      businessId,
+      purchaseAmount: "1,000",
+      staffName: "staff@bizflow.local",
+      idempotencyKey: "purchase-after-top-up",
+    });
+    expect(credited.rewardAmount).toBe("50 LP");
+  });
+
+  it("buys a storefront item with LP and bills it to the partner", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    const db = await getDb();
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
+
+    const products = await listRewardProducts({ businessId });
+    const bowl = products.find((item) => item.id === "rprod_demo_rice_bowl");
+    expect(bowl).toMatchObject({
+      price: "500 LP",
+      businessName: "Mesa Manila Test Kitchen",
+      imageUrl: "/images/rewards/adobo-rice-bowl.png",
+    });
+
+    const bought = await purchaseRewardProduct({
+      phone,
+      walletSecret: wallet.walletSecret,
+      productId: "rprod_demo_rice_bowl",
+    });
+    expect(bought.balance).toBe("500 LP");
+    expect(bought.voucher.amountCentavos).toBe(500_00);
+
+    // The partner is credited only once staff hand the item over.
+    const beforeHandover = await businessStatementPreview({ businessId });
+    expect(beforeHandover.redeemed).toBe("₱0.00");
+
+    await redeemRewardVoucher({
+      codeOrToken: bought.voucher.voucherCode,
+      businessId,
+      amount: "500",
+      staffName: "staff@bizflow.local",
+    });
+    const afterHandover = await businessStatementPreview({ businessId });
+    expect(afterHandover.redeemed).toBe("₱500.00");
+  });
+  // The purchase has to outlive the receipt screen: the QR is the only way to
+  // collect the item, so it is kept and its state tracked, not shown once.
+  it("keeps a bought item and marks it collected once staff scan it", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    const db = await getDb();
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
+
+    const bought = await purchaseRewardProduct({
+      phone,
+      walletSecret: wallet.walletSecret,
+      productId: "rprod_demo_rice_bowl",
+    });
+
+    const [saved] = await listWalletPurchases({ phone });
+    expect(saved).toMatchObject({
+      productName: "Adobo Rice Bowl",
+      businessName: "Mesa Manila Test Kitchen",
+      price: "500 LP",
+      status: "Active",
+      collectable: true,
+      voucherCode: bought.voucher.voucherCode,
+    });
+
+    await redeemRewardVoucher({
+      codeOrToken: bought.voucher.voucherCode,
+      businessId,
+      amount: "500",
+      staffName: "staff@bizflow.local",
+    });
+
+    const [collected] = await listWalletPurchases({ phone });
+    expect(collected).toMatchObject({ status: "Redeemed", collectable: false });
+    expect(collected.redeemedAt).not.toBe("");
   });
 });

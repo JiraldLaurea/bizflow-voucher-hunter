@@ -7,7 +7,7 @@ import { FiArrowRight, FiMapPin, FiSearch } from "react-icons/fi";
 import {
   resolveCampaignImage,
 } from "@/lib/campaign-image";
-import type { CampaignCard } from "@/server/voucher-engine";
+import type { CampaignAvailability, CampaignCard } from "@/server/voucher-engine";
 import { CustomerBottomNav } from "./CustomerBottomNav";
 
 const MODE_LABELS: Record<string, string> = {
@@ -18,6 +18,17 @@ const MODE_LABELS: Record<string, string> = {
   retail: "Retail",
   other: "Other",
 };
+
+/**
+ * Why a listed campaign cannot be hunted. Stock and capacity run out
+ * independently and clear differently — claimed vouchers never come back,
+ * booked slots do — so they get their own wording.
+ */
+function availabilityLabel(availability: CampaignAvailability) {
+  if (availability.remainingPrizes <= 0) return "All vouchers claimed";
+  if (availability.remainingCapacity <= 0) return "Fully booked";
+  return "Currently unavailable";
+}
 
 function formatRange(start: string, end: string) {
   const fmt = (value: string) => {
@@ -110,6 +121,7 @@ export function CampaignDirectory({ cards }: { cards: CampaignCard[] }) {
             <div className="directory-list">
               {filtered.map(
                 ({
+                  availability,
                   businessAddress,
                   businessIndustry,
                   businessName,
@@ -118,7 +130,9 @@ export function CampaignDirectory({ cards }: { cards: CampaignCard[] }) {
                   const campaignImage = resolveCampaignImage(campaign);
                   return (
                     <Link
-                      className="directory-card"
+                      className={`directory-card${
+                        availability.bookable ? "" : " is-unavailable"
+                      }`}
                       href={`/campaign/${campaign.slug}`}
                       key={campaign.id}
                       prefetch={false}
@@ -155,9 +169,15 @@ export function CampaignDirectory({ cards }: { cards: CampaignCard[] }) {
                         <span className="directory-card-dates">
                           {formatRange(campaign.startDate, campaign.endDate)}
                         </span>
-                        <span className="directory-card-cta">
-                          Hunt now <FiArrowRight aria-hidden="true" />
-                        </span>
+                        {availability.bookable ? (
+                          <span className="directory-card-cta">
+                            Hunt now <FiArrowRight aria-hidden="true" />
+                          </span>
+                        ) : (
+                          <span className="directory-card-status">
+                            {availabilityLabel(availability)}
+                          </span>
+                        )}
                       </div>
                     </Link>
                   );

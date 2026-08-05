@@ -122,7 +122,9 @@ describe("admin CRUD", () => {
       name: "New Sample Cafe",
       logoText: "NSC",
       industry: "restaurant",
-      staffPin: "1357"
+      staffPin: "1357",
+      address: "123 Sample Street, Makati City",
+      contactNumber: "09171234567",
     });
     expect(business.id).toMatch(/^biz_/);
     expect(await listBusinesses()).toHaveLength(before + 1);
@@ -137,7 +139,14 @@ describe("admin CRUD", () => {
   });
 
   it("rejects a business with an invalid staff PIN", async () => {
-    await expect(createBusiness({ name: "Bad Pin Co", logoText: "BP", industry: "retail", staffPin: "12" })).rejects.toThrow(
+    await expect(createBusiness({
+      name: "Bad Pin Co",
+      logoText: "BP",
+      industry: "retail",
+      staffPin: "12",
+      address: "123 Sample Street, Makati City",
+      contactNumber: "09171234567",
+    })).rejects.toThrow(
       AppError
     );
   });

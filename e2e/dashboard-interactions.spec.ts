@@ -13,7 +13,7 @@ test("staff dashboard remains interactive across repeated navigation", async ({ 
   await expect(page).toHaveURL(/\/dashboard/);
   await expect(page.locator(".dashboard-interaction-curtain")).toHaveCount(0);
 
-  const destinations = ["Slots", "Vouchers", "Rewards Network", "Staff Validation", "Dashboard"];
+  const destinations = ["Slots", "Vouchers", "Rewards Network", "Scan & Redeem", "Dashboard"];
   for (let round = 0; round < 12; round += 1) {
     for (const destination of destinations) {
       const link = page.getByRole("link", { name: destination, exact: true });
@@ -27,10 +27,13 @@ test("staff dashboard remains interactive across repeated navigation", async ({ 
 
   await page.getByRole("link", { name: "Vouchers", exact: true }).click();
   await page.waitForLoadState("load");
-  await page.getByRole("button", { name: "Request Benefit Tier" }).click();
-  await expect(page.getByRole("dialog", { name: "Request Benefit Tier" })).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
+  // The tier form is a route now, not a modal, so this checks the navigation
+  // and the way back rather than a dialog opening and closing.
+  await page.getByRole("link", { name: "Request Benefit Tier", exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard\/vouchers\/new/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.locator(".form-page-back").click();
+  await expect(page).toHaveURL(/\/dashboard\/vouchers/);
   expect(pageErrors).toEqual([]);
 });
 
@@ -55,13 +58,14 @@ test("staff controls hydrate after consecutive sidebar transitions", async ({ pa
   await page.getByRole("button", { name: "Sign in to Dashboard" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
 
-  for (const destination of ["Rewards Network", "Staff Validation", "Vouchers"]) {
+  for (const destination of ["Rewards Network", "Scan & Redeem", "Vouchers"]) {
     await page.getByRole("link", { name: destination, exact: true }).click();
     await expect(page.getByRole("link", { name: destination, exact: true })).toHaveClass(/active/);
   }
 
-  await page.getByRole("button", { name: "Request Benefit Tier" }).click();
-  await expect(page.getByRole("dialog", { name: "Request Benefit Tier" })).toBeVisible();
+  await page.getByRole("link", { name: "Request Benefit Tier", exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard\/vouchers\/new/);
+  await expect(page.locator(".form-page-form")).toBeVisible();
   expect(pageErrors).toEqual([]);
   expect(failedRequests).toEqual([]);
 });

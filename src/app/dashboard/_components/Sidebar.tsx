@@ -7,6 +7,7 @@ import {
   FiBriefcase,
   FiCheckSquare,
   FiClock,
+  FiCreditCard,
   FiFlag,
   FiGift,
   FiGrid,
@@ -65,13 +66,18 @@ const navSections = [
         href: "/dashboard/rewards",
         icon: <FiRepeat aria-hidden="true" />,
       },
+      {
+        label: "LP Billing",
+        href: "/dashboard/billing",
+        icon: <FiCreditCard aria-hidden="true" />,
+      },
     ],
   },
   {
     title: "Operations",
     items: [
       {
-        label: "Staff Validation",
+        label: "Scan & Redeem",
         href: "/dashboard/staff",
         icon: <FiCheckSquare aria-hidden="true" />,
       },
@@ -90,7 +96,9 @@ const staffLabels = new Set([
   "Vouchers",
   "Users",
   "Loyalty Points",
-  "Staff Validation",
+  // A partner's own staff need to see what they owe and what they are owed.
+  "LP Billing",
+  "Scan & Redeem",
 ]);
 
 // Sections are filtered item by item, then any section left with nothing is

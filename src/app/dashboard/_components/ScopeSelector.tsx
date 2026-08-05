@@ -2,9 +2,9 @@
 
 import type { ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { FiChevronDown } from "react-icons/fi";
 import { campaignCategoryIcon } from "@/lib/campaign-category";
 import type { Business, Campaign } from "@/types/voucher";
+import { SelectMenu } from "./SelectMenu";
 
 type SelectorCampaign = Campaign & { industry?: string };
 
@@ -86,7 +86,6 @@ export function ScopeSelector({
           label="Business"
           onChange={onBusinessChange}
           options={businesses.map((item) => ({
-            key: item.id,
             value: item.id,
             label: item.name,
           }))}
@@ -103,7 +102,6 @@ export function ScopeSelector({
           label="Campaign"
           onChange={onCampaignChange}
           options={scopedCampaigns.map((item) => ({
-            key: item.id,
             value: item.slug,
             label: item.title,
           }))}
@@ -135,44 +133,32 @@ function ScopeTile({
   icon?: ReactNode;
   label: string;
   onChange: (value: string) => void;
-  options: { key: string; value: string; label: string }[];
+  options: { value: string; label: string }[];
   selectLabel?: string;
   value?: string;
   valueLabel: string;
 }) {
-  const face = (
-    <>
-      {icon ? (
-        <span className={`campaign-page-selector-icon mode-${category ?? "other"}`}>
-          {icon}
-        </span>
-      ) : null}
-      <span className="campaign-page-selector-copy">
-        <small>{label}</small>
-        <strong>{valueLabel}</strong>
-      </span>
-    </>
-  );
-  const className = `campaign-page-selector${icon ? "" : " is-iconless"}`;
-
   return (
-    <label className={className}>
-      {face}
-      <FiChevronDown
-        aria-hidden="true"
-        className="campaign-page-selector-chevron"
-      />
-      <select
-        aria-label={selectLabel}
-        onChange={(event) => onChange(event.target.value)}
-        value={value}
-      >
-        {options.map((option) => (
-          <option key={option.key} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SelectMenu
+      ariaLabel={selectLabel}
+      className="scope-tile"
+      onChange={onChange}
+      options={options}
+      renderValue={() => (
+        <>
+          {icon ? (
+            <span className={`campaign-page-selector-icon mode-${category ?? "other"}`}>
+              {icon}
+            </span>
+          ) : null}
+          <span className="campaign-page-selector-copy">
+            <small>{label}</small>
+            <strong>{valueLabel}</strong>
+          </span>
+        </>
+      )}
+      triggerClassName={`campaign-page-selector${icon ? "" : " is-iconless"}`}
+      value={value ?? ""}
+    />
   );
 }

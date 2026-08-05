@@ -1,6 +1,7 @@
 import type {
   Business,
   Campaign,
+  CampaignAvailability,
   CampaignCard,
   CampaignSlot,
   ClaimedVoucher,
@@ -213,6 +214,7 @@ export type PublicCampaign = {
   campaign: Campaign;
   business?: Business;
   slots: PublicSlot[];
+  availability: CampaignAvailability;
 };
 
 export type HuntState = {
@@ -385,4 +387,90 @@ export function convertRewardCredit(
     body: input,
     token,
   });
+}
+
+/* LP storefront ------------------------------------------------------------ */
+
+export type RewardProduct = {
+  id: string;
+  businessId: string;
+  businessName: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  priceCentavos: number;
+  /** Already formatted, e.g. "500 LP". */
+  price: string;
+  status: "Active" | "Hidden";
+  /** The partner's current campaign artwork, for the storefront cards. */
+  campaign?: Pick<Campaign, "heroImage" | "slug" | "title" | "mode">;
+};
+
+export type RewardProductPurchase = {
+  wallet: RewardWallet;
+  product: RewardProduct;
+  voucher: RewardVoucher;
+  balance: string;
+};
+
+/** Omit `businessId` for the whole network; pass one for a single storefront. */
+export function listRewardProducts(
+  token: string,
+  businessId?: string,
+): Promise<RewardProduct[]> {
+  const query = businessId
+    ? `?businessId=${encodeURIComponent(businessId)}`
+    : "";
+  return apiRequest<RewardProduct[]>(`/api/public/rewards/products${query}`, {
+    token,
+  });
+}
+
+export type RewardPurchasedItem = {
+  voucherId: string;
+  voucherCode: string;
+  qrToken: string;
+  productId: string;
+  productName: string;
+  productDescription: string;
+  productImageUrl: string;
+  businessId: string;
+  businessName: string;
+  priceCentavos: number;
+  price: string;
+  status: "Active" | "Redeemed" | "Expired" | string;
+  /** False once redeemed or expired: staff can no longer scan it. */
+  collectable: boolean;
+  issuedAt: string;
+  redeemedAt: string;
+  expiresAt: string;
+  campaign?: RewardProduct["campaign"];
+};
+
+export function listRewardPurchases(
+  token: string,
+): Promise<RewardPurchasedItem[]> {
+  return apiRequest<RewardPurchasedItem[]>("/api/public/rewards/purchases", {
+    token,
+  });
+}
+
+export function getRewardProduct(
+  token: string,
+  productId: string,
+): Promise<RewardProduct> {
+  return apiRequest<RewardProduct>(
+    `/api/public/rewards/products/${encodeURIComponent(productId)}`,
+    { token },
+  );
+}
+
+export function purchaseRewardProduct(
+  input: { walletSecret: string; productId: string },
+  token: string,
+): Promise<RewardProductPurchase> {
+  return apiRequest<RewardProductPurchase>(
+    "/api/public/rewards/products/purchase",
+    { method: "POST", body: input, token },
+  );
 }

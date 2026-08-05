@@ -12,8 +12,8 @@ export type CreateBusinessInput = {
   logoText: string;
   industry: Business["industry"];
   staffPin: string;
-  address?: string;
-  contactNumber?: string;
+  address: string;
+  contactNumber: string;
   latitude?: number;
   longitude?: number;
 };
@@ -38,13 +38,25 @@ export async function createBusiness(input: CreateBusinessInput): Promise<Busine
   if (!/^\d{4,6}$/.test(input.staffPin)) {
     throw new AppError("E-BUSINESS-PIN", "staffPin must be 4 to 6 digits", 422);
   }
+  const address = input.address.trim();
+  if (!address) {
+    throw new AppError("E-BUSINESS-ADDRESS", "Address is required", 422);
+  }
+  const contactNumber = input.contactNumber.trim();
+  if (!contactNumber) {
+    throw new AppError(
+      "E-BUSINESS-CONTACT",
+      "Contact number is required",
+      422,
+    );
+  }
   const business: Business = {
     id: id("biz"),
     name: input.name,
     logoText: input.logoText,
     industry: input.industry,
-    address: input.address?.trim() || undefined,
-    contactNumber: input.contactNumber?.trim() || undefined,
+    address,
+    contactNumber,
     latitude: input.latitude ?? undefined,
     longitude: input.longitude ?? undefined
   };
@@ -67,8 +79,8 @@ export async function createBusiness(input: CreateBusinessInput): Promise<Busine
 /**
  * Updates the venue details a customer sees on the campaign page.
  *
- * Only the supplied fields change, so clearing one field does not blank the
- * others. An empty string clears a value; `undefined` leaves it alone.
+ * Only the supplied fields change. Address and contact number cannot be
+ * cleared; `undefined` leaves an existing value alone.
  */
 export async function updateBusiness(
   businessId: string,
@@ -87,12 +99,24 @@ export async function updateBusiness(
     args.name = name;
   }
   if (input.address !== undefined) {
+    const address = input.address.trim();
+    if (!address) {
+      throw new AppError("E-BUSINESS-ADDRESS", "Address is required", 422);
+    }
     assignments.push("address = @address");
-    args.address = input.address.trim() || null;
+    args.address = address;
   }
   if (input.contactNumber !== undefined) {
+    const contactNumber = input.contactNumber.trim();
+    if (!contactNumber) {
+      throw new AppError(
+        "E-BUSINESS-CONTACT",
+        "Contact number is required",
+        422,
+      );
+    }
     assignments.push("contact_number = @contactNumber");
-    args.contactNumber = input.contactNumber.trim() || null;
+    args.contactNumber = contactNumber;
   }
 
   // Latitude and longitude move together: a pin is one thing, and letting one

@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+// The declared deletion mechanism on the Play Data safety form. Shared with
+// /privacy and the marketing page from one module so the three cannot drift
+// apart.
+import { SUPPORT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = {
   title: "Delete your account — Voucher Hunt",
@@ -23,12 +27,6 @@ export const metadata: Metadata = {
  * lawyer. Confirm before publishing.
  */
 const UPDATED = "30 July 2026";
-
-/**
- * The declared deletion mechanism on the Play Data safety form. Must stay in
- * step with `SUPPORT_EMAIL` in /privacy and with the store listing address.
- */
-const SUPPORT_EMAIL = "yangpspider@gmail.com";
 
 export default function DeleteAccountPage() {
   return (

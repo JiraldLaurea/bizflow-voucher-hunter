@@ -8,6 +8,7 @@ import {
   FiCamera,
   FiCheck,
   FiClock,
+  FiCreditCard,
   FiGift,
   FiSearch,
   FiStopCircle,
@@ -19,6 +20,7 @@ import type { IScannerControls } from "@zxing/browser";
 import { ApiError, api } from "@/lib/api-client";
 import { toDisplayPhone } from "@/lib/phone-display";
 import type { Campaign, CampaignSlot, EndUser, Voucher } from "@/types/voucher";
+import { SelectMenu } from "../_components/SelectMenu";
 
 type Validation = {
   voucher: Voucher;
@@ -26,6 +28,27 @@ type Validation = {
   slot?: CampaignSlot;
   campaign?: Campaign;
   business?: { name: string };
+};
+
+/**
+ * The other thing a customer can present at the counter: a voucher bought with
+ * Loyalty Points, either a plain balance or one pinned to a storefront item.
+ */
+type LpValidation = {
+  voucher: {
+    voucherCode: string;
+    remainingCentavos: number;
+    status: string;
+    expiresAt?: string;
+  };
+  wallet: { maskedPhone: string; status: string };
+  product?: {
+    id: string;
+    name: string;
+    description: string;
+    businessId: string;
+    businessName: string;
+  };
 };
 
 const statusPresentation: Record<Voucher["status"], { label: string; tone: "success" | "warning" | "danger"; icon: typeof FiCheck }> = {
@@ -58,6 +81,8 @@ export default function StaffPage() {
   const [purchaseAmount, setPurchaseAmount] = useState("");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<Validation | null>(null);
+  const [lpResult, setLpResult] = useState<LpValidation | null>(null);
+  const [lpAmount, setLpAmount] = useState("");
   const [validationFailure, setValidationFailure] = useState<{
     message: string;
     title: string;
@@ -97,9 +122,31 @@ export default function StaffPage() {
         body: JSON.stringify({ codeOrToken }),
       });
       setValidationFailure(null);
+      setLpResult(null);
       setResult(validation);
     } catch (error) {
+      // Staff should not have to know which kind of code they are holding, so
+      // a miss on campaign vouchers falls through to Loyalty Points vouchers
+      // before anything is reported as invalid.
+      if (error instanceof ApiError && error.code === "E-VOUCHER-404") {
+        try {
+          const lp = await api<LpValidation>(
+            "/api/staff/rewards/validate-voucher",
+            { method: "POST", body: JSON.stringify({ codeOrToken }) },
+          );
+          setResult(null);
+          setValidationFailure(null);
+          setLpResult(lp);
+          setLpAmount(
+            lp.product ? (lp.voucher.remainingCentavos / 100).toString() : "",
+          );
+          return;
+        } catch {
+          // Not an LP voucher either — fall through to the original message.
+        }
+      }
       setResult(null);
+      setLpResult(null);
       const nextMessage =
         error instanceof Error ? error.message : "Unable to validate voucher.";
       setValidationFailure(
@@ -257,20 +304,63 @@ export default function StaffPage() {
     }
 
     try {
-      setResult(
-        await api<Validation>("/api/staff/vouchers/redeem", {
-          method: "POST",
-          body: JSON.stringify({
-            codeOrToken: code,
-            purchaseAmount: nextPurchaseAmount,
-            note: note.trim() || undefined,
-          })
+      const redeemed = await api<
+        Validation & {
+          loyalty?: { awarded: boolean; amount?: string; balance?: string; reason?: string };
+        }
+      >("/api/staff/vouchers/redeem", {
+        method: "POST",
+        body: JSON.stringify({
+          codeOrToken: code,
+          purchaseAmount: nextPurchaseAmount,
+          note: note.trim() || undefined,
         })
+      });
+      setResult(redeemed);
+      // The 5% is awarded automatically with the sale, so staff are told what
+      // the customer earned without having to check anywhere else.
+      showAdminToast(
+        redeemed.loyalty?.awarded
+          ? `Voucher used — ${redeemed.loyalty.amount} awarded to the customer.`
+          : redeemed.loyalty?.reason
+            ? `Voucher used, but no Loyalty Points: ${redeemed.loyalty.reason}`
+            : "Voucher marked as used successfully.",
+        // Still a success either way: the voucher was accepted. Only the
+        // Loyalty Points side can come up short, and the message says so.
+        "success",
       );
-      showAdminToast("Voucher marked as used successfully.", "success");
     } catch (error) {
       showAdminToast(
         error instanceof Error ? error.message : "Unable to redeem voucher.",
+      );
+    }
+  }
+
+  async function redeemLpVoucher() {
+    if (!lpResult) return;
+    try {
+      const redeemed = await api<{
+        amount: string;
+        settlementAmount: string;
+        voucher: LpValidation["voucher"];
+      }>("/api/staff/rewards/redeem", {
+        method: "POST",
+        body: JSON.stringify({
+          codeOrToken: lpResult.voucher.voucherCode,
+          businessId: lpResult.product?.businessId,
+          amount: lpAmount,
+        }),
+      });
+      setLpResult({ ...lpResult, voucher: redeemed.voucher });
+      showAdminToast(
+        lpResult.product
+          ? `${lpResult.product.name} handed over — ${redeemed.amount} credited to this partner.`
+          : `${redeemed.amount} payment recorded.`,
+        "success",
+      );
+    } catch (error) {
+      showAdminToast(
+        error instanceof Error ? error.message : "Unable to accept LP voucher.",
       );
     }
   }
@@ -339,8 +429,8 @@ export default function StaffPage() {
     <>
       <header className="admin-topbar">
         <div>
-          <h1>Reservation / Order Validation</h1>
-          <p className="muted">Validate by voucher code or QR token, then mark it as used.</p>
+          <h1>Scan &amp; Redeem</h1>
+          <p className="muted">Scan the customer’s QR code or type their voucher code, check it is valid, then record the sale.</p>
         </div>
       </header>
 
@@ -403,10 +493,6 @@ export default function StaffPage() {
               {scanMessage}
             </p>
           ) : null}
-          <label className="field">
-            <span>Purchase Amount (optional)</span>
-            <input value={purchaseAmount} onChange={(event) => setPurchaseAmount(event.target.value)} type="number" />
-          </label>
           <label className="field">
             <span className="field-label-row">
               <span>Internal Note (optional)</span>
@@ -497,6 +583,24 @@ export default function StaffPage() {
                   </div>
                 </div>
               </div>
+              {/* The amount belongs to the redemption, not the lookup: it is only
+                  meaningful once a voucher has been confirmed, and it is what
+                  the customer's 5% is calculated from. */}
+              {canRedeem ? (
+                <label className="field staff-amount-field">
+                  <span>Amount paid (₱)</span>
+                  <input
+                    value={purchaseAmount}
+                    onChange={(event) => setPurchaseAmount(event.target.value)}
+                    placeholder="0.00"
+                    type="number"
+                  />
+                  <small className="muted">
+                    The customer earns 5% of this as Loyalty Points. Leave blank
+                    to record the visit without awarding points.
+                  </small>
+                </label>
+              ) : null}
               <button className="button full staff-panel-action" disabled={!canRedeem} onClick={redeem}>Mark as Used</button>
               {canManageReservation ? (
                 <div className="staff-reservation-actions">
@@ -506,19 +610,18 @@ export default function StaffPage() {
                   </button>
                   {result?.campaign?.allowReschedule ? (
                     <div className="staff-reschedule-row">
-                      <select
-                        aria-label="Move reservation to another slot"
-                        className="field-select"
+                      <SelectMenu
+                        ariaLabel="Move reservation to another slot"
+                        className="staff-reschedule-select"
+                        onChange={setNewSlotId}
+                        options={rescheduleSlots.map((slot) => ({
+                          value: slot.id,
+                          label: `${slot.date} ${slot.startTime}-${slot.endTime}`,
+                          hint: `${slot.remainingCapacity} left`,
+                        }))}
+                        placeholder="Move to another slot…"
                         value={newSlotId}
-                        onChange={(event) => setNewSlotId(event.target.value)}
-                      >
-                        <option value="">Move to another slot…</option>
-                        {rescheduleSlots.map((slot) => (
-                          <option key={slot.id} value={slot.id}>
-                            {slot.date} {slot.startTime}-{slot.endTime} ({slot.remainingCapacity} left)
-                          </option>
-                        ))}
-                      </select>
+                      />
                       <button className="button secondary" disabled={!newSlotId} onClick={rescheduleAction} type="button">
                         Reschedule
                       </button>
@@ -526,6 +629,95 @@ export default function StaffPage() {
                   ) : null}
                 </div>
               ) : null}
+            </>
+          ) : lpResult ? (
+            <>
+              {/* A Loyalty Points voucher. Same panel, because to staff this is
+                  the same job: a customer presented a code. */}
+              <span
+                className={`staff-result-empty-icon ${
+                  lpResult.voucher.status === "Active" ? "" : "danger"
+                }`}
+              >
+                <FiGift aria-hidden="true" />
+              </span>
+              <h3 className="staff-result-status">
+                {lpResult.product
+                  ? lpResult.product.name
+                  : "Loyalty Points voucher"}
+              </h3>
+              <p
+                className={`staff-result-explanation ${
+                  lpResult.voucher.status === "Active" ? "success" : "warning"
+                }`}
+              >
+                {lpResult.voucher.status === "Active"
+                  ? lpResult.product
+                    ? `Hand this item over at ${lpResult.product.businessName}.`
+                    : "This voucher is active and can be accepted as payment."
+                  : `This voucher is ${lpResult.voucher.status.toLowerCase()} and cannot be accepted.`}
+              </p>
+              <div className="summary-list staff-result-summary">
+                <div className="summary-row">
+                  <span className="icon-box">
+                    <FiUser aria-hidden="true" />
+                  </span>
+                  <div>
+                    <strong>Customer</strong>
+                    <p className="muted">{lpResult.wallet.maskedPhone}</p>
+                  </div>
+                </div>
+                <div className="summary-row">
+                  <span className="icon-box">
+                    <FiGift aria-hidden="true" />
+                  </span>
+                  <div>
+                    <strong>Voucher</strong>
+                    <p className="muted">{lpResult.voucher.voucherCode}</p>
+                  </div>
+                </div>
+                <div className="summary-row">
+                  <span className="icon-box">
+                    <FiCreditCard aria-hidden="true" />
+                  </span>
+                  <div>
+                    <strong>Remaining</strong>
+                    <p className="muted">
+                      {(lpResult.voucher.remainingCentavos / 100).toLocaleString(
+                        "en-PH",
+                      )}{" "}
+                      LP
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {lpResult.voucher.status === "Active" ? (
+                <label className="field staff-amount-field">
+                  <span>
+                    {lpResult.product ? "Item price (fixed)" : "LP to accept"}
+                  </span>
+                  <input
+                    inputMode="decimal"
+                    onChange={(event) => setLpAmount(event.target.value)}
+                    placeholder="0.00"
+                    readOnly={Boolean(lpResult.product)}
+                    value={lpAmount}
+                  />
+                  <small className="muted">
+                    {lpResult.product
+                      ? "An item voucher is redeemed in full, at the partner that sold it."
+                      : "The partner is credited this amount on their monthly statement."}
+                  </small>
+                </label>
+              ) : null}
+              <button
+                className="button full staff-panel-action"
+                disabled={lpResult.voucher.status !== "Active" || !lpAmount.trim()}
+                onClick={redeemLpVoucher}
+                type="button"
+              >
+                {lpResult.product ? "Confirm Handover" : "Accept LP Payment"}
+              </button>
             </>
           ) : validationFailure ? (
             <div className="staff-result-empty staff-result-invalid">
@@ -543,7 +735,7 @@ export default function StaffPage() {
                 <span className="staff-result-empty-icon">
                   <FiSearch aria-hidden="true" />
                 </span>
-                <p>Enter a voucher code or scan a QR code to look up a reservation.</p>
+                <p>Enter a voucher code or scan a QR code. Both booking vouchers and Loyalty Points vouchers are accepted here.</p>
               </div>
             </div>
           )}

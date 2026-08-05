@@ -1,17 +1,21 @@
 import type { CampaignCard } from "@bizflow/shared";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { listCampaigns } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
-import { Button, InlineError, Select } from "@/components/FormControls";
+import { Button, Field, InlineError, Select } from "@/components/FormControls";
 import {
   devToolsEnabled,
   getDevPoolId,
+  grantLoyaltyPoints,
   listDevPools,
+  refreshMyVouchers,
   resetHunt,
   setDevPoolId,
+  simulateCollection,
+  simulatePurchase,
   type DevPoolOption,
 } from "@/dev/devTools";
 import { publishHuntReset } from "@/hunt/resetSignal";
@@ -36,6 +40,17 @@ export function DevToolsPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  // Enough for the dearest demo item (1,200 LP) in one tap.
+  const [lpAmount, setLpAmount] = useState("1500");
+  const [lpBusy, setLpBusy] = useState(false);
+  // The earning side of the loop: pesos spent at a partner's till, of which 5%
+  // becomes LP that the same partner is billed for.
+  const [tillBusinessId, setTillBusinessId] = useState("");
+  const [tillAmount, setTillAmount] = useState("1000");
+  const [tillBusy, setTillBusy] = useState(false);
+  const [collectCode, setCollectCode] = useState("");
+  const [collectBusy, setCollectBusy] = useState(false);
+  const [refreshBusy, setRefreshBusy] = useState(false);
 
   useEffect(() => {
     if (!devToolsEnabled || !token) return;
@@ -45,6 +60,9 @@ export function DevToolsPanel() {
         if (!active) return;
         setCampaigns(cards);
         setSlug((current) => current || (cards[0]?.campaign.slug ?? ""));
+        setTillBusinessId(
+          (current) => current || (cards[0]?.campaign.businessId ?? ""),
+        );
       })
       .catch(() => {
         if (active) setCampaigns([]);
@@ -71,6 +89,18 @@ export function DevToolsPanel() {
       active = false;
     };
   }, [slug, token]);
+
+  // Campaign cards already carry their partner; deriving the list here avoids a
+  // second request just to name three businesses.
+  const businessOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const card of campaigns) {
+      if (!seen.has(card.campaign.businessId)) {
+        seen.set(card.campaign.businessId, card.businessName);
+      }
+    }
+    return [...seen.entries()].map(([value, label]) => ({ label, value }));
+  }, [campaigns]);
 
   const choosePool = useCallback(
     (nextPoolId: string) => {
@@ -104,6 +134,100 @@ export function DevToolsPanel() {
       setError(caught instanceof Error ? caught.message : "Unable to reset the hunt.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function grantLp() {
+    if (!token) return;
+    setLpBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await grantLoyaltyPoints(lpAmount, token);
+      setMessage(`Granted ${result.granted} — balance is now ${result.balance}.`);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to grant Loyalty Points.",
+      );
+    } finally {
+      setLpBusy(false);
+    }
+  }
+
+  async function runSimulatedPurchase() {
+    if (!token || !tillBusinessId) return;
+    setTillBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await simulatePurchase(
+        { businessId: tillBusinessId, purchaseAmount: tillAmount },
+        token,
+      );
+      setMessage(
+        result.heldForReview
+          ? `Purchase held for fraud review — no LP awarded yet.`
+          : `Earned ${result.rewardAmount} — balance is now ${result.balance}. The partner owes this on their statement.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to simulate the purchase.",
+      );
+    } finally {
+      setTillBusy(false);
+    }
+  }
+
+  async function runSimulatedCollection() {
+    if (!token || !collectCode.trim()) return;
+    setCollectBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await simulateCollection(collectCode.trim(), token);
+      setMessage(
+        `Collected ${result.product?.name ?? "item"} at ${result.businessName} — ${result.amount} now owed to them.`,
+      );
+      setCollectCode("");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to collect that item.",
+      );
+    } finally {
+      setCollectBusy(false);
+    }
+  }
+
+  async function runVoucherRefresh() {
+    if (!token) return;
+    setRefreshBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await refreshMyVouchers(token);
+      const moved = result.refreshed.filter((item) => item.movedTo);
+      // Surface per-voucher problems: a booking that could not be moved is the
+      // difference between a usable voucher and one that still reads expired.
+      const blocked = result.refreshed.filter((item) => item.note);
+      setMessage(
+        result.refreshed.length === 0
+          ? "No vouchers to refresh."
+          : `Refreshed ${result.refreshed.length} voucher(s)${
+              moved.length > 0 ? `, moved ${moved.length} to a new slot` : ""
+            }.${blocked.length > 0 ? ` ${blocked[0].note}.` : ""}`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to refresh vouchers.",
+      );
+    } finally {
+      setRefreshBusy(false);
     }
   }
 
@@ -142,6 +266,106 @@ export function DevToolsPanel() {
       />
       <Text style={styles.copy}>
         This choice applies to the next roulette spin for this campaign.
+      </Text>
+
+      <View style={styles.divider} />
+
+      <Text style={styles.label}>Add Loyalty Points</Text>
+      <Field
+        inputMode="decimal"
+        keyboardType="decimal-pad"
+        label="Amount (LP)"
+        onChangeText={setLpAmount}
+        placeholder="1500"
+        value={lpAmount}
+      />
+      <Button
+        disabled={!lpAmount.trim()}
+        loading={lpBusy}
+        loadingLabel="Granting…"
+        variant="secondary"
+        onPress={grantLp}
+      >
+        Add to my wallet
+      </Button>
+      <Text style={styles.copy}>
+        Credits this number&apos;s wallet with no purchase behind it, so no
+        partner is billed for it. Use it to test the LP shop and checkout.
+      </Text>
+
+      <View style={styles.divider} />
+
+      <Text style={styles.label}>Simulate a purchase at a partner</Text>
+      <Select
+        disabled={businessOptions.length === 0}
+        label="Partner"
+        onChange={setTillBusinessId}
+        options={businessOptions}
+        placeholder="No partners available"
+        value={tillBusinessId}
+      />
+      <Field
+        inputMode="decimal"
+        keyboardType="decimal-pad"
+        label="Amount paid (₱)"
+        onChangeText={setTillAmount}
+        placeholder="1000"
+        value={tillAmount}
+      />
+      <Button
+        disabled={!tillBusinessId || !tillAmount.trim()}
+        loading={tillBusy}
+        loadingLabel="Scanning…"
+        variant="secondary"
+        onPress={runSimulatedPurchase}
+      >
+        Earn 5% as LP
+      </Button>
+      <Text style={styles.copy}>
+        Stands in for staff scanning your wallet at the till. Unlike the grant
+        above, the partner is billed for this LP, so it shows up on their
+        monthly statement.
+      </Text>
+
+      <View style={styles.divider} />
+
+      <Text style={styles.label}>Make my vouchers valid again</Text>
+      <Button
+        loading={refreshBusy}
+        loadingLabel="Refreshing…"
+        variant="secondary"
+        onPress={runVoucherRefresh}
+      >
+        Refresh my vouchers
+      </Button>
+      <Text style={styles.copy}>
+        Demo bookings age out. This moves any past booking to the next slot with
+        room and re-dates the voucher — expiry still applies, so the expired
+        path keeps working as it does in production.
+      </Text>
+
+      <View style={styles.divider} />
+
+      <Text style={styles.label}>Collect an item as staff</Text>
+      <Field
+        autoCapitalize="characters"
+        label="Voucher code"
+        onChangeText={setCollectCode}
+        placeholder="RWD-975A4F"
+        value={collectCode}
+      />
+      <Button
+        disabled={!collectCode.trim()}
+        loading={collectBusy}
+        loadingLabel="Collecting…"
+        variant="secondary"
+        onPress={runSimulatedCollection}
+      >
+        Mark as handed over
+      </Button>
+      <Text style={styles.copy}>
+        Redeems one of your own item vouchers, the step that puts the amount on
+        the partner&apos;s statement. Find codes under LP Shop → My items.
       </Text>
 
       <View style={styles.divider} />

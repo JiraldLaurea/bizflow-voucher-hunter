@@ -4,6 +4,7 @@ import { AppError } from "@/server/errors";
 import {
   all,
   getDb,
+  manilaDateString,
   mapAttempt,
   mapBusiness,
   mapCampaign,
@@ -20,10 +21,15 @@ import {
 } from "@/server/db";
 import { toDisplayPhone } from "@/lib/phone-display";
 import { normalizePhone } from "@/server/phone";
-import { awardReferralLoyaltyPoints } from "@/server/rewards-network";
+import {
+  awardLoyaltyPointsForRedemption,
+  awardReferralLoyaltyPoints
+} from "@/server/rewards-network";
 import { sendSms, type SmsResult } from "@/server/sms";
 import type {
   Campaign,
+  CampaignAvailability,
+  CampaignCard,
   CampaignSlot,
   ClaimedVoucher,
   EndUser,
@@ -363,7 +369,12 @@ export async function getPublicCampaign(slug: string) {
   return {
     campaign,
     business: businessRow ? mapBusiness(businessRow) : undefined,
-    slots: await publicSlots(campaign.id)
+    slots: await publicSlots(campaign.id),
+    // Lets the landing page refuse a hunt it cannot finish, using the same
+    // rule the draw applies, instead of spending an attempt to find out.
+    availability:
+      (await availabilityByCampaign(db, [campaign.id])).get(campaign.id) ??
+      NO_AVAILABILITY
   };
 }
 
@@ -402,18 +413,67 @@ export async function listActiveCampaigns() {
   return (await all(db, "SELECT * FROM campaigns WHERE status = 'active' ORDER BY start_date DESC")).map(mapCampaign);
 }
 
-export type CampaignCard = {
-  campaign: Campaign;
-  businessName: string;
-  businessLogo: string;
-  /** The business's industry — the meaningful "category" for the directory card. */
-  businessIndustry: string;
-  /** Venue details, so the campaign page can show where to go and how to call. */
-  businessAddress?: string;
-  businessContactNumber?: string;
+export type { CampaignAvailability, CampaignCard } from "@/types/voucher";
+
+/**
+ * Live availability for the given campaigns, keyed by campaign id.
+ *
+ * `bookable` deliberately repeats the predicate `generateCandidate` uses to
+ * pick a tier: an active tier with stock, linked to an active upcoming slot
+ * that still has capacity. Anything looser would advertise a hunt that the
+ * draw then refuses. Batched by id so the directory costs one query rather
+ * than one per card.
+ */
+async function availabilityByCampaign(db: Exec, campaignIds: string[]) {
+  const availability = new Map<string, CampaignAvailability>();
+  if (campaignIds.length === 0) return availability;
+
+  const today = manilaDateString();
+  const placeholders = campaignIds.map(() => "?").join(", ");
+  const rows = await all(
+    db,
+    `SELECT c.id AS campaign_id,
+            (SELECT COALESCE(SUM(s.remaining_capacity), 0) FROM slots s
+              WHERE s.campaign_id = c.id AND s.status = 'active' AND s.date >= ?) AS remaining_capacity,
+            (SELECT COALESCE(SUM(p.remaining_quantity), 0) FROM pools p
+              WHERE p.campaign_id = c.id AND p.status = 'active') AS remaining_prizes,
+            EXISTS (
+              SELECT 1 FROM pools p
+              JOIN pool_slots ps ON ps.pool_id = p.id
+              JOIN slots s ON s.id = ps.slot_id
+              WHERE p.campaign_id = c.id AND p.status = 'active' AND p.remaining_quantity > 0
+                AND s.campaign_id = c.id AND s.status = 'active'
+                AND s.date >= ? AND s.remaining_capacity > 0
+            ) AS bookable
+     FROM campaigns c
+     WHERE c.id IN (${placeholders})`,
+    [today, today, ...campaignIds]
+  );
+
+  for (const row of rows) {
+    availability.set(String(row.campaign_id), {
+      bookable: Number(row.bookable) === 1,
+      remainingCapacity: Number(row.remaining_capacity),
+      remainingPrizes: Number(row.remaining_prizes)
+    });
+  }
+  return availability;
+}
+
+/** A campaign whose rows have gone missing reads as closed, never as open. */
+const NO_AVAILABILITY: CampaignAvailability = {
+  bookable: false,
+  remainingCapacity: 0,
+  remainingPrizes: 0
 };
 
-/** Active campaigns joined with their business, for the public directory grid. */
+/**
+ * Active, unfinished campaigns joined with their business, for the public
+ * directory grid. Campaigns past their end date are dropped outright — they
+ * never reopen — while ones that are merely full stay listed so the client can
+ * show them as unavailable, keeping their page reachable for customers holding
+ * an unbooked voucher.
+ */
 export async function listPublicCampaignCards(): Promise<CampaignCard[]> {
   const db = await getDb();
   const rows = await all(
@@ -421,19 +481,32 @@ export async function listPublicCampaignCards(): Promise<CampaignCard[]> {
     `SELECT c.*, b.name AS business_name, b.logo_text AS business_logo, b.industry AS business_industry,
             b.address AS business_address, b.contact_number AS business_contact_number
      FROM campaigns c JOIN businesses b ON b.id = c.business_id
-     WHERE c.status = 'active'
-     ORDER BY c.start_date DESC`
+     WHERE c.status = 'active' AND c.end_date >= ?
+     ORDER BY c.start_date DESC, c.id DESC`,
+    [manilaDateString()]
   );
-  return rows.map((r) => ({
-    campaign: mapCampaign(r),
-    businessName: String(r.business_name),
-    businessLogo: String(r.business_logo),
-    businessIndustry: String(r.business_industry),
-    businessAddress: r.business_address ? String(r.business_address) : undefined,
-    businessContactNumber: r.business_contact_number
-      ? String(r.business_contact_number)
-      : undefined
-  }));
+  const availability = await availabilityByCampaign(
+    db,
+    rows.map((r) => String(r.id))
+  );
+  return rows
+    .map((r) => ({
+      campaign: mapCampaign(r),
+      businessName: String(r.business_name),
+      businessLogo: String(r.business_logo),
+      businessIndustry: String(r.business_industry),
+      businessAddress: r.business_address ? String(r.business_address) : undefined,
+      businessContactNumber: r.business_contact_number
+        ? String(r.business_contact_number)
+        : undefined,
+      availability: availability.get(String(r.id)) ?? NO_AVAILABILITY
+    }))
+    // Full campaigns keep their place in the directory but sink below the ones
+    // a customer can act on. Array#sort is stable, so date order is preserved
+    // within each group.
+    .sort(
+      (a, b) => Number(b.availability.bookable) - Number(a.availability.bookable)
+    );
 }
 
 export type ClaimedVoucherRecord = ClaimedVoucher;
@@ -561,8 +634,28 @@ export function generateCandidate(input: {
 
     // Candidates are drawn from campaign-wide benefit tiers; the slot is chosen
     // later (post-selection), filtered by the winning tier's availability.
+    //
+    // A tier with no bookable slot left is excluded rather than drawn: winning
+    // one stranded the customer on an empty date picker, having already spent an
+    // attempt and decremented the tier's stock, with nothing to do but wait for
+    // the candidate to time out. Failing here instead surfaces it before any of
+    // that is consumed.
     const pools = (
-      await all(tx, "SELECT * FROM pools WHERE campaign_id = ? AND status = 'active' AND remaining_quantity > 0", [campaign.id])
+      await all(
+        tx,
+        `SELECT p.* FROM pools p
+         WHERE p.campaign_id = ? AND p.status = 'active' AND p.remaining_quantity > 0
+           AND EXISTS (
+             SELECT 1 FROM pool_slots ps
+             JOIN slots s ON s.id = ps.slot_id
+             WHERE ps.pool_id = p.id
+               AND s.campaign_id = p.campaign_id
+               AND s.date >= ?
+               AND s.status = 'active'
+               AND s.remaining_capacity > 0
+           )`,
+        [campaign.id, manilaDateString()]
+      )
     ).map(mapPool);
     if (pools.length === 0) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this campaign", 409);
 
@@ -620,7 +713,9 @@ export function generateCandidate(input: {
 
 /**
  * Lists the date/time slots at which the chosen candidate's benefit tier can be
- * redeemed. Rarer/higher tiers map to fewer (off-peak) slots via pool_slots.
+ * redeemed, per pool_slots. Availability is independent of rarity — the draw is
+ * campaign-wide and weighted only by probability_weight, so a tier's slot count
+ * decides when it can be booked, never how often it is won.
  * Called after the user picks 1 of their candidates, before final confirmation.
  */
 export async function listSlotsForAttempt(input: { campaignSlug: string; phone: string; attemptId: string }) {
@@ -645,16 +740,7 @@ export async function listSlotsForAttempt(input: { campaignSlug: string; phone: 
        JOIN pool_slots ps ON ps.slot_id = s.id
        WHERE ps.pool_id = ? AND s.campaign_id = ? AND s.date >= ?
        ORDER BY s.date, s.start_time`,
-      [
-        attempt.poolId,
-        campaign.id,
-        new Intl.DateTimeFormat("en-CA", {
-          timeZone: "Asia/Manila",
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        }).format(new Date()),
-      ]
+      [attempt.poolId, campaign.id, manilaDateString()]
     )
   ).map(mapSlot);
   return {
@@ -948,6 +1034,7 @@ export function validateVoucher(input: { codeOrToken: string }) {
 }
 
 export async function redeemVoucher(input: { codeOrToken: string; staffName: string; purchaseAmount?: number; note?: string }) {
+  let earner: { phone: string; businessId: string; voucherId: string } | undefined;
   await withTx(async (tx) => {
     const voucher = await loadVoucherContext(tx, input.codeOrToken);
     if (voucher.status === "Redeemed") throw new AppError("E-VOUCHER-REDEEMED", "Voucher is already redeemed", 409);
@@ -961,8 +1048,51 @@ export async function redeemVoucher(input: { codeOrToken: string; staffName: str
       [id("red"), voucher.id, input.staffName, input.purchaseAmount ?? null, input.note ?? null, isoNow()]
     );
     await addAnalytics(tx, voucher.campaignId, "voucher_redeemed", { purchaseAmount: input.purchaseAmount }, voucher.userId, voucher.slotId);
+
+    if (input.purchaseAmount && input.purchaseAmount > 0) {
+      const row = await one(
+        tx,
+        `SELECT u.phone AS phone, c.business_id AS business_id
+         FROM vouchers v JOIN users u ON u.id = v.user_id JOIN campaigns c ON c.id = v.campaign_id
+         WHERE v.id = ?`,
+        [voucher.id]
+      );
+      if (row) {
+        earner = {
+          phone: String(row.phone),
+          businessId: String(row.business_id),
+          voucherId: voucher.id
+        };
+      }
+    }
   });
-  return validateVoucher({ codeOrToken: input.codeOrToken });
+
+  // Loyalty Points are awarded after the redemption commits, and never inside
+  // it. Awarding can legitimately fail — the partner's deposit may be used up,
+  // or the sale too small to earn a point — and none of that is a reason to
+  // refuse a voucher the customer has already been served against.
+  let loyalty: { awarded: boolean; amount?: string; balance?: string; reason?: string } | undefined;
+  if (earner) {
+    try {
+      const credited = await awardLoyaltyPointsForRedemption({
+        phone: earner.phone,
+        businessId: earner.businessId,
+        purchaseAmount: input.purchaseAmount as number,
+        staffName: input.staffName,
+        voucherId: earner.voucherId
+      });
+      loyalty = credited.heldForReview
+        ? { awarded: false, reason: "Held for fraud review" }
+        : { awarded: true, amount: credited.rewardAmount, balance: credited.balance };
+    } catch (error) {
+      loyalty = {
+        awarded: false,
+        reason: error instanceof AppError ? error.message : "Loyalty Points could not be awarded"
+      };
+    }
+  }
+
+  return { ...(await validateVoucher({ codeOrToken: input.codeOrToken })), loyalty };
 }
 
 async function huntState(db: Exec, campaign: Campaign, user: EndUser) {
@@ -1381,4 +1511,88 @@ export async function importRedemptions(input: { campaignId: string; csv: string
   }
 
   return { total: results.length, redeemed, skipped: results.length - redeemed, results };
+}
+
+/**
+ * Development-only: makes this phone's issued vouchers usable again.
+ *
+ * Deliberately *not* a relaxation of the expiry rule. Expiry is what stops a
+ * 90%-off voucher being an open-ended liability for the partner, and the
+ * expired path is worth seeing work — so instead of ignoring it in dev, this
+ * moves the booking to the next slot that still has room and re-dates the
+ * voucher to match. The result is a voucher that is valid for real reasons.
+ */
+export async function devRefreshIssuedVouchers(input: { phone: string }) {
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError("E-DEV-ONLY", "Refreshing vouchers is a development-only tool", 403);
+  }
+  const normalized = normalizePhone(input.phone);
+  if (!normalized) throw new AppError("E-USER-PHONE", "A valid Philippine mobile number is required", 400);
+
+  const db = await getDb();
+  // Expired vouchers are the whole point of the tool, and expiry is recorded on
+  // the row — filtering to 'Issued' silently skipped every voucher worth
+  // refreshing.
+  const vouchers = await all(
+    db,
+    `SELECT v.id, v.voucher_code, v.status, v.campaign_id, v.slot_id, s.date AS slot_date
+     FROM vouchers v JOIN users u ON u.id = v.user_id
+     LEFT JOIN slots s ON s.id = v.slot_id
+     WHERE u.phone = ? AND v.status IN ('Issued', 'Expired')`,
+    [normalized]
+  );
+
+  const today = manilaDateString();
+  const refreshed: Array<{ voucherCode: string; movedTo?: string; note?: string }> = [];
+  for (const row of vouchers) {
+    const voucherCode = String(row.voucher_code);
+    let movedTo: string | undefined;
+    let note: string | undefined;
+
+    // Reinstate before rescheduling: that path only accepts an issued voucher,
+    // and being issued again is what makes this one usable.
+    if (String(row.status) === "Expired") {
+      await run(db, "UPDATE vouchers SET status = 'Issued' WHERE id = ?", [String(row.id)]);
+    }
+
+    if (row.slot_date && String(row.slot_date) < today) {
+      const nextSlot = await one(
+        db,
+        `SELECT id, date, start_time FROM slots
+         WHERE campaign_id = ? AND status = 'active' AND date >= ? AND remaining_capacity > 0
+         ORDER BY date ASC, start_time ASC LIMIT 1`,
+        [String(row.campaign_id), today]
+      );
+      if (nextSlot) {
+        try {
+          // Rescheduling also re-dates a slot-bound voucher to its new slot's
+          // window, which is exactly the expiry that stranded it.
+          await rescheduleReservation({
+            codeOrToken: voucherCode,
+            newSlotId: String(nextSlot.id),
+          });
+          movedTo = `${nextSlot.date} ${nextSlot.start_time}`;
+        } catch (error) {
+          note = error instanceof AppError ? error.message : "Could not move the booking";
+        }
+      } else {
+        note = "No upcoming slot with room";
+      }
+    }
+
+    // Only force a date on vouchers the reschedule did not already fix, so a
+    // slot-bound voucher keeps agreeing with its booking.
+    const current = await one(db, "SELECT expires_at FROM vouchers WHERE id = ?", [String(row.id)]);
+    if (!current || new Date(String(current.expires_at)).getTime() < Date.now()) {
+      const expires = new Date();
+      expires.setDate(expires.getDate() + 7);
+      await run(db, "UPDATE vouchers SET expires_at = ? WHERE id = ?", [
+        expires.toISOString(),
+        String(row.id),
+      ]);
+    }
+    refreshed.push({ voucherCode, movedTo, note });
+  }
+
+  return { refreshed };
 }

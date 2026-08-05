@@ -487,6 +487,7 @@ export function GoogleLocationPicker({
               onChange={(event) => handleAddressInput(event.target.value)}
               onKeyDown={handleAddressKeyDown}
               placeholder="123 Ayala Ave, Makati City"
+              required
               role="combobox"
               value={address}
             />

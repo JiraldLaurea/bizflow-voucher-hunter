@@ -121,7 +121,9 @@ export function BusinessDetailsCard({ business }: { business?: Business }) {
 
         {business.address ? (
           <View style={styles.row}>
-            <Icon name="map-pin" size={16} />
+            <View style={styles.rowIcon}>
+              <Icon name="map-pin" size={16} />
+            </View>
             <View style={styles.rowCopy}>
               <Text style={styles.label}>{t("venue.address")}</Text>
               <Text style={styles.value}>{business.address}</Text>
@@ -156,7 +158,9 @@ export function BusinessDetailsCard({ business }: { business?: Business }) {
 
         {business.contactNumber ? (
           <View style={styles.row}>
-            <Icon name="phone" size={16} />
+            <View style={styles.rowIcon}>
+              <Icon name="phone" size={16} />
+            </View>
             <View style={styles.rowCopy}>
               <Text style={styles.label}>{t("venue.contact")}</Text>
               <Text style={styles.value}>{business.contactNumber}</Text>
@@ -213,12 +217,6 @@ export function BusinessDetailsCard({ business }: { business?: Business }) {
                     <Icon color={colors.ink} name="x" size={21} />
                   </Pressable>
                 </View>
-                {business.address ? (
-                  <View style={styles.sheetAddress} {...panResponder.panHandlers}>
-                    <Icon name="map-pin" size={17} />
-                    <Text style={styles.sheetAddressText}>{business.address}</Text>
-                  </View>
-                ) : null}
                 <View style={styles.fullMapBody}>
                   <WebView
                     cacheEnabled={false}
@@ -229,6 +227,12 @@ export function BusinessDetailsCard({ business }: { business?: Business }) {
                     style={styles.fullMap}
                   />
                 </View>
+                {business.address ? (
+                  <View style={styles.sheetAddress} {...panResponder.panHandlers}>
+                    <Icon name="map-pin" size={17} />
+                    <Text style={styles.sheetAddressText}>{business.address}</Text>
+                  </View>
+                ) : null}
                 <View style={styles.sheetFooter}>
                   <Pressable
                     onPress={() => void openExternal(directionsUrl, "venue.mapsError")}
@@ -251,15 +255,16 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, marginTop: spacing.xl, padding: spacing.lg },
   title: { color: colors.ink, fontFamily: fonts.bold, fontSize: 16 },
   business: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, marginBottom: spacing.sm, marginTop: 2 },
-  row: { alignItems: "center", borderTopColor: colors.borderSoft, borderTopWidth: 1, flexDirection: "row", gap: 10, paddingVertical: spacing.md },
+  row: { alignItems: "flex-start", borderTopColor: colors.borderSoft, borderTopWidth: 1, flexDirection: "row", gap: 10, paddingVertical: spacing.md },
+  rowIcon: { alignItems: "center", paddingTop: 1, width: 20 },
   rowCopy: { flex: 1, gap: 2 },
-  label: { color: colors.textMuted, fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.4, textTransform: "uppercase" },
-  value: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 14, lineHeight: 20 },
+  label: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 11, letterSpacing: 0.4, textTransform: "uppercase" },
+  value: { color: colors.textMuted, fontFamily: fonts.semibold, fontSize: 14, lineHeight: 20 },
   mapPreview: { borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, height: 170, overflow: "hidden", position: "relative" },
   map: { bottom: 0, left: 0, position: "absolute", right: 0, top: 0 },
   mapBadge: { alignItems: "center", backgroundColor: "rgba(255,255,255,0.94)", borderColor: colors.border, borderRadius: radius.pill, borderWidth: 1, bottom: 10, flexDirection: "row", gap: 6, paddingHorizontal: 11, paddingVertical: 7, position: "absolute", right: 10 },
   mapBadgeText: { color: colors.ink, fontFamily: fonts.semibold, fontSize: 11 },
-  actions: { borderTopColor: colors.borderSoft, borderTopWidth: 1, flexDirection: "row", gap: spacing.sm, paddingTop: spacing.md },
+  actions: { flexDirection: "row", gap: spacing.sm, paddingTop: spacing.md },
   action: { alignItems: "center", borderColor: colors.border, borderRadius: radius.sm, borderWidth: 1, flex: 1, flexDirection: "row", gap: 6, justifyContent: "center", paddingVertical: 10 },
   primaryAction: { backgroundColor: colors.primary, borderColor: colors.primary },
   actionText: { color: colors.primary, fontFamily: fonts.semibold, fontSize: 14 },
@@ -270,10 +275,10 @@ const styles = StyleSheet.create({
   sheetSafeArea: { flex: 1 },
   dragArea: { alignItems: "center", minHeight: 30, paddingBottom: 8, paddingTop: 10 },
   handle: { backgroundColor: colors.border, borderRadius: radius.pill, height: 5, width: 44 },
-  sheetHeader: { alignItems: "center", flexDirection: "row", gap: spacing.md, paddingBottom: spacing.sm, paddingHorizontal: spacing.lg },
+  sheetHeader: { alignItems: "center", flexDirection: "row", gap: spacing.md, paddingBottom: spacing.md, paddingHorizontal: spacing.lg },
   sheetTitle: { color: colors.ink, flex: 1, fontFamily: fonts.bold, fontSize: 17 },
   closeButton: { alignItems: "center", backgroundColor: colors.page, borderColor: colors.border, borderRadius: radius.pill, borderWidth: 1, height: 40, justifyContent: "center", width: 40 },
-  sheetAddress: { alignItems: "flex-start", borderTopColor: colors.borderSoft, borderTopWidth: 1, flexDirection: "row", gap: spacing.sm, marginHorizontal: spacing.lg, paddingBottom: spacing.md, paddingTop: spacing.sm },
+  sheetAddress: { alignItems: "flex-start", flexDirection: "row", gap: spacing.sm, marginHorizontal: spacing.lg, paddingTop: spacing.md },
   sheetAddressText: { color: colors.textMuted, flex: 1, fontFamily: fonts.regular, fontSize: 13, lineHeight: 18 },
   fullMapBody: { borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, flex: 1, marginHorizontal: spacing.lg, overflow: "hidden" },
   fullMap: { backgroundColor: "#eef1f4", flex: 1 },

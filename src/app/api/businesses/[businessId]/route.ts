@@ -8,14 +8,15 @@ export const dynamic = "force-dynamic";
 /**
  * Venue details shown to customers on the campaign page.
  *
- * Every field is optional so a partial update leaves the rest alone; an empty
- * string clears a value. The staff PIN is deliberately absent — it is a
- * credential, rotated through its own flow rather than a details form.
+ * Every field is optional so a partial update leaves the rest alone. Address
+ * and contact number cannot be cleared because both are required venue
+ * details. The staff PIN is deliberately absent — it is a credential, rotated
+ * through its own flow rather than a details form.
  */
 const schema = z.object({
   name: z.string().min(1).max(120).optional(),
-  address: z.string().max(300).optional(),
-  contactNumber: z.string().max(40).optional(),
+  address: z.string().trim().min(1, "Address is required").max(300).optional(),
+  contactNumber: z.string().trim().min(1, "Contact number is required").max(40).optional(),
   // nullable so clearing the pin is expressible; omitting them leaves it alone.
   latitude: z.number().min(-90).max(90).nullable().optional(),
   longitude: z.number().min(-180).max(180).nullable().optional(),

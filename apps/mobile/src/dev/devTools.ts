@@ -76,3 +76,82 @@ export function listDevPools(
     pools.filter((pool): pool is DevPoolOption => Boolean(pool.poolId)),
   );
 }
+
+export type DevLoyaltyGrant = {
+  granted: string;
+  balance: string;
+};
+
+/**
+ * Tops the signed-in wallet up with LP. Earning it properly needs a partner to
+ * scan a purchase, which is impractical when testing the storefront — the
+ * cheapest demo item costs 150 LP and a day's app-use award is 10.
+ *
+ * Refused server-side outside development.
+ */
+export function grantLoyaltyPoints(
+  amount: string,
+  token: string,
+): Promise<DevLoyaltyGrant> {
+  return apiRequest<DevLoyaltyGrant>("/api/public/rewards/dev-credit", {
+    method: "POST",
+    body: { amount },
+    token,
+  });
+}
+
+export type DevPurchaseResult = {
+  rewardAmount: string;
+  balance: string;
+  heldForReview: boolean;
+};
+
+/**
+ * Stands in for a partner scanning the wallet QR at their till. Runs the real
+ * earning path, so the partner is billed for the LP — which is what makes the
+ * settlement side testable, unlike `grantLoyaltyPoints`.
+ */
+export function simulatePurchase(
+  input: { businessId: string; purchaseAmount: string },
+  token: string,
+): Promise<DevPurchaseResult> {
+  return apiRequest<DevPurchaseResult>("/api/public/rewards/dev-purchase", {
+    method: "POST",
+    body: input,
+    token,
+  });
+}
+
+export type DevCollectResult = {
+  product?: { name: string; businessName: string };
+  businessName: string;
+  amount: string;
+};
+
+/** Stands in for partner staff scanning an item voucher at handover. */
+export function simulateCollection(
+  voucherCode: string,
+  token: string,
+): Promise<DevCollectResult> {
+  return apiRequest<DevCollectResult>("/api/public/rewards/dev-collect", {
+    method: "POST",
+    body: { voucherCode },
+    token,
+  });
+}
+
+export type DevVoucherRefresh = {
+  refreshed: Array<{ voucherCode: string; movedTo?: string; note?: string }>;
+};
+
+/**
+ * Makes this number's issued vouchers usable again by moving past bookings to
+ * the next slot with room and re-dating them. Expiry itself still applies —
+ * see `devRefreshIssuedVouchers` for why it is not simply switched off in dev.
+ */
+export function refreshMyVouchers(token: string): Promise<DevVoucherRefresh> {
+  return apiRequest<DevVoucherRefresh>(
+    "/api/public/hunt/dev-refresh-vouchers",
+    { method: "POST", body: {}, token },
+  );
+}

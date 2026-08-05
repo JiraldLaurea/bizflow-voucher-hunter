@@ -1,7 +1,7 @@
 import { toDisplayPhone } from "@bizflow/shared";
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
-import { useFocusEffect } from "expo-router";
+import { type Href, useFocusEffect, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useCallback, useState } from "react";
 import {
@@ -35,6 +35,7 @@ import { colors, fonts, radius, shadow, spacing } from "@/theme";
 
 export default function MoreScreen() {
   const { phone, signOut, token } = useAuth();
+  const router = useRouter();
   const t = useTranslation();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [wallet, setWallet] = useState<RewardWalletSnapshot | null>(null);
@@ -198,6 +199,18 @@ export default function MoreScreen() {
               <Text style={styles.balance}>{wallet.balance}</Text>
               <Text style={styles.balanceHint}>{t("loyalty.balanceHint")}</Text>
             </LinearGradient>
+
+            {/* The only entry point to the storefront: it is meaningless
+                without a balance, so it lives with the balance. */}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push("/shop" as Href)}
+              style={({ pressed }) => [styles.shopCta, pressed && styles.shopCtaPressed]}
+            >
+              <Icon color={colors.primary} name="shopping-bag" size={18} />
+              <Text style={styles.shopCtaText}>{t("loyalty.shopCta")}</Text>
+              <Icon name="chevron-right" size={18} />
+            </Pressable>
 
             <View style={styles.dailyCard}>
               <View style={styles.dailyHeading}>
@@ -578,6 +591,27 @@ const styles = StyleSheet.create({
     fontFamily: fonts.extrabold,
     fontSize: 30,
     marginVertical: spacing.xs,
+  },
+  shopCta: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  shopCtaPressed: {
+    opacity: 0.72,
+  },
+  shopCtaText: {
+    color: colors.ink,
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: 14,
   },
   balanceHint: {
     color: "#eeeaff",

@@ -3,23 +3,21 @@
 import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiChevronDown, FiImage, FiUploadCloud, FiX } from "react-icons/fi";
+import { FiImage, FiUploadCloud, FiX } from "react-icons/fi";
 import { api } from "@/lib/api-client";
-import {
-  campaignCategoryIcon,
-  campaignCategoryLabel,
-} from "@/lib/campaign-category";
+import { campaignCategoryIcon } from "@/lib/campaign-category";
+import { FormCard } from "./FormPage";
+import { SelectMenu } from "./SelectMenu";
+import { campaignSlug } from "@/lib/campaign-slug";
 import {
   isUploadedCampaignImage,
   MAX_CAMPAIGN_IMAGE_DATA_URL_LENGTH,
   MAX_CAMPAIGN_IMAGE_UPLOAD_BYTES,
 } from "@/lib/campaign-image";
 import type { Business, Campaign } from "@/types/voucher";
-import { AdminModal } from "./AdminModal";
 
 const emptyCampaign = {
   businessId: "",
-  slug: "",
   title: "",
   mode: "restaurant",
   location: "",
@@ -40,6 +38,15 @@ const supportedCampaignImageTypes = new Set([
   "image/png",
   "image/webp",
 ]);
+
+const CAMPAIGN_MODES = [
+  { label: "Restaurant", value: "restaurant" },
+  { label: "Online Shop", value: "online_shop" },
+  { label: "Beauty", value: "beauty" },
+  { label: "Pet", value: "pet" },
+  { label: "Retail", value: "retail" },
+  { label: "Other", value: "other" },
+];
 
 export async function normalizeCampaignImage(file: File) {
   if (!supportedCampaignImageTypes.has(file.type)) {
@@ -113,7 +120,6 @@ export async function normalizeCampaignImage(file: File) {
 
 export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   // Starts unselected on purpose: pre-picking a business makes it easy to create
   // a campaign under whichever one happened to sort first.
   const [campaign, setCampaign] = useState(emptyCampaign);
@@ -121,7 +127,7 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
   const [imageProcessing, setImageProcessing] = useState(false);
   const [campaignImageName, setCampaignImageName] = useState("");
   const [error, setError] = useState("");
-  const selectedBusiness = businesses.find((item) => item.id === campaign.businessId);
+  const slug = campaignSlug(campaign.title);
 
   async function handleCampaignImage(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -153,11 +159,16 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
       if (!businessId) {
         throw new Error("Select a business first.");
       }
+      // A title of only punctuation or symbols slugifies to nothing, which the
+      // required title field cannot catch on its own.
+      if (!slug) {
+        throw new Error("Give the campaign a title with letters or numbers.");
+      }
       const createdCampaign = await api<Campaign>("/api/campaigns", {
         method: "POST",
         body: JSON.stringify({
           businessId,
-          slug: campaign.slug,
+          slug,
           title: campaign.title,
           mode: campaign.mode,
           location: campaign.location || undefined,
@@ -176,9 +187,6 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
       });
       router.push(`/dashboard/campaigns?campaign=${createdCampaign.slug}`);
       router.refresh();
-      setOpen(false);
-      setCampaign(emptyCampaign);
-      setCampaignImageName("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create campaign.");
     } finally {
@@ -187,97 +195,60 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
   }
 
   return (
-    <>
-      <button className="button admin-form-toggle" onClick={() => setOpen(true)} type="button">
-        New Campaign
-      </button>
+    <form className="form-page-form" onSubmit={handleSubmit}>
+      {error ? <p className="alert form-page-alert">{error}</p> : null}
+      <FormCard
+        title="Business"
+        description="Choose the venue this campaign belongs to. Business details are shared across its campaigns."
+      >
+        <SelectMenu
+          label="Business"
+          onChange={(businessId) => setCampaign({ ...campaign, businessId })}
+          options={businesses.map((item) => ({
+            label: item.name,
+            value: item.id,
+            hint: item.address,
+            icon: campaignCategoryIcon(item.industry),
+            iconTone: item.industry,
+          }))}
+          placeholder="Select a business..."
+          required
+          value={campaign.businessId}
+        />
+      </FormCard>
 
-      {open ? (
-        <AdminModal
-          title="New Campaign"
-          subtitle="Pick a business, then set the schedule and hunt rules."
-          onClose={() => setOpen(false)}
-        >
-          <form className="modal-form" onSubmit={handleSubmit}>
-              <div className="modal-body">
-                <div className="form-section">
-                  <span className="form-section-title">Business</span>
-                  <label className="campaign-page-selector in-form">
-                    <span
-                      className={`campaign-page-selector-icon mode-${selectedBusiness?.industry ?? "other"}`}
-                    >
-                      {campaignCategoryIcon(selectedBusiness?.industry ?? "other")}
-                    </span>
-                    <span className="campaign-page-selector-copy">
-                      <small>
-                        {selectedBusiness
-                          ? campaignCategoryLabel(selectedBusiness.industry)
-                          : "Not selected"}
-                      </small>
-                      <strong>
-                        {selectedBusiness?.name ?? "Select a business"}
-                      </strong>
-                    </span>
-                    <FiChevronDown
-                      aria-hidden="true"
-                      className="campaign-page-selector-chevron"
-                    />
-                    <select
-                      aria-label="Business"
-                      required
-                      value={campaign.businessId}
-                      onChange={(event) => setCampaign({ ...campaign, businessId: event.target.value })}
-                    >
-                      {/* Holds the unselected state without offering itself as a
-                          choice in the dropdown list. */}
-                      <option disabled hidden value="">
-                        Select a business
-                      </option>
-                      {businesses.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="form-section">
-                  <span className="form-section-title">Campaign details</span>
+      <FormCard
+        title="Campaign details"
+        description="Set the customer-facing campaign name, category, and location label."
+      >
                   <div className="admin-form-grid">
                     <label className="field">
                       <span>Campaign Title</span>
                       <input
+                        aria-describedby="campaign-slug-help"
                         required
                         value={campaign.title}
                         onChange={(event) => setCampaign({ ...campaign, title: event.target.value })}
                       />
+                      {/* Derived, never typed. As a read-only input it looked
+                          like a field an operator had failed to fill in. */}
+                      <small className="muted field-derived" id="campaign-slug-help">
+                        {slug ? (
+                          <>
+                            URL: <code>/{slug}</code>
+                          </>
+                        ) : (
+                          "The campaign URL is built from this title."
+                        )}
+                      </small>
                     </label>
-                    <label className="field">
-                      <span>Slug (URL-friendly)</span>
-                      <input
-                        pattern="[a-z0-9-]+"
-                        placeholder="july-dinner"
-                        required
-                        title="Lowercase letters, numbers, and hyphens only"
-                        value={campaign.slug}
-                        onChange={(event) => setCampaign({ ...campaign, slug: event.target.value })}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Mode</span>
-                      <select
-                        value={campaign.mode}
-                        onChange={(event) => setCampaign({ ...campaign, mode: event.target.value })}
-                      >
-                        <option value="restaurant">Restaurant</option>
-                        <option value="online_shop">Online Shop</option>
-                        <option value="beauty">Beauty</option>
-                        <option value="pet">Pet</option>
-                        <option value="retail">Retail</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </label>
+                    <SelectMenu
+                      label="Mode"
+                      onChange={(mode) => setCampaign({ ...campaign, mode })}
+                      options={CAMPAIGN_MODES}
+                      placeholder="Select a mode..."
+                      value={campaign.mode}
+                    />
                     <label className="field">
                       <span>Location</span>
                       <input
@@ -287,10 +258,12 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
                       />
                     </label>
                   </div>
-                </div>
+      </FormCard>
 
-                <div className="form-section">
-                  <span className="form-section-title">Schedule &amp; hunt rules</span>
+      <FormCard
+        title="Schedule and hunt rules"
+        description="Define when the campaign runs and how many voucher opportunities a customer receives."
+      >
                   <div className="admin-form-grid">
                     <label className="field">
                       <span>Start Date</span>
@@ -354,10 +327,12 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
                       </label>
                     ) : null}
                   </div>
-                </div>
+      </FormCard>
 
-                <div className="form-section">
-                  <span className="form-section-title">Content</span>
+      <FormCard
+        title="Campaign content"
+        description="Add the artwork and redemption copy customers see throughout the voucher hunt."
+      >
                   <div className="field campaign-image-field">
                     <span>Campaign Image</span>
                     {campaign.heroImage ? (
@@ -428,10 +403,12 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
                       onChange={(event) => setCampaign({ ...campaign, terms: event.target.value })}
                     />
                   </label>
-                </div>
+      </FormCard>
 
-                <div className="form-section">
-                  <span className="form-section-title">Options</span>
+      <FormCard
+        title="Reservation options"
+        description="Choose whether issued reservations may be moved to another eligible slot."
+      >
                   <div className="admin-form-toggles">
                     <label className="admin-form-toggle-row">
                       <input
@@ -442,21 +419,20 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
                       Allow rescheduling issued reservations
                     </label>
                   </div>
-                </div>
-              </div>
+      </FormCard>
 
-              <div className="modal-footer">
-                {error ? <p className="alert">{error}</p> : null}
-                <button className="button secondary" onClick={() => setOpen(false)} type="button">
-                  Cancel
-                </button>
-                <button className="button" disabled={busy || imageProcessing} type="submit">
-                  {busy ? "Creating..." : "Create Campaign"}
-                </button>
-              </div>
-            </form>
-        </AdminModal>
-      ) : null}
-    </>
+      <div className="form-page-actions">
+        <button
+          className="button secondary"
+          onClick={() => router.push("/dashboard/campaigns")}
+          type="button"
+        >
+          Cancel
+        </button>
+        <button className="button" disabled={busy || imageProcessing} type="submit">
+          {busy ? "Creating..." : "Create Campaign"}
+        </button>
+      </div>
+    </form>
   );
 }

@@ -5,6 +5,7 @@ import { getVoucherPresentation, type VoucherPool } from "@bizflow/shared";
 import { LinearGradient } from "expo-linear-gradient";
 import { StyleSheet, Text, View } from "react-native";
 
+import { CopyButton } from "@/components/CopyableCode";
 import { useTranslation } from "@/i18n/LanguageContext";
 import {
   voucherDisplayLabel,
@@ -21,6 +22,12 @@ type VoucherTicketProps = {
   detail: string;
   /** Renders the "Voucher code" block, as the confirmation screen does. */
   code?: string;
+  /**
+   * Adds a copy button beside the code. Off by default: in the wallet list the
+   * whole ticket is a link to the voucher, and an inner tap target there would
+   * compete with opening it.
+   */
+  copyable?: boolean;
   /** Draws the dashed→solid accent outline used for the picked candidate. */
   selected?: boolean;
   /** Fixed width for the roulette reel; omit to fill the parent. */
@@ -40,6 +47,7 @@ type VoucherTicketProps = {
 export function VoucherTicket({
   benefit,
   code,
+  copyable = false,
   detail,
   footnote,
   minHeight = 152,
@@ -108,7 +116,17 @@ export function VoucherTicket({
         {code ? (
           <View style={styles.codeBlock}>
             <Text style={[styles.codeLabel, { color: rarity.text }]}>{t("voucher.code")}</Text>
-            <Text style={[styles.code, { color: rarity.headingText }]}>{code}</Text>
+            <View style={styles.codeRow}>
+              <Text style={[styles.code, { color: rarity.headingText }]}>{code}</Text>
+              {copyable ? (
+                <CopyButton
+                  color={rarity.headingText}
+                  label={t("voucher.code")}
+                  size={18}
+                  value={code}
+                />
+              ) : null}
+            </View>
           </View>
         ) : null}
         {footnote ? (
@@ -198,6 +216,11 @@ const styles = StyleSheet.create({
   },
   codeBlock: {
     marginTop: spacing.md,
+  },
+  codeRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
   },
   codeLabel: {
     fontFamily: fonts.semibold,

@@ -16,7 +16,7 @@ import { getCampaign, listClaimedVouchers, type PublicCampaign } from "@/api/cli
 import { useAuth } from "@/auth/AuthContext";
 import { BusinessDetailsCard } from "@/components/BusinessDetailsCard";
 import { Button, InlineError } from "@/components/FormControls";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 import { SummaryList, SummaryRow } from "@/components/HuntUi";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import {
@@ -113,6 +113,7 @@ export default function VoucherDetailScreen() {
           <VoucherTicket
             benefit={claimed.voucher}
             code={claimed.voucher.voucherCode}
+            copyable
             detail={voucherDetail(t, claimed.voucher)}
             selected
           />
@@ -131,8 +132,13 @@ export default function VoucherDetailScreen() {
           </Text>
 
           <View style={styles.details}>
-            <DetailRow label={t("common.date")} value={formatDate(claimed.slot.date, locale)} />
             <DetailRow
+              icon="calendar"
+              label={t("common.date")}
+              value={formatDate(claimed.slot.date, locale)}
+            />
+            <DetailRow
+              icon="clock"
               label={t("common.time")}
               value={`${formatTime(claimed.slot.startTime, locale)} – ${formatTime(
                 claimed.slot.endTime,
@@ -140,10 +146,12 @@ export default function VoucherDetailScreen() {
               )}`}
             />
             <DetailRow
+              icon="check-circle"
               label={t("vouchers.status")}
               value={voucherStatusLabel(t, claimed.voucher.status)}
             />
             <DetailRow
+              icon="alert-circle"
               label={t("vouchers.expires")}
               value={new Intl.DateTimeFormat(locale, {
                 dateStyle: "medium",
@@ -159,11 +167,24 @@ export default function VoucherDetailScreen() {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: IconName;
+  label: string;
+  value: string;
+}) {
   return (
     <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
+      <View style={styles.detailIcon}>
+        <Icon name={icon} size={16} />
+      </View>
+      <View style={styles.detailCopy}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <Text style={styles.detailValue}>{value}</Text>
+      </View>
     </View>
   );
 }
@@ -239,10 +260,21 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   detailRow: {
+    alignItems: "flex-start",
     borderBottomColor: colors.borderSoft,
     borderBottomWidth: 1,
-    gap: spacing.xs,
+    flexDirection: "row",
+    gap: 10,
     padding: spacing.lg,
+  },
+  detailIcon: {
+    alignItems: "center",
+    paddingTop: 1,
+    width: 20,
+  },
+  detailCopy: {
+    flex: 1,
+    gap: spacing.xs,
   },
   detailLabel: {
     color: colors.ink,

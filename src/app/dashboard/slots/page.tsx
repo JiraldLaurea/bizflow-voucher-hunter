@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { listBusinesses, listCampaignsWithIndustry } from "@/server/admin";
 import { dashboardMetrics } from "@/server/voucher-engine";
-import { NewSlotForm } from "../_components/NewSlotForm";
 import { ChangeRequestActions } from "../_components/ChangeRequestActions";
-import { selectScope } from "../_components/selectCampaign";
+import { FlashNotice } from "../_components/FlashNotice";
+import { scopedHref, selectScope } from "../_components/selectCampaign";
 import { ScopeSelector } from "../_components/ScopeSelector";
 import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
@@ -15,7 +16,7 @@ import {
 export default async function SlotsPage({
   searchParams,
 }: {
-  searchParams: { business?: string; campaign?: string };
+  searchParams: { business?: string; campaign?: string; done?: string };
 }) {
   const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
   const campaigns = filterCampaignsForSession(session!, await listCampaignsWithIndustry());
@@ -45,6 +46,11 @@ export default async function SlotsPage({
     }
   }
 
+  // The form is on its own route now, so the scope has to travel with the link.
+  const newSlotQuery = selectedCampaign
+    ? scopedHref("", scope.business?.id, selectedCampaign.slug).slice(1)
+    : "";
+
   return (
     <>
       <header className="admin-topbar">
@@ -60,12 +66,15 @@ export default async function SlotsPage({
         selectedCampaignSlug={selectedCampaign?.slug}
         showBusiness={session?.role !== "staff"}
       />
+      <FlashNotice />
       <section className="panel table-wrap">
         {selectedCampaign ? (
-          <NewSlotForm
-            campaignId={selectedCampaign.id}
-            requestMode={isBusinessScoped}
-          />
+          <Link
+            className="button admin-form-toggle"
+            href={`/dashboard/slots/new?${newSlotQuery}`}
+          >
+            {isBusinessScoped ? "Request Slot" : "New Slot"}
+          </Link>
         ) : null}
         <table>
           <thead>
@@ -220,12 +229,12 @@ export default async function SlotsPage({
                               ? ` · ${request.reviewedAt.replace("T", " ").slice(0, 16)}`
                               : ""}
                             </span>
-                            <NewSlotForm
-                              campaignId={selectedCampaign!.id}
-                              initialValues={slot}
-                              revisionMode
-                              revisionRequestId={request.id}
-                            />
+                            <Link
+                              className="button secondary compact-button"
+                              href={`/dashboard/slots/new?${newSlotQuery}&revise=${request.id}`}
+                            >
+                              Revise
+                            </Link>
                           </div>
                         )}
                       </td>

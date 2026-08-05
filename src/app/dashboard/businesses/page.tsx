@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { listBusinesses, listCampaigns } from "@/server/admin";
 import { BusinessManager } from "../_components/BusinessManager";
+import { FlashNotice } from "../_components/FlashNotice";
 
 /**
  * Businesses have their own page because they outlive any one campaign: the
@@ -34,6 +35,7 @@ export default async function BusinessesPage() {
         </div>
       </header>
 
+      <FlashNotice />
       <BusinessManager businesses={businesses} campaigns={campaigns} />
     </>
   );

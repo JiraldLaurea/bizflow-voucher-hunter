@@ -1,6 +1,6 @@
 import { listBusinesses, listCampaigns } from "@/server/admin";
+import Link from "next/link";
 import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
-import { NewCampaignForm } from "../_components/NewCampaignForm";
 import { EditCampaignImageForm } from "../_components/EditCampaignImageForm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -44,7 +44,9 @@ export default async function CampaignsPage() {
       </header>
 
       <section className="panel table-wrap">
-        <NewCampaignForm businesses={businesses} />
+        <Link className="button admin-form-toggle" href="/dashboard/campaigns/new">
+          New Campaign
+        </Link>
         <table className="admin-table">
           <thead>
             <tr>

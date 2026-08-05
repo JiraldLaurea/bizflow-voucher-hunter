@@ -1,21 +1,21 @@
-import { redirect } from "next/navigation";
-import { getSignedInCustomerPhone } from "@/server/customer-auth";
-import { getOrCreateRewardWallet } from "@/server/rewards-network";
+import type { Metadata } from "next";
 import { listPublicCampaignCards } from "@/server/voucher-engine";
-import { CampaignDirectory } from "./_components/CampaignDirectory";
+import { MarketingHome } from "./_components/MarketingHome";
 
 export const dynamic = "force-dynamic";
 
+export const metadata: Metadata = {
+  title: "Voucher Hunt — fill quiet hours and build loyalty",
+  description:
+    "Customers win a voucher, book a time you choose and earn Loyalty Points they can spend with participating partner shops.",
+};
+
+/**
+ * The root route is always the business landing page. Customer traffic has a
+ * separate `/client` landing page for the mobile app, while direct campaign
+ * links stay reachable for existing QR codes and deep links.
+ */
 export default async function HomePage() {
-  // The directory is a post-sign-in page; signed-out (or reset-revoked) visitors
-  // go to sign-in and return here.
-  const phone = await getSignedInCustomerPhone();
-  if (!phone) {
-    redirect(`/signin?next=${encodeURIComponent("/")}`);
-  }
-  // Opening the signed-in app awards the once-daily app-use LP. The database
-  // uniqueness guard makes repeated page loads safe and idempotent.
-  await getOrCreateRewardWallet({ phone });
   const cards = await listPublicCampaignCards();
-  return <CampaignDirectory cards={cards} />;
+  return <MarketingHome campaigns={cards} />;
 }

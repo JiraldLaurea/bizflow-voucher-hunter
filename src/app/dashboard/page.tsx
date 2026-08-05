@@ -133,7 +133,10 @@ export default async function DashboardPage({
           </div>
         </section>
 
-        <section className="panel span-12 table-wrap" id="attempts">
+        <section
+          className="panel span-12 table-wrap dashboard-attempts-panel"
+          id="attempts"
+        >
           <div className="admin-topbar">
             <h2>User Attempts / Voucher Hunt Logs</h2>
             {selectedCampaign ? (

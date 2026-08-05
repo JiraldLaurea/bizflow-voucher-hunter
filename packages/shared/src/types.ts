@@ -54,6 +54,24 @@ export type CampaignSlot = {
   status: SlotStatus;
 };
 
+/**
+ * Whether a campaign can still be hunted, derived live rather than stored: slot
+ * capacity comes back when a booking is cancelled or rescheduled, so a campaign
+ * that is full now may be open again minutes later. Never cache this as a
+ * campaign status.
+ */
+export type CampaignAvailability = {
+  /**
+   * A hunt started now can end in an issued, bookable voucher — the same
+   * condition the draw itself enforces before spending an attempt.
+   */
+  bookable: boolean;
+  /** Capacity left across upcoming, active slots. */
+  remainingCapacity: number;
+  /** Voucher stock left across active benefit tiers. */
+  remainingPrizes: number;
+};
+
 export type CampaignCard = {
   campaign: Campaign;
   businessName: string;
@@ -62,6 +80,7 @@ export type CampaignCard = {
   /** Venue details, carried from the business so the campaign page can show where to go. */
   businessAddress?: string;
   businessContactNumber?: string;
+  availability: CampaignAvailability;
 };
 
 export type VoucherPool = {

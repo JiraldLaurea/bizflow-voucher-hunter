@@ -1,4 +1,4 @@
-import type { VoucherPool } from "@bizflow/shared";
+import type { CampaignAvailability, VoucherPool } from "@bizflow/shared";
 
 import type { Language, TranslationKey } from "@/i18n/translations";
 
@@ -139,6 +139,41 @@ const RARITY_DESCRIPTION_KEYS: Record<string, TranslationKey> = {
   epic: "voucher.rarityDescription.epic",
   legendary: "voucher.rarityDescription.legendary",
 };
+
+/**
+ * Why a campaign cannot be hunted, phrased for the customer. Stock runs out
+ * before slots do about as often as the reverse, and the two need different
+ * copy: one is permanent for this campaign, the other clears when someone
+ * cancels.
+ */
+function availabilityKeys(availability: CampaignAvailability) {
+  if (availability.remainingPrizes <= 0) {
+    return {
+      label: "availability.allClaimed",
+      notice: "availability.allClaimedNotice",
+    } as const;
+  }
+  if (availability.remainingCapacity <= 0) {
+    return {
+      label: "availability.fullyBooked",
+      notice: "availability.fullyBookedNotice",
+    } as const;
+  }
+  // Stock and capacity both remain, but no tier is linked to a bookable slot,
+  // so the draw would still refuse. Nothing specific to promise here.
+  return {
+    label: "availability.unavailable",
+    notice: "availability.unavailableNotice",
+  } as const;
+}
+
+export function availabilityLabel(t: Translate, availability: CampaignAvailability) {
+  return t(availabilityKeys(availability).label);
+}
+
+export function availabilityNotice(t: Translate, availability: CampaignAvailability) {
+  return t(availabilityKeys(availability).notice);
+}
 
 export function voucherStatusLabel(t: Translate, status: string) {
   if (status === "issued") return t("vouchers.statusIssued");

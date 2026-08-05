@@ -1,6 +1,6 @@
 # BizFlow Voucher Hunt Engine
 
-Reservation-based voucher hunting MVP for SMEs. The app lets a customer choose a date and time slot first, reveal voucher candidates, select one final voucher, then redeem it through a staff/admin surface.
+Reservation-based voucher hunting MVP for SMEs. A customer picks a campaign, spins to reveal voucher candidates, selects one, then books a date/time slot **from the windows that voucher's benefit tier is offered at**, and redeems it through a staff/admin surface.
 
 ## Current Scope
 
@@ -11,7 +11,7 @@ Reservation-based voucher hunting MVP for SMEs. The app lets a customer choose a
 - Admin CRUD API for campaigns, slots, and voucher pools (session + token guarded)
 - Real SMS delivery layer (Movider/Twilio/Infobip/ClickSend) with mock fallback
 - Server-enforced referral extra attempts
-- Optional phone **OTP verification** gate for final voucher issuance (per-campaign `requireOtp`)
+- Phone **OTP sign-in** for every customer, so a voucher can only be issued to a verified number
 - **IP rate limiting** on public hunt/OTP/referral endpoints (hashed IPs)
 - Staff **no-show** tagging and **reservation rescheduling** (per-campaign `allowReschedule`)
 - **CSV redemption import** (e.g. Shopify used-codes report) from the dashboard
@@ -21,18 +21,24 @@ Reservation-based voucher hunting MVP for SMEs. The app lets a customer choose a
 
 ## Public Customer Flow
 
-The customer journey is split into separate pages to match the reference UI flow:
+**The draw comes before the booking.** The prize is drawn campaign-wide first,
+and the slot picker then offers only the windows that prize's tier is bound to
+(`pool_slots`). An earlier version of this file described the reverse — date and
+time first — which has not been true since the roulette landed. Rarity is set by
+`probability_weight` alone, never by how many slots a tier is offered at.
 
 | Step | Page | Route |
 |---|---|---|
 | 1 | Campaign Landing | `/campaign/july-dinner` |
-| 2 | Select Date | `/campaign/july-dinner/date` |
-| 3 | Select Time | `/campaign/july-dinner/time` |
-| 4 | Hunt Intro | `/campaign/july-dinner/hunt` |
-| 5 | Voucher Results | `/campaign/july-dinner/results` |
-| 6 | Share for Extra Chance | `/campaign/july-dinner/share` |
-| 7 | Confirm & Details | `/campaign/july-dinner/confirm` |
-| 8 | Confirmation SMS/QR | `/campaign/july-dinner/confirmation` |
+| 2 | Hunt Intro | `/campaign/july-dinner/hunt` |
+| 3 | Voucher Roulette | `/campaign/july-dinner/roulette` |
+| 4 | Voucher Results | `/campaign/july-dinner/results` |
+| 5 | Date & Time (tier-gated) | `/campaign/july-dinner/datetime` |
+| 6 | Confirm & Details | `/campaign/july-dinner/confirm` |
+| 7 | Confirmation SMS/QR | `/campaign/july-dinner/confirmation` |
+
+Sign-in is a single global phone-OTP step (`/api/public/signin/request-otp`),
+not a per-campaign gate: the old per-campaign `requireOtp` flag is gone.
 
 Online shop campaign:
 
@@ -40,11 +46,9 @@ Online shop campaign:
 /campaign/8pm-drop
 ```
 
-Current UI direction:
-
-- Step 1 has no progress indicator and uses the mobile landing mockup structure.
-- Step 2 has no progress indicator and no Restaurant / Online Shop tabs, matching the Select Date mockup.
-- Later steps are still being refined page by page.
+The customer-facing flow also ships as an Expo/React Native Android app
+(`apps/mobile`), which mirrors these steps screen for screen. The admin and
+staff surfaces stay web-only. See `docs/MOBILE_APP_MIGRATION.md`.
 
 ## Admin and Staff Routes
 
@@ -75,8 +79,10 @@ Public anti-abuse / verification endpoints (rate-limited, no admin token):
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/public/otp/request` | POST | Send a 6-digit OTP via SMS (campaigns with `requireOtp`) |
-| `/api/public/otp/verify` | POST | Verify the submitted OTP before final selection |
+| `/api/public/signin/request-otp` | POST | Send a 6-digit sign-in OTP via SMS |
+| `/api/public/signin/verify-otp` | POST | Verify the code and establish the customer session |
+| `/api/public/signin/session` | GET | Current customer session, if any |
+| `/api/public/signin/signout` | POST | Clear the customer session |
 
 Example:
 
