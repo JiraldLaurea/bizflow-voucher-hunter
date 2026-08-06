@@ -8362,6 +8362,13 @@ th {
     transform: none;
 }
 
+.client-hero-copy > p.client-store-note {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.6875rem;
+    line-height: 1.2;
+}
+
 .client-steps-section {
     padding: 92px 0;
     background: #fff;

@@ -106,6 +106,7 @@ export default function ClientLandingPage() {
                 <FaGooglePlay aria-hidden="true" />
                 Download on Google Play
               </span>
+              <p className="client-store-note">Coming soon — button is disabled for now.</p>
             </div>
           </div>
         </section>
