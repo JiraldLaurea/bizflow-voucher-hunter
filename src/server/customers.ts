@@ -89,6 +89,11 @@ export async function listCustomers(
     db,
     `SELECT
        u.phone AS phone,
+       -- Grouped by phone, so pick the latest non-null name/email this person
+       -- gave across their campaign rows. Without these the list always fell
+       -- back to rendering the phone number even for named customers.
+       MAX(u.name) AS name,
+       MAX(u.email) AS email,
        MAX(u.created_at) AS last_activity_at,
        MIN(u.created_at) AS first_seen_at,
        COUNT(DISTINCT u.campaign_id) AS campaign_count,
