@@ -5,6 +5,11 @@ import {
   ADMIN_SESSION_MAX_AGE,
   createAdminSession,
 } from "@/lib/admin-session";
+import {
+  findAdminUserForLogin,
+  recordAdminLogin,
+  verifyPassword,
+} from "@/server/admin-users";
 import { AppError, fail, ok } from "@/server/errors";
 
 export const runtime = "nodejs";
@@ -23,15 +28,68 @@ function safeEqual(left: string, right: string) {
   );
 }
 
+function sessionResponse(
+  session: {
+    email: string;
+    name: string;
+    role: "super_admin" | "admin" | "staff";
+  },
+  token: string,
+) {
+  const response = ok(session);
+  response.cookies.set(ADMIN_SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: ADMIN_SESSION_MAX_AGE,
+  });
+  return response;
+}
+
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
     const development = process.env.NODE_ENV !== "production";
+
+    // Managed accounts win over the environment credentials. The env pair stays
+    // as the bootstrap login — it is what gets you into an empty console to
+    // create the first real account, and it is how existing deployments keep
+    // working after this table appears.
+    const account = await findAdminUserForLogin(input.email);
+    if (account) {
+      if (
+        account.status !== "active" ||
+        !verifyPassword(input.password, account.passwordHash)
+      ) {
+        throw new AppError(
+          "E-ADMIN-CREDENTIALS",
+          // Deliberately the same message a wrong password gets: whether an
+          // address exists, and whether it is disabled, is not public.
+          "Incorrect email or password",
+          401,
+        );
+      }
+      await recordAdminLogin(account.id);
+      const token = await createAdminSession({
+        email: account.email,
+        name: account.name,
+        role: account.role,
+        businessIds: account.businessIds,
+      });
+      return sessionResponse(
+        { email: account.email, name: account.name, role: account.role },
+        token,
+      );
+    }
+
     const adminEmail =
       process.env.ADMIN_EMAIL || (development ? "admin@bizflow.local" : "");
     const adminPassword =
       process.env.ADMIN_PASSWORD ||
-      (development ? process.env.ADMIN_ACCESS_TOKEN : undefined);
+      (development
+        ? process.env.ADMIN_ACCESS_TOKEN || "admin-password"
+        : undefined);
     const staffEmail = process.env.STAFF_EMAIL || (development ? "staff@bizflow.local" : "");
     const staffPassword = process.env.STAFF_PASSWORD || (development ? "staff-password" : "");
     if (!adminEmail || !adminPassword) {
@@ -74,15 +132,7 @@ export async function POST(request: Request) {
       role,
       businessIds: isStaff ? businessIds : businessIds.length ? businessIds : ["*"],
     });
-    const response = ok({ email, name, role });
-    response.cookies.set(ADMIN_SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: ADMIN_SESSION_MAX_AGE,
-    });
-    return response;
+    return sessionResponse({ email, name, role }, token);
   } catch (error) {
     return fail(error);
   }

@@ -42,8 +42,12 @@ async function hmacKey(secret: string) {
 function sessionSecret() {
   const secret = process.env.ADMIN_SESSION_SECRET;
   if (secret && secret.length >= 32) return secret;
-  if (process.env.NODE_ENV !== "production" && process.env.ADMIN_ACCESS_TOKEN) {
-    return `bizflow-development-session:${process.env.ADMIN_ACCESS_TOKEN}:local-only`;
+  // Dev keeps working with no .env at all: derive the secret from
+  // ADMIN_ACCESS_TOKEN when it is set, otherwise use a fixed local-only value so
+  // signing does not throw. Production always requires ADMIN_SESSION_SECRET.
+  if (process.env.NODE_ENV !== "production") {
+    const token = process.env.ADMIN_ACCESS_TOKEN || "unconfigured";
+    return `bizflow-development-session:${token}:local-only`;
   }
   throw new Error("ADMIN_SESSION_SECRET must contain at least 32 characters");
 }

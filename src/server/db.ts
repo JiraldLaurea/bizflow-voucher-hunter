@@ -127,6 +127,23 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+-- Console logins: the people who sign in to /dashboard. Deliberately not in
+-- DATA_TABLES — these are real credentials, and a schema-version bump wipes
+-- every table listed there. Note the name: the users table below is customers.
+CREATE TABLE IF NOT EXISTS admin_users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  -- Comma-separated business ids, or '*' for every business. Staff always carry
+  -- exactly one id: verifyAdminSession rejects an unscoped staff session.
+  business_ids TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  last_login_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users (email);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL REFERENCES campaigns(id),
@@ -547,7 +564,17 @@ async function init() {
   // Same version: self-heal an empty or partially-seeded database.
   if (!(await hasCompleteSeed(c))) await seed(c);
   await ensureSeededRewardProductImages(c);
+  await ensureDemoCustomer(c);
   await ensureDemoCampaignAvailability(c);
+}
+
+/**
+ * Adds the demo customer to a database that was seeded before the fixture
+ * existed. INSERT OR IGNORE keyed by id, so it never overwrites a real customer
+ * and never double-credits the seeded wallet.
+ */
+async function ensureDemoCustomer(c: Client) {
+  await c.batch(demoCustomerStatements(), "write");
 }
 
 async function ensureStaffPinHashes(c: Client) {
@@ -788,6 +815,23 @@ export const seedData: {
     description: string;
     imageUrl: string;
     priceCentavos: number;
+  }>;
+  users: Array<{
+    id: string;
+    campaignId: string;
+    name: string;
+    phone: string;
+    email: string;
+    sessionId: string;
+  }>;
+  rewardWallets: Array<{
+    id: string;
+    phone: string;
+    name: string;
+    email: string;
+    walletToken: string;
+    walletSecret: string;
+    balanceCentavos: number;
   }>;
 } = {
   // Venue details are seeded, not left blank: they are what the campaign page
@@ -1038,6 +1082,33 @@ export const seedData: {
       imageUrl: "/images/rewards/express-glow-facial.png",
       priceCentavos: 1_200_00
     }
+  ],
+  // One demo customer, so Users, the customer detail page, and the Loyalty
+  // Points screens render something on a fresh install instead of reading as
+  // broken. Attached to the restaurant campaign because that is the business a
+  // seeded staff login is scoped to, which keeps the row visible to both roles.
+  users: [
+    {
+      id: "user_demo_customer",
+      campaignId: "camp_july_dinner",
+      name: "Ana Dela Cruz",
+      // Stored normalized (+63...), the same shape normalizePhone produces; the
+      // dashboard renders it back as 09... for display.
+      phone: "+639171234500",
+      email: "ana.delacruz@example.com",
+      sessionId: "sess_demo_customer"
+    }
+  ],
+  rewardWallets: [
+    {
+      id: "rwal_demo_customer",
+      phone: "+639171234500",
+      name: "Ana Dela Cruz",
+      email: "ana.delacruz@example.com",
+      walletToken: "rwallet_demo_customer",
+      walletSecret: "rwsecret_demo_customer",
+      balanceCentavos: 250_00
+    }
   ]
 };
 
@@ -1106,6 +1177,67 @@ const INSERT_SLOT = `INSERT OR IGNORE INTO slots (id, campaign_id, date, start_t
 const INSERT_POOL = `INSERT OR IGNORE INTO pools (id, campaign_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
      VALUES (@id, @campaignId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`;
 const INSERT_POOL_SLOT = "INSERT OR IGNORE INTO pool_slots (pool_id, slot_id) VALUES (@poolId, @slotId)";
+const INSERT_USER = `INSERT OR IGNORE INTO users (id, campaign_id, name, phone, email, session_id, created_at)
+     VALUES (@id, @campaignId, @name, @phone, @email, @sessionId, @createdAt)`;
+const INSERT_REWARD_WALLET = `INSERT OR IGNORE INTO reward_wallets (id, phone, name, email, wallet_token, wallet_secret, balance_centavos, lifetime_earned_centavos, lifetime_converted_centavos, status, created_at, updated_at)
+     VALUES (@id, @phone, @name, @email, @walletToken, @walletSecret, @balanceCentavos, @balanceCentavos, 0, 'Active', @createdAt, @createdAt)`;
+// The opening balance is also a ledger row, so the wallet reconciles against a
+// movement rather than appearing from nowhere — same reasoning as the business
+// opening deposit. `dev_grant` is deliberate: the balance was not earned at a
+// business, so it must not surface as LP the network owes anyone.
+const INSERT_REWARD_LEDGER_ENTRY = `INSERT OR IGNORE INTO reward_ledger_entries (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, metadata, created_at)
+     VALUES (@id, @walletId, 'dev_grant', @amountCentavos, @amountCentavos, 'dev_tool', NULL, @metadata, @createdAt)`;
+
+/**
+ * The demo customer's rows, shared by the initial seed and the self-heal on
+ * boot. Kept separate from `seed()` so a database that was seeded before this
+ * fixture existed still picks the customer up without a destructive reset.
+ */
+function demoCustomerStatements(): InStatement[] {
+  // Tests reset to a genuinely empty database and assert on it — "lists nobody
+  // before anyone hunts" is a real guarantee, not a fixture artifact. Seeding a
+  // customer there would force those assertions to expect a ghost.
+  if (process.env.NODE_ENV === "test") return [];
+
+  const now = new Date().toISOString();
+  return [
+    ...seedData.users.map((r) => ({
+      sql: INSERT_USER,
+      args: {
+        id: r.id,
+        campaignId: r.campaignId,
+        name: r.name,
+        phone: r.phone,
+        email: r.email,
+        sessionId: r.sessionId,
+        createdAt: now
+      }
+    })),
+    ...seedData.rewardWallets.map((r) => ({
+      sql: INSERT_REWARD_WALLET,
+      args: {
+        id: r.id,
+        phone: r.phone,
+        name: r.name,
+        email: r.email,
+        walletToken: r.walletToken,
+        walletSecret: r.walletSecret,
+        balanceCentavos: r.balanceCentavos,
+        createdAt: now
+      }
+    })),
+    ...seedData.rewardWallets.map((r) => ({
+      sql: INSERT_REWARD_LEDGER_ENTRY,
+      args: {
+        id: `rled_seed_${r.id}`,
+        walletId: r.id,
+        amountCentavos: r.balanceCentavos,
+        metadata: JSON.stringify({ note: "Seed opening balance" }),
+        createdAt: now
+      }
+    }))
+  ];
+}
 
 /**
  * Seeds demo data as a single atomic batch. `client.batch(..., "write")` runs
@@ -1213,7 +1345,8 @@ async function seed(c: Client) {
         restriction: r.restriction ?? null
       }
     })),
-    ...seedData.poolSlots.map((r) => ({ sql: INSERT_POOL_SLOT, args: { poolId: r.poolId, slotId: r.slotId } }))
+    ...seedData.poolSlots.map((r) => ({ sql: INSERT_POOL_SLOT, args: { poolId: r.poolId, slotId: r.slotId } })),
+    ...demoCustomerStatements()
   ];
   await c.batch(statements, "write");
 }

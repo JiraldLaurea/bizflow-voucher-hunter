@@ -14,6 +14,7 @@ import {
   FiLogOut,
   FiRepeat,
   FiSettings,
+  FiUserPlus,
   FiUsers,
 } from "react-icons/fi";
 
@@ -81,6 +82,13 @@ const navSections = [
         href: "/dashboard/staff",
         icon: <FiCheckSquare aria-hidden="true" />,
       },
+      // "Team" rather than "Users": that label already belongs to the customers
+      // who claim vouchers, and these are the people who sign in here.
+      {
+        label: "Team",
+        href: "/dashboard/team",
+        icon: <FiUserPlus aria-hidden="true" />,
+      },
       {
         label: "Settings",
         href: "/dashboard/settings",
@@ -109,7 +117,15 @@ function visibleSections(role: "super_admin" | "admin" | "staff") {
       title: section.title,
       items: section.items.filter((item) => {
         if (role === "staff") return staffLabels.has(item.label);
-        if (item.href === "/dashboard/settings") return role === "super_admin";
+        // Settings and Team are super-admin only. An admin who could create
+        // accounts could create itself a super-admin, so the boundary holds
+        // here as well as in the page and the API behind it.
+        if (
+          item.href === "/dashboard/settings" ||
+          item.href === "/dashboard/team"
+        ) {
+          return role === "super_admin";
+        }
         return true;
       }),
     }))

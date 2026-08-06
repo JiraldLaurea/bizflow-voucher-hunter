@@ -22,6 +22,8 @@ const MESSAGES: Record<string, string> = {
   "pool-revised": "Voucher tier revision submitted for admin approval.",
   "business-created": "Business created successfully.",
   "business-saved": "Business details saved.",
+  "member-created": "Team member created. Share their password with them once.",
+  "member-saved": "Team member updated.",
 };
 
 export function FlashNotice() {
