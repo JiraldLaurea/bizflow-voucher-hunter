@@ -1,7 +1,8 @@
 import { listBusinesses, listCampaigns } from "@/server/admin";
 import Link from "next/link";
+import { FiEdit2 } from "react-icons/fi";
 import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
-import { EditCampaignImageForm } from "../_components/EditCampaignImageForm";
+import { FlashNotice } from "../_components/FlashNotice";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
@@ -43,6 +44,8 @@ export default async function CampaignsPage() {
         </div>
       </header>
 
+      <FlashNotice />
+
       <section className="panel table-wrap">
         <Link className="button admin-form-toggle" href="/dashboard/campaigns/new">
           New Campaign
@@ -74,7 +77,13 @@ export default async function CampaignsPage() {
                         <div className="cell-title">{campaign.title}</div>
                         <div className="cell-sub">/{campaign.slug}</div>
                       </div>
-                      <EditCampaignImageForm campaign={campaign} />
+                      <Link
+                        className="campaign-edit-image-button"
+                        href={`/dashboard/campaigns/${campaign.id}/image`}
+                      >
+                        <FiEdit2 aria-hidden="true" />
+                        Edit image
+                      </Link>
                     </div>
                   </td>
                   <td>{businesses.find((b) => b.id === campaign.businessId)?.name ?? "-"}</td>
