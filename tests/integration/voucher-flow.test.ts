@@ -30,7 +30,9 @@ describe("voucher hunt integration", () => {
     expect(csv).toContain("# REDEMPTIONS");
     expect(csv).toContain(selected.voucher.voucherCode);
     expect(csv).toContain("Integration User");
-    expect(csv).toContain("+639181111111");
+    // Exports render phones in the local "09..." form (see toDisplayPhone),
+    // not the stored "+639..." normalized form.
+    expect(csv).toContain("09181111111");
     expect(csv).toContain("Staff Tester");
     expect(csv).toContain("1200");
   });
