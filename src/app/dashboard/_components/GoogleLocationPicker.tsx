@@ -469,9 +469,7 @@ export function GoogleLocationPicker({
   return (
     <div className="location-picker">
       <label className="field">
-        <span>
-          <FiMapPin aria-hidden="true" /> Address
-        </span>
+        <span>Address</span>
         <div className="location-picker-search" ref={searchFieldRef}>
           <div className="location-picker-input">
             <input

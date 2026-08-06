@@ -70,8 +70,9 @@ export default async function CustomerDetailPage({
     <>
       <header className="admin-topbar">
         <div>
-          <Link className="customer-back" href="/dashboard/users">
-            <FiArrowLeft aria-hidden="true" /> All users
+          <Link className="form-page-back" href="/dashboard/users">
+            <FiArrowLeft aria-hidden="true" />
+            All users
           </Link>
           <h1>{summary.name || toDisplayPhone(summary.phone)}</h1>
           <p className="muted">

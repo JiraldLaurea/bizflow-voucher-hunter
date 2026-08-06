@@ -446,7 +446,7 @@ export default function StaffPage() {
           >
             {cameraAvailable ? (
               <button
-                className="button secondary qr-action"
+                className="button secondary qr-action qr-action-camera"
                 onClick={() => setScanning(true)}
                 type="button"
               >
@@ -506,7 +506,14 @@ export default function StaffPage() {
               onChange={(event) => setNote(event.target.value)}
             />
           </label>
-          <button className="button full staff-panel-action" disabled={!code} onClick={() => void validate()}>Validate</button>
+          <button
+            className="button full staff-panel-action staff-validate-button"
+            disabled={!code}
+            onClick={() => void validate()}
+          >
+            <FiSearch aria-hidden="true" />
+            Validate voucher
+          </button>
         </section>
 
         <section className="panel span-6 staff-result-panel">

@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiPhone } from "react-icons/fi";
 import { api } from "@/lib/api-client";
 import type { Business } from "@/types/voucher";
 import { FormCard } from "./FormPage";
@@ -154,9 +153,7 @@ export function BusinessForm({ business }: { business?: Business }) {
         />
 
         <label className="field">
-          <span>
-            <FiPhone aria-hidden="true" /> Contact number
-          </span>
+          <span>Contact number</span>
           <input
             onChange={(event) => setContactNumber(event.target.value)}
             // Local format rather than +63: the international prefix reads as

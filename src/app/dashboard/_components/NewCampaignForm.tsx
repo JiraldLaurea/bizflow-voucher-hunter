@@ -409,16 +409,16 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
         title="Reservation options"
         description="Choose whether issued reservations may be moved to another eligible slot."
       >
-                  <div className="admin-form-toggles">
-                    <label className="admin-form-toggle-row">
-                      <input
-                        checked={campaign.allowReschedule}
-                        onChange={(event) => setCampaign({ ...campaign, allowReschedule: event.target.checked })}
-                        type="checkbox"
-                      />
-                      Allow rescheduling issued reservations
-                    </label>
-                  </div>
+        <div className="admin-form-toggles">
+          <label className="admin-form-toggle-row">
+            <input
+              checked={campaign.allowReschedule}
+              onChange={(event) => setCampaign({ ...campaign, allowReschedule: event.target.checked })}
+              type="checkbox"
+            />
+            Allow rescheduling issued reservations
+          </label>
+        </div>
       </FormCard>
 
       <div className="form-page-actions">

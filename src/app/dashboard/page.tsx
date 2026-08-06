@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { filterCampaignsForSession } from "@/server/auth";
 import { listStaffChangeRequests } from "@/server/change-requests";
+import { ReportingIcon } from "@/app/_components/MarketingIcons";
 
 export default async function DashboardPage({
   searchParams,
@@ -111,13 +112,15 @@ export default async function DashboardPage({
           </article>
         ))}
 
-        <section className="panel span-12">
+        <section className="panel span-12 dashboard-benefits-panel">
           <h2>Voucher Benefit Distribution</h2>
           <div className="summary-list">
             {!metrics || metrics.benefitPerformance.length === 0 ? (
-              <div className="summary-row">
-                <span className="icon-box">0</span>
-                <p className="muted">No benefit data yet</p>
+              <div className="summary-row dashboard-benefit-empty">
+                <span className="icon-box" aria-hidden="true">
+                  <ReportingIcon />
+                </span>
+                <strong>No benefit data yet</strong>
               </div>
             ) : (
               metrics.benefitPerformance.map((benefit) => (
@@ -134,7 +137,7 @@ export default async function DashboardPage({
         </section>
 
         <section
-          className="panel span-12 table-wrap dashboard-attempts-panel"
+          className="panel span-12 table-wrap"
           id="attempts"
         >
           <div className="admin-topbar">

@@ -133,7 +133,10 @@ export default async function BillingPage({
         <section className="panel span-12 table-wrap">
           <div className="admin-topbar">
             <div>
-              <h2>{monthLabel} — still open</h2>
+              <h2 className="billing-period-title">
+                <span>{monthLabel}</span>
+                <span className="badge warning">Still open</span>
+              </h2>
               <p className="muted">
                 A running total, not a bill. Nothing moves until the month ends
                 and the statement is closed.

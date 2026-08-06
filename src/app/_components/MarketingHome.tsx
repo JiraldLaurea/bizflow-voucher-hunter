@@ -2,13 +2,15 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   FiArrowRight,
-  FiBarChart2,
-  FiCalendar,
-  FiCheckCircle,
-  FiGift,
-  FiMessageSquare,
-  FiUsers,
 } from "react-icons/fi";
+import {
+  CapacityIcon,
+  ReferralIcon,
+  ReportingIcon,
+  VerifiedNumberIcon,
+  VerifiedRedemptionIcon,
+  WeightedPrizeIcon,
+} from "./MarketingIcons";
 import { resolveCampaignImage } from "@/lib/campaign-image";
 import { RevealOnScroll } from "./RevealOnScroll";
 import { BUSINESS_ENQUIRY_MAILTO, SUPPORT_EMAIL } from "@/lib/contact";
@@ -80,32 +82,32 @@ const LOYALTY_STEPS = [
 
 const CAPABILITIES = [
   {
-    icon: <FiCalendar aria-hidden="true" />,
+    icon: <CapacityIcon aria-hidden="true" />,
     title: "Real capacity",
     body: "Each booking window closes when it fills.",
   },
   {
-    icon: <FiGift aria-hidden="true" />,
+    icon: <WeightedPrizeIcon aria-hidden="true" />,
     title: "Weighted prizes",
     body: "Control how often every prize is won.",
   },
   {
-    icon: <FiCheckCircle aria-hidden="true" />,
+    icon: <VerifiedRedemptionIcon aria-hidden="true" />,
     title: "Verified redemption",
     body: "Scan, reschedule or mark a no-show.",
   },
   {
-    icon: <FiMessageSquare aria-hidden="true" />,
+    icon: <VerifiedNumberIcon aria-hidden="true" />,
     title: "Verified numbers",
     body: "SMS sign-in keeps entries tied to real phones.",
   },
   {
-    icon: <FiUsers aria-hidden="true" />,
+    icon: <ReferralIcon aria-hidden="true" />,
     title: "Referrals",
     body: "Sharing can unlock another spin and bonus LP.",
   },
   {
-    icon: <FiBarChart2 aria-hidden="true" />,
+    icon: <ReportingIcon aria-hidden="true" />,
     title: "Clear reporting",
     body: "See bookings, redemptions and LP activity in one place.",
   },
@@ -152,7 +154,7 @@ export function MarketingHome({ campaigns }: { campaigns: CampaignCard[] }) {
           </nav>
 
           <div className="marketing-nav-actions">
-            <Link className="marketing-nav-client" href="/client">
+            <Link className="marketing-nav-switcher" href="/client">
               For Clients
             </Link>
             <Link className="marketing-nav-login" href="/login">

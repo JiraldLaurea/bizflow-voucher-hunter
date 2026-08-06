@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import {
-  FiCalendar,
-  FiCheckCircle,
-  FiGift,
-  FiMapPin,
-  FiShoppingBag,
-  FiStar,
-} from "react-icons/fi";
 import { FaGooglePlay } from "react-icons/fa";
+import {
+  BookIcon,
+  ChooseItemIcon,
+  CollectPartnerIcon,
+  EarnIcon,
+  HandoverIcon,
+  HuntIcon,
+} from "@/app/_components/MarketingIcons";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 
 const APP_ICON = "/images/voucher-hunt-app-logo.png";
@@ -22,17 +22,17 @@ export const metadata: Metadata = {
 
 const CLIENT_STEPS = [
   {
-    icon: <FiGift aria-hidden="true" />,
+    icon: <HuntIcon aria-hidden="true" />,
     title: "Hunt",
     body: "Open a campaign from a participating business and reveal your voucher.",
   },
   {
-    icon: <FiCalendar aria-hidden="true" />,
+    icon: <BookIcon aria-hidden="true" />,
     title: "Book",
     body: "Choose an available time when your winning voucher can be used.",
   },
   {
-    icon: <FiStar aria-hidden="true" />,
+    icon: <EarnIcon aria-hidden="true" />,
     title: "Earn",
     body: "Show your QR in store and earn Loyalty Points on eligible purchases.",
   },
@@ -42,22 +42,19 @@ const APP_SCREENS = [
   {
     alt: "Voucher Hunt app showing active campaigns from nearby businesses",
     body: "Find active campaigns from participating businesses.",
-    hideDevControl: true,
-    image: "/images/client-app/discover-v1.jpg",
+    image: "/images/client-app/discover-v2.png",
     title: "Discover",
   },
   {
     alt: "Voucher Hunt app showing available dates and time slots for a voucher",
     body: "Reserve one of the times made available for your reward.",
-    hideDevControl: true,
-    image: "/images/client-app/book-v1.jpg",
+    image: "/images/client-app/book-v2.png",
     title: "Book",
   },
   {
     alt: "Voucher Hunt app showing a won voucher and its redemption QR code",
     body: "Keep the voucher and redemption QR ready in the app.",
-    hideDevControl: true,
-    image: "/images/client-app/redeem-v1.jpg",
+    image: "/images/client-app/redeem-v2.png",
     title: "Redeem",
   },
 ];
@@ -84,7 +81,7 @@ export default function ClientLandingPage() {
             <a href="#lp-shop">LP Shop</a>
             <a href="#loyalty-points">Loyalty Points</a>
           </nav>
-          <Link className="marketing-button-ghost" href="/">
+          <Link className="marketing-nav-switcher" href="/">
             For Businesses
           </Link>
         </div>
@@ -150,14 +147,11 @@ export default function ClientLandingPage() {
                   <div className="client-phone-frame">
                     <Image
                       alt={screen.alt}
-                      height={1560}
+                      height={1856}
                       sizes="(max-width: 760px) 72vw, 260px"
                       src={screen.image}
-                      width={720}
+                      width={852}
                     />
-                    {screen.hideDevControl ? (
-                      <span className="client-screen-dev-cover" aria-hidden="true" />
-                    ) : null}
                   </div>
                   <figcaption>
                     <strong>{screen.title}</strong>
@@ -181,21 +175,21 @@ export default function ClientLandingPage() {
               </p>
               <ol className="client-shop-steps">
                 <li>
-                  <span><FiShoppingBag aria-hidden="true" /></span>
+                  <span><ChooseItemIcon aria-hidden="true" /></span>
                   <div>
                     <strong>Choose an item</strong>
                     <p>Browse products and see the LP price before buying.</p>
                   </div>
                 </li>
                 <li>
-                  <span><FiMapPin aria-hidden="true" /></span>
+                  <span><CollectPartnerIcon aria-hidden="true" /></span>
                   <div>
                     <strong>Collect from the partner</strong>
                     <p>The app keeps the purchase ready for collection.</p>
                   </div>
                 </li>
                 <li>
-                  <span><FiCheckCircle aria-hidden="true" /></span>
+                  <span><HandoverIcon aria-hidden="true" /></span>
                   <div>
                     <strong>Verify at handover</strong>
                     <p>Partner staff scan the code and complete the order.</p>
