@@ -8,6 +8,13 @@
     --purple: #5c3dff;
     --purple-2: #7c4dff;
     --purple-soft: #eeeaff;
+    /* Hover shades. Both are the base purples darkened by roughly the same
+       step, so the gradient keeps its direction on hover instead of flattening
+       out. `--purple-deep` is the value the marketing nav switcher already
+       reached for by hand before it was a token. */
+    --purple-deep: #4c2bd4;
+    --purple-2-deep: #6535e6;
+    --purple-tint: #f5f2ff;
     --green: #22c55e;
     --green-soft: #eafaf0;
     --orange: #f59e0b;
@@ -431,6 +438,56 @@ img.logo-tile {
 
 .admin-shell .button.secondary {
     box-shadow: none;
+}
+
+/*
+ * Button hover, for the console and its login page.
+ *
+ * These had no hover state and no transition at all: a button looked identical
+ * whether or not it was under the cursor, which is the one cue that says a
+ * thing is clickable before you click it. Colour carries the feedback rather
+ * than movement, so a dense table of controls does not jitter as the pointer
+ * crosses it.
+ *
+ * Each variant gets its own rule because the base hover is more specific than
+ * a variant's resting style: without them, hovering a secondary button would
+ * repaint it with the primary gradient. `.secondary` covers `.danger` and
+ * `.qr-action` too, both of which are secondary buttons with their own hovers.
+ */
+:is(.admin-shell, .admin-login-page) .button {
+    transition:
+        background 160ms ease,
+        border-color 160ms ease,
+        color 160ms ease,
+        box-shadow 160ms ease;
+}
+
+:is(.admin-shell, .admin-login-page)
+    .button:not(.secondary, .tertiary):hover:not(:disabled) {
+    background: linear-gradient(
+        135deg,
+        var(--purple-deep),
+        var(--purple-2-deep)
+    );
+    box-shadow: 0 6px 14px rgba(92, 61, 255, 0.24);
+}
+
+:is(.admin-shell, .admin-login-page)
+    .button.secondary:not(.danger, .qr-action):hover:not(:disabled) {
+    border-color: #bcb0f7;
+    background: var(--purple-tint);
+    color: var(--purple);
+}
+
+:is(.admin-shell, .admin-login-page) .button.tertiary:hover:not(:disabled) {
+    background: var(--purple-soft);
+}
+
+/* Destructive actions stay red on hover rather than borrowing the purple. */
+:is(.admin-shell, .admin-login-page) .button.danger:hover:not(:disabled) {
+    border-color: var(--red);
+    background: var(--red-soft);
+    color: var(--red);
 }
 
 /* Modal footers place their actions in a row; keep them from stretching. */
@@ -1759,14 +1816,17 @@ img.logo-tile {
     grid-template-columns: 1fr;
 }
 
+/* 36px and 8px padding to match `.admin-shell .button`: this rule comes later
+   in the file and at equal specificity, so its own 44px was quietly winning and
+   these two sat taller than every other button on the page. */
 .button.qr-action {
   width: 100%;
-  min-height: 44px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 9px 12px;
+  padding: 8px 12px;
   border-color: #d5dbea;
   font-size: 0.8125rem;
   transition:
@@ -1789,9 +1849,11 @@ img.logo-tile {
   color: var(--purple);
 }
 
+/* Scaled with the button: a 17px glyph filled a 36px row far more heavily than
+   it did the 44px one it was drawn for. */
 .qr-action svg {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
 }
 
 .staff-validate-button svg {
@@ -2209,23 +2271,20 @@ img.logo-tile {
     font-weight: 500;
 }
 
-.admin-shell .sidebar-brand-role,
-.admin-shell .sidebar-account-copy small,
-.admin-shell .sidebar-account-copy span {
+.admin-shell .sidebar-brand-role {
     color: var(--muted);
 }
 
-.admin-shell .sidebar-account {
-    border-top-color: var(--line);
-}
-
-.admin-shell .sidebar-signout {
-    border: 1px solid var(--line);
-    background: var(--surface);
+/* The console's sidebar is white, so the trigger's white-on-navy tints would be
+   invisible. It tints toward the canvas instead. The menu itself already uses
+   surface/line tokens, so it needs no override in either theme. */
+.admin-shell .sidebar-account-trigger {
     color: #475569;
 }
 
-.admin-shell .sidebar-signout:hover {
+.admin-shell .sidebar-account-trigger:hover,
+.admin-shell .sidebar-account-trigger.is-open {
+    border-color: var(--line);
     background: var(--canvas);
     color: var(--navy);
 }
@@ -2932,6 +2991,9 @@ img.logo-tile {
     color: #dbe6ff;
     font-size: 0.84rem;
     font-weight: 500;
+    transition:
+        background 160ms ease,
+        color 160ms ease;
 }
 
 .nav-item-label {
@@ -2951,66 +3013,204 @@ img.logo-tile {
 
 /* Pinned to the foot of the sidebar: identity first, then sign out on its own
    row so the destructive action is never a mis-tap away from the nav. */
+/* Anchors the menu, which is positioned against this box rather than the
+   viewport, so it travels with the trigger and never needs a scroll listener. */
 .sidebar-account {
-    display: grid;
-    gap: 10px;
+    position: relative;
     margin-top: auto;
-    padding-top: 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-.sidebar-account-copy {
+/* The row you see at rest: identity, and a hint that there is more behind it. */
+.sidebar-account-trigger {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 8px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background 160ms ease,
+        border-color 160ms ease;
+}
+
+.sidebar-account-trigger:hover,
+.sidebar-account-trigger.is-open {
+    border-color: rgba(255, 255, 255, 0.13);
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.sidebar-account-name {
+    flex: 1;
     min-width: 0;
-    display: grid;
-    gap: 2px;
-    padding: 0 10px;
+    overflow: hidden;
+    font-size: 0.82rem;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.sidebar-account-copy strong,
-.sidebar-account-copy span {
+.sidebar-account-more {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    opacity: 0.6;
+    transition: opacity 160ms ease;
+}
+
+.sidebar-account-more svg {
+    width: 15px;
+    height: 15px;
+}
+
+.sidebar-account-trigger:hover .sidebar-account-more,
+.sidebar-account-trigger.is-open .sidebar-account-more {
+    opacity: 1;
+}
+
+/* Initials rather than an uploaded image: there is no avatar to upload in this
+   product, and a generic silhouette would say less than two letters do. */
+.sidebar-avatar {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--purple), var(--purple-2));
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+/* Opens upward: the trigger is pinned to the bottom of a full-height column,
+   so a downward panel would run off the viewport. */
+/*
+ * Fixed, not absolute, and positioned from JS.
+ *
+ * The sidebar scrolls, and CSS cannot clip one axis while leaving the other
+ * visible — so an absolute panel was cut off at the sidebar's edge and grew it
+ * a horizontal scrollbar. Fixed takes it out of that scroll container. `left`
+ * and `bottom` come from the trigger's measured rect; only the sizing and skin
+ * live here.
+ */
+.sidebar-account-menu {
+    position: fixed;
+    z-index: 40;
+    /* Wider than the trigger row, so a long email is not forced to ellipsize
+       in a panel that exists to show it in full. It spills right, over the
+       page content, which is what a popover is for. */
+    width: 220px;
+    max-width: calc(100vw - 32px);
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-raised);
+}
+
+.sidebar-account-menu-header {
+    display: grid;
+    gap: 1px;
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+}
+
+.sidebar-account-menu-header > * {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.sidebar-account-copy strong {
-    font-size: 0.84rem;
+/*
+ * The role leads, as an eyebrow over the name.
+ *
+ * It was a filled chip under the email, which left a saturated blob floating in
+ * its own row — the heaviest thing in a panel where it is the least important.
+ * Uppercase micro-type states the same fact at a glance, in the console's own
+ * label idiom, and costs no vertical space of its own.
+ */
+.sidebar-account-role {
+    margin-bottom: 2px;
+    color: var(--purple);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.sidebar-account-menu-header strong {
+    color: var(--navy);
+    font-size: 0.86rem;
     font-weight: 600;
 }
 
-.sidebar-account-copy span {
-    opacity: 0.72;
-    font-size: 0.68rem;
+.sidebar-account-email {
+    color: var(--muted);
+    font-size: 0.74rem;
 }
 
-.sidebar-signout {
+.sidebar-account-menu-items {
+    display: grid;
+    padding: 5px;
+}
+
+/* Label left, icon right — the icon trails the action it belongs to rather
+   than forming a second column the eye has to cross back over. */
+.sidebar-account-item {
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 10px;
     width: 100%;
-    padding: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    padding: 9px 9px;
+    border: 0;
     border-radius: 8px;
-    color: #dbe6ff;
-    background: rgba(255, 255, 255, 0.06);
+    background: transparent;
+    color: var(--navy);
     font: inherit;
-    font-size: 0.84rem;
+    font-size: 0.82rem;
     font-weight: 500;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
+    transition:
+        background 160ms ease,
+        color 160ms ease;
 }
 
-.sidebar-signout:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.13);
+.sidebar-account-item:hover,
+.sidebar-account-item:focus-visible {
+    background: var(--canvas);
+    outline: none;
 }
 
-/* Matches .nav-item-icon so the label lines up with the nav labels above. */
-.sidebar-signout svg {
-    width: 16px;
-    height: 16px;
-    margin: 0 1px;
-    flex-shrink: 0;
+.sidebar-account-item svg {
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+    color: var(--muted);
+}
+
+/* Signing out is the destructive one, so it warms to red rather than reading
+   the same as the link above it. */
+.sidebar-account-item.is-signout:hover,
+.sidebar-account-item.is-signout:focus-visible {
+    color: var(--red);
+}
+
+.sidebar-account-item.is-signout:hover svg,
+.sidebar-account-item.is-signout:focus-visible svg {
+    color: var(--red);
 }
 
 .admin-login-page {
@@ -7222,6 +7422,16 @@ th {
     font-weight: 500;
 }
 
+/* The nav's three link styles all changed colour on hover with nothing easing
+   it, so they flicked between states while the buttons beside them faded. */
+.marketing-nav-links a,
+.marketing-nav-login,
+.marketing-nav-switcher {
+    transition:
+        background 0.15s ease,
+        color 0.15s ease;
+}
+
 .marketing-nav-links a {
     color: var(--muted);
 }
@@ -7286,10 +7496,14 @@ th {
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
+    /* border-color and color are listed because the ghost variant changes both
+       on hover — without them those two snapped while the rest eased. */
     transition:
         transform 0.15s ease,
         box-shadow 0.15s ease,
-        background 0.15s ease;
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
 }
 
 .marketing-button {
@@ -7299,8 +7513,15 @@ th {
     box-shadow: 0 8px 18px rgba(92, 61, 255, 0.22);
 }
 
+/* Deepens as well as lifts. The lift alone read as the page moving rather than
+   the button responding, especially against the light hero background. */
 .marketing-button:hover {
     transform: translateY(-1px);
+    background: linear-gradient(
+        135deg,
+        var(--purple-deep),
+        var(--purple-2-deep)
+    );
     box-shadow: 0 12px 24px rgba(92, 61, 255, 0.28);
 }
 
@@ -7312,6 +7533,7 @@ th {
 
 .marketing-button-ghost:hover {
     border-color: var(--purple);
+    background: var(--purple-tint);
     color: var(--purple);
 }
 
@@ -7325,6 +7547,33 @@ th {
 .marketing-button-ghost svg {
     width: 17px;
     height: 17px;
+}
+
+/*
+ * Hover still changes colour when motion is reduced — that is the affordance,
+ * not decoration. Only the easing and the lift are dropped, so the state change
+ * lands instantly instead of animating.
+ *
+ * Placed after every rule it overrides: a media query adds no specificity, so
+ * an earlier copy of this would simply lose to the transitions declared below.
+ */
+@media (prefers-reduced-motion: reduce) {
+    :is(.admin-shell, .admin-login-page) .button,
+    .nav-item,
+    .sidebar-account-trigger,
+    .sidebar-account-more,
+    .sidebar-account-item,
+    .marketing-button,
+    .marketing-button-ghost,
+    .marketing-nav-links a,
+    .marketing-nav-login,
+    .marketing-nav-switcher {
+        transition: none;
+    }
+
+    .marketing-button:hover {
+        transform: none;
+    }
 }
 
 .marketing-cta-row {

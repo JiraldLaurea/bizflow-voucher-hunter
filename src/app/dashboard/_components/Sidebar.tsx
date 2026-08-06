@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   FiBriefcase,
   FiCheckSquare,
@@ -11,12 +11,12 @@ import {
   FiFlag,
   FiGift,
   FiGrid,
-  FiLogOut,
   FiRepeat,
   FiSettings,
   FiUserPlus,
   FiUsers,
 } from "react-icons/fi";
+import { SidebarAccountMenu } from "./SidebarAccountMenu";
 
 const navSections = [
   {
@@ -150,13 +150,6 @@ export function Sidebar({
   staffBusinessName?: string;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
-  }
 
   return (
     <aside className="sidebar">
@@ -196,16 +189,11 @@ export function Sidebar({
           </div>
         ))}
       </nav>
-      <div className="sidebar-account">
-        <div className="sidebar-account-copy">
-          <strong>{adminName}</strong>
-          <span title={adminEmail}>{adminEmail}</span>
-        </div>
-        <button className="sidebar-signout" onClick={logout} type="button">
-          <FiLogOut aria-hidden="true" />
-          Sign out
-        </button>
-      </div>
+      <SidebarAccountMenu
+        adminEmail={adminEmail}
+        adminName={adminName}
+        role={role}
+      />
     </aside>
   );
 }
