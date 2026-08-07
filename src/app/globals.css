@@ -876,10 +876,6 @@ img.logo-tile {
     filter: saturate(1.08);
 }
 
-.roulette-track.settled .roulette-ticket:not(.selected) {
-    filter: saturate(0.72) opacity(0.45);
-}
-
 .roulette-track.settled .roulette-ticket.selected {
     position: relative;
     animation:
@@ -1608,6 +1604,21 @@ img.logo-tile {
     margin-bottom: 14px;
 }
 
+/*
+ * Benefit rows are a scan-list on a dense console page, not headline figures.
+ * They were inheriting the 16px body size, which made every label the same
+ * size as a page's own prose — the panel read as a stack of titles rather than
+ * as data. Scoped to this panel: `.summary-row` is shared with the customer
+ * flow, where a summary line is the focal object and keeps its size.
+ */
+.admin-shell .dashboard-benefits-panel .summary-row strong {
+    font-size: 0.8125rem;
+}
+
+.admin-shell .dashboard-benefits-panel .summary-row p {
+    font-size: 0.75rem;
+}
+
 .admin-shell .dashboard-benefit-empty {
     align-items: center;
     grid-template-columns: 36px minmax(0, 1fr);
@@ -2271,10 +2282,6 @@ img.logo-tile {
     font-weight: 500;
 }
 
-.admin-shell .sidebar-brand-role {
-    color: var(--muted);
-}
-
 /* The console's sidebar is white, so the trigger's white-on-navy tints would be
    invisible. It tints toward the canvas instead. The menu itself already uses
    surface/line tokens, so it needs no override in either theme. */
@@ -2842,15 +2849,44 @@ img.logo-tile {
 .sidebar-brand {
     display: flex;
     align-items: center;
-    gap: 10px;
+    /* Tight enough that the tile and the name read as one lockup rather than
+       two things that happen to share a row. */
+    gap: 7px;
     margin-bottom: 18px;
-    font-weight: 800;
 }
 
-.sidebar-brand-role {
-    font-size: 0.72rem;
-    font-weight: 400;
-    opacity: 0.72;
+/* No hover treatment: the lockup navigates, but the pointer cursor is all the
+   affordance it needs — recolouring the wordmark made the corner flicker on
+   every pass of the cursor on its way to the nav. Focus is still drawn, since
+   a keyboard user has no cursor to go by. */
+a.sidebar-brand:focus-visible {
+    border-radius: 10px;
+    outline: 2px solid var(--purple);
+    outline-offset: 3px;
+}
+
+/*
+ * The product wordmark.
+ *
+ * Weight alone was the wrong dial: at 800 it was the heaviest thing on a screen
+ * where it is the least interactive, and at 600 in Inter it was just another
+ * bold UI string. The display face is what separates a mark from a label, so it
+ * can sit at a moderate weight and still hold the corner. Negative tracking is
+ * what Outfit's wide geometric bowls want at this size - without it the two
+ * words drift apart.
+ */
+.sidebar-brand strong,
+.admin-login-logo strong,
+.landing-app-bar strong {
+    font-family: var(--font-display), var(--font-inter), sans-serif;
+    letter-spacing: -0.018em;
+}
+
+/* Weight is set per lockup, beside the size each one uses, rather than here -
+   the console corner and the login panel are not the same size of mark. */
+.sidebar-brand strong {
+    font-size: 1.02rem;
+    font-weight: 600;
 }
 
 .sidebar-nav {
@@ -3159,6 +3195,50 @@ img.logo-tile {
     font-size: 0.74rem;
 }
 
+/*
+ * The business a staff account is scoped to.
+ *
+ * It used to sit under "Voucher Hunt" at the top of the sidebar, where it read
+ * as a subtitle of the product rather than a fact about who is signed in.
+ *
+ * As a bare line under the email it read as a third identity field — same size,
+ * same left edge, one shade apart from the two lines above it. A chip states it
+ * in a different register: this is what the account can reach, not another way
+ * of naming the person. `justify-self` keeps it hugging the name; the header is
+ * a grid, so it would otherwise stretch the full width and lose the shape.
+ */
+.sidebar-account-business {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: 6px;
+    max-width: 100%;
+    margin-top: 9px;
+    padding: 4px 9px 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--canvas);
+    color: var(--navy);
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.sidebar-account-business svg {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    color: var(--muted);
+}
+
+/* The header's shared truncation rule lands on the chip; the name inside it
+   needs its own so a long business ellipsises within the pill. */
+.sidebar-account-business > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .sidebar-account-menu-items {
     display: grid;
     padding: 5px;
@@ -3250,7 +3330,8 @@ img.logo-tile {
 .admin-login-logo {
     display: flex;
     align-items: center;
-    gap: 12px;
+    /* Same tight lockup as the sidebar, scaled to the larger tile. */
+    gap: 9px;
 }
 
 .admin-login-logo .logo-tile {
@@ -3259,16 +3340,13 @@ img.logo-tile {
     border-radius: 12px;
 }
 
-.admin-login-logo div {
-    display: grid;
-}
-
+/* 600, not the `bolder` a bare `strong` resolves to: the display face is
+   already doing the work that extra weight used to do. Standing alone beside a
+   46px tile now that the second line is gone, it carries a little more size to
+   hold its side of the lockup. */
 .admin-login-logo strong {
-    font-size: 1.2rem;
-}
-
-.admin-login-logo small {
-    color: rgba(255, 255, 255, 0.68);
+    font-size: 1.3rem;
+    font-weight: 600;
 }
 
 .admin-login-brand-copy {
@@ -3788,7 +3866,10 @@ img.logo-tile {
 
 .dashboard-loading-line,
 .dashboard-loading-card,
-.dashboard-loading-panel {
+.dashboard-loading-panel,
+.form-skeleton-media,
+.form-skeleton-control,
+.form-skeleton-button {
     display: block;
     background: linear-gradient(100deg, #e9edf5 30%, #f8faff 50%, #e9edf5 70%);
     background-size: 220% 100%;
@@ -3828,7 +3909,10 @@ img.logo-tile {
 @media (prefers-reduced-motion: reduce) {
     .dashboard-loading-line,
     .dashboard-loading-card,
-    .dashboard-loading-panel {
+    .dashboard-loading-panel,
+    .form-skeleton-media,
+    .form-skeleton-control,
+    .form-skeleton-button {
         animation: none;
     }
 }
@@ -6449,6 +6533,14 @@ th {
     border-radius: 0 10px 10px 0;
 }
 
+/* A staff session hides the business tile, so the campaign tile is the only
+   child and matches both rules above. They have equal specificity, so the
+   later `:last-child` won and squared off the left corners against the card's
+   rounded ones — visible the moment hover painted the tile. */
+.scope-selector > .scope-tile:only-child .campaign-page-selector {
+    border-radius: 10px;
+}
+
 /* An inset shadow rather than a border, so the tile's own hover rules cannot
    recolour the divider. */
 .scope-selector > .scope-tile + .scope-tile .campaign-page-selector {
@@ -7034,6 +7126,90 @@ th {
     gap: 10px;
 }
 
+/*
+ * The loading placeholder for a form route. It renders inside `.form-page` and
+ * reuses `.form-card` with its real padding, so the only geometry here is the
+ * bars themselves and the spacing the `<form>` element normally contributes.
+ */
+.form-skeleton {
+    display: grid;
+    gap: 24px;
+}
+
+.form-skeleton .form-page-header,
+.form-skeleton .form-card-header {
+    display: grid;
+    justify-items: start;
+    gap: 9px;
+}
+
+/* The grid gap above already supplies 24 of the 28px the real header keeps
+   between itself and the first card. */
+.form-skeleton .form-page-header {
+    margin-bottom: 4px;
+}
+
+.form-skeleton-back {
+    width: 84px;
+    height: 12px;
+}
+
+.form-skeleton-card-title {
+    width: 164px;
+    height: 17px;
+}
+
+.form-skeleton-card-note {
+    width: min(430px, 78%);
+    height: 12px;
+}
+
+.form-skeleton-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 24px;
+}
+
+.form-skeleton-field {
+    display: grid;
+    gap: 8px;
+}
+
+/* A field the form does not pair with another - a business name, a password,
+   a SelectMenu - runs the full width of the card rather than half of it. */
+.form-skeleton-field:only-child {
+    grid-column: 1 / -1;
+}
+
+.form-skeleton-label {
+    width: min(132px, 60%);
+    height: 11px;
+}
+
+.form-skeleton-control {
+    height: 40px;
+    border-radius: 10px;
+}
+
+/* A map picker and a campaign artwork preview are both a wide block sitting
+   above the fields that follow them; 2:1 is the aspect the artwork is cropped
+   to, and the cap keeps it from dominating a tall form. */
+.form-skeleton-media {
+    aspect-ratio: 2 / 1;
+    max-height: 210px;
+    border-radius: 12px;
+}
+
+.form-skeleton-button {
+    width: 84px;
+    height: 36px;
+    border-radius: 8px;
+}
+
+.form-skeleton-button-submit {
+    width: 132px;
+}
+
 @media (max-width: 760px) {
     .form-page {
         padding-top: 8px;
@@ -7050,6 +7226,10 @@ th {
     }
 
     .form-page-form .admin-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .form-skeleton-fields {
         grid-template-columns: 1fr;
     }
 }
@@ -7311,10 +7491,39 @@ th {
 }
 .pool-slot-options {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
     gap: 8px;
 }
 /* Layout and checkbox painting come from the shared checkbox-row rules above. */
+
+/*
+ * Date over time, rather than `2026-07-08 10:00` on one line.
+ *
+ * Two runs of digits in the same size and colour ran together: neither could be
+ * read without reading the other, and one option was told from the next only by
+ * a character somewhere in the middle. The spelled-out date now carries the
+ * weight, and the window sits under it in muted micro-type.
+ */
+.pool-slot-option-label {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pool-slot-option-date {
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pool-slot-option-time {
+    color: var(--muted);
+    font-size: 0.72rem;
+    /* Times line up column-wise down the grid, so the same hour reads as the
+       same width whichever row it lands in. */
+    font-variant-numeric: tabular-nums;
+}
 
 /* Public legal pages (privacy policy). Plain readable prose column — these are
    linked from the Play listing, so they are read outside the app shell. */
