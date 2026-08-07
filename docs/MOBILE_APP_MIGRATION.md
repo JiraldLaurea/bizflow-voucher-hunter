@@ -1,4 +1,4 @@
-# BizFlow — Mobile App Migration (Phase 1 → 7) Handoff
+# Voucher Hunt — Mobile App Migration (Phase 1 → 7) Handoff
 
 **Audience:** an AI agent picking this up fresh, with no prior conversation context.
 **Goal:** ship the **customer-facing** experience as a **React Native (Expo) Android app**, publishable to Google Play. The **admin/staff dashboard stays a web app**. The Next.js backend/API is shared by both.

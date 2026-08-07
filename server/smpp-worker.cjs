@@ -284,7 +284,7 @@ function selectSourceAddress(phone) {
   if (GLOBE_PREFIXES.has(prefix) && process.env.SMPP_SOURCE_ADDR_GLOBE) {
     return process.env.SMPP_SOURCE_ADDR_GLOBE;
   }
-  return process.env.SMPP_SOURCE_ADDR || process.env.SMS_SENDER_ID || "BizFlow";
+  return process.env.SMPP_SOURCE_ADDR || process.env.SMS_SENDER_ID || "VoucherHunt";
 }
 
 // ---- HTTP ----

@@ -399,7 +399,7 @@ function submitOnePart(session: SmppSession, params: Record<string, unknown>): P
 function selectSmppSourceAddress(phone: string) {
   const smartSender = process.env.SMPP_SOURCE_ADDR_SMART;
   const globeSender = process.env.SMPP_SOURCE_ADDR_GLOBE;
-  const defaultSender = process.env.SMPP_SOURCE_ADDR ?? process.env.SMS_SENDER_ID ?? "BizFlow";
+  const defaultSender = process.env.SMPP_SOURCE_ADDR ?? process.env.SMS_SENDER_ID ?? "VoucherHunt";
 
   if (smartSender && isLikelySmartNumber(phone)) return smartSender;
   if (globeSender && isLikelyGlobeNumber(phone)) return globeSender;
@@ -428,12 +428,12 @@ function isLikelyGlobeNumber(phone: string) {
 
 // ---- Movider (Philippines) ----
 // Docs: https://developer.movider.co
-// Env vars: SMS_API_KEY, SMS_API_SECRET, SMS_SENDER_ID (optional, defaults to "BizFlow")
+// Env vars: SMS_API_KEY, SMS_API_SECRET, SMS_SENDER_ID (optional, defaults to "VoucherHunt")
 
 async function sendViaMovider(phone: string, message: string): Promise<ProviderResult> {
   const apiKey = process.env.SMS_API_KEY;
   const apiSecret = process.env.SMS_API_SECRET;
-  const from = process.env.SMS_SENDER_ID ?? "BizFlow";
+  const from = process.env.SMS_SENDER_ID ?? "VoucherHunt";
 
   if (!apiKey || !apiSecret) {
     return { success: false, error: "Movider credentials not configured (SMS_API_KEY, SMS_API_SECRET)" };
@@ -520,7 +520,7 @@ async function sendViaTwilio(phone: string, message: string): Promise<ProviderRe
 async function sendViaInfobip(phone: string, message: string): Promise<ProviderResult> {
   const apiKey = process.env.SMS_API_KEY;
   const baseUrl = process.env.INFOBIP_BASE_URL;
-  const sender = process.env.SMS_SENDER_ID ?? "BizFlow";
+  const sender = process.env.SMS_SENDER_ID ?? "VoucherHunt";
 
   if (!apiKey || !baseUrl) {
     return { success: false, error: "Infobip credentials not configured" };
@@ -558,7 +558,7 @@ async function sendViaInfobip(phone: string, message: string): Promise<ProviderR
 async function sendViaClickSend(phone: string, message: string): Promise<ProviderResult> {
   const username = process.env.SMS_API_KEY;
   const apiKey = process.env.SMS_API_SECRET;
-  const sender = process.env.SMS_SENDER_ID ?? "BizFlow";
+  const sender = process.env.SMS_SENDER_ID ?? "VoucherHunt";
 
   if (!username || !apiKey) {
     return { success: false, error: "ClickSend credentials not configured" };

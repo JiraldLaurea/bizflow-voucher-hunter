@@ -1,4 +1,4 @@
-# BizFlow Voucher Hunt Engine
+# Voucher Hunt Engine
 
 Reservation-based voucher hunting MVP for SMEs. A customer picks a campaign, spins to reveal voucher candidates, selects one, then books a date/time slot **from the windows that voucher's benefit tier is offered at**, and redeems it through a staff/admin surface.
 

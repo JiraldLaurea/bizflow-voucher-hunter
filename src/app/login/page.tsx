@@ -52,10 +52,7 @@ export default async function LoginPage({
                             src="/images/voucher-hunt-app-logo.png"
                             width={46}
                         />
-                        <div>
-                            <strong>BizFlow</strong>
-                            <small>Voucher Hunt Admin</small>
-                        </div>
+                        <strong>Voucher Hunt</strong>
                     </div>
                     <div className="admin-login-brand-copy">
                         <h2>Campaign control, without the clutter.</h2>
@@ -66,7 +63,7 @@ export default async function LoginPage({
                         </p>
                     </div>
                     <p className="admin-login-brand-footer">
-                        BizFlow Admin Portal
+                        Voucher Hunt Admin Portal
                     </p>
                 </aside>
                 <LoginForm

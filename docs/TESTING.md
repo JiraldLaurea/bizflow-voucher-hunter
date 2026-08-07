@@ -1,4 +1,4 @@
-# BizFlow Voucher Hunt Testing Guide
+# Voucher Hunt Testing Guide
 
 Use this document to validate the MVP locally after changes. It covers automated checks, manual browser testing, API and SMS checks, and known limitations.
 
@@ -298,7 +298,7 @@ Validate:
 
 | Area | Expected |
 |---|---|
-| Sidebar | BizFlow admin navigation is visible (no campaign switcher — it moved to the pages) |
+| Sidebar | Voucher Hunt admin navigation is visible (no campaign switcher — it moved to the pages) |
 | Campaign selector | Top-left of Dashboard, Slots, and Vouchers; switching re-scopes the page via `?campaign=` |
 | Metrics | Visit, hunt, attempt, voucher, redemption, and referral cards render |
 | Campaign table | Seeded restaurant, online shop, and beauty clinic rows render, each with an **Allow reschedule** toggle |

@@ -160,7 +160,7 @@ export function SignInForm({ next }: { next: string }) {
             </form>
           )}
           <p className="customer-signin-footnote">
-            One sign-in works across all BizFlow voucher campaigns.
+            One sign-in works across all Voucher Hunt campaigns.
           </p>
         </section>
       </div>

@@ -37,7 +37,7 @@ export default function DeleteAccountPage() {
       <p>
         This page explains how to have your <strong>Voucher Hunt</strong> account
         and the personal data held against it deleted. Voucher Hunt is operated
-        by <strong>BizFlow</strong>.
+        by <strong>Voucher Hunt</strong>.
       </p>
 
       <h2>How to request deletion</h2>

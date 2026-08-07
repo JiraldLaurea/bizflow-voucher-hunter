@@ -1,7 +1,7 @@
-# BizFlow Voucher Hunt Engine PRD
+# Voucher Hunt Engine PRD
 
 ## 1. Project Overview
-- **Service Name**: BizFlow Voucher Hunt Engine
+- **Service Name**: Voucher Hunt Engine
 - **Core Concept**: A reservation-first voucher hunting platform where users choose a date/time slot, reveal voucher candidates, and select one final voucher.
 - **Project Type**: Full-stack responsive web app.
 - **Primary Target Users**: End users, business owners, campaign admins, store staff, and system admins.

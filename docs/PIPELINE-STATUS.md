@@ -1,6 +1,6 @@
 # Pipeline Status
 
-- Project: BizFlow Voucher Hunt Engine
+- Project: Voucher Hunt Engine
 - Status: completed-with-notes
 - Current Step: Step 7 - Deployment Preparation
 - Last Completed Step: Step 7
