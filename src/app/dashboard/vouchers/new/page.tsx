@@ -1,25 +1,23 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
-import { listBusinesses, listCampaignsWithIndustry } from "@/server/admin";
 import { filterCampaignsForSession } from "@/server/auth";
 import { listChangeRequests } from "@/server/change-requests";
 import { dashboardMetrics } from "@/server/voucher-engine";
 import { FormPage } from "../../_components/FormPage";
 import { PoolForm, type PoolRequestDraft } from "../../_components/PoolForm";
 import { scopedHref, selectScope } from "../../_components/selectCampaign";
+import { cachedBusinesses, cachedCampaignsWithIndustry, currentSession } from "@/server/dashboard-data";
 
 export default async function NewPoolPage({
   searchParams,
 }: {
   searchParams: { business?: string; campaign?: string; revise?: string };
 }) {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  const session = await currentSession();
   const campaigns = filterCampaignsForSession(
     session!,
-    await listCampaignsWithIndustry(),
+    await cachedCampaignsWithIndustry(),
   );
-  const businesses = await listBusinesses();
+  const businesses = await cachedBusinesses();
   const scope = selectScope(businesses, campaigns, searchParams);
   const campaign = scope.campaign;
   if (!campaign) redirect("/dashboard/vouchers");

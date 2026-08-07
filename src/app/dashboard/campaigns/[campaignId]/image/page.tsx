@@ -1,9 +1,7 @@
-import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
-import { listCampaigns } from "@/server/admin";
 import { EditCampaignImageForm } from "../../../_components/EditCampaignImageForm";
 import { FormPage } from "../../../_components/FormPage";
+import { cachedCampaigns, currentSession } from "@/server/dashboard-data";
 
 export const dynamic = "force-dynamic";
 
@@ -12,13 +10,11 @@ export default async function EditCampaignImagePage({
 }: {
   params: { campaignId: string };
 }) {
-  const session = await verifyAdminSession(
-    cookies().get(ADMIN_SESSION_COOKIE)?.value,
-  );
+  const session = await currentSession();
   // Staff validate vouchers for a campaign; they do not change its artwork.
   if (session?.role === "staff") redirect("/dashboard");
 
-  const campaign = (await listCampaigns()).find(
+  const campaign = (await cachedCampaigns()).find(
     (item) => item.id === params.campaignId,
   );
   if (!campaign) notFound();

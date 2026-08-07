@@ -1,7 +1,5 @@
-import { cookies } from "next/headers";
 import { FiAlertTriangle } from "react-icons/fi";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
-import { listBusinesses } from "@/server/admin";
+import { cachedBusinesses, currentSession } from "@/server/dashboard-data";
 import {
   businessBillingOverview,
   centavosToMoney,
@@ -35,8 +33,10 @@ export default async function BillingPage({
 }: {
   searchParams: { business?: string };
 }) {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
-  const businesses = await listBusinesses();
+  const [session, businesses] = await Promise.all([
+    currentSession(),
+    cachedBusinesses(),
+  ]);
   // Staff see only their own partner; admins pick from all of them. Unlike the
   // campaign-scoped pages this is not filtered to businesses that run a
   // campaign — a partner still owes for LP their till issued either way.

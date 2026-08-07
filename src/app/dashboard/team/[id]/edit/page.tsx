@@ -1,10 +1,8 @@
-import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { listAdminUsers } from "@/server/admin-users";
-import { listBusinesses } from "@/server/admin";
 import { FormPage } from "../../../_components/FormPage";
 import { TeamMemberForm } from "../../../_components/TeamMemberForm";
+import { cachedBusinesses, currentSession } from "@/server/dashboard-data";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +11,12 @@ export default async function EditTeamMemberPage({
 }: {
   params: { id: string };
 }) {
-  const session = await verifyAdminSession(
-    cookies().get(ADMIN_SESSION_COOKIE)?.value,
-  );
+  const session = await currentSession();
   if (session?.role !== "super_admin") redirect("/dashboard");
 
   const [members, businesses] = await Promise.all([
     listAdminUsers(),
-    listBusinesses(),
+    cachedBusinesses(),
   ]);
   const member = members.find((item) => item.id === params.id);
   if (!member) notFound();

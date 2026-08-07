@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { FiEdit2 } from "react-icons/fi";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import { cachedBusinesses, currentSession } from "@/server/dashboard-data";
 import { listAdminUsers } from "@/server/admin-users";
 import { listBusinesses } from "@/server/admin";
 import { FlashNotice } from "../_components/FlashNotice";
@@ -33,14 +33,12 @@ function formatDate(value?: string) {
  * super-admin, so the role boundary has to hold here as well as in the API.
  */
 export default async function TeamPage() {
-  const session = await verifyAdminSession(
-    cookies().get(ADMIN_SESSION_COOKIE)?.value,
-  );
+  const session = await currentSession();
   if (session?.role !== "super_admin") redirect("/dashboard");
 
   const [members, businesses] = await Promise.all([
     listAdminUsers(),
-    listBusinesses(),
+    cachedBusinesses(),
   ]);
   const businessName = (id: string) =>
     businesses.find((business) => business.id === id)?.name ?? id;

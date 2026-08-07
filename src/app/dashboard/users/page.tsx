@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import { currentSession } from "@/server/dashboard-data";
 import { toDisplayPhone } from "@/lib/phone-display";
 import { listCustomers } from "@/server/customers";
 import { CustomerSearch } from "../_components/CustomerSearch";
@@ -30,7 +30,7 @@ export default async function UsersPage({
 }: {
   searchParams: { q?: string };
 }) {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  const session = await currentSession();
   if (!session) redirect("/login");
 
   const customers = await listCustomers(session, searchParams.q);

@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { FiArrowLeft } from "react-icons/fi";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { toDisplayPhone } from "@/lib/phone-display";
 import { AppError } from "@/server/errors";
 import { getCustomer } from "@/server/customers";
+import { currentSession } from "@/server/dashboard-data";
 
 function formatDateTime(value?: string) {
   if (!value) return "—";
@@ -43,7 +42,7 @@ export default async function CustomerDetailPage({
 }: {
   params: { phone: string };
 }) {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  const session = await currentSession();
   if (!session) redirect("/login");
 
   const phone = decodeURIComponent(params.phone);

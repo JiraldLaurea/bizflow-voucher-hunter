@@ -1,13 +1,10 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { BusinessForm } from "../../_components/BusinessForm";
 import { FormPage } from "../../_components/FormPage";
+import { currentSession } from "@/server/dashboard-data";
 
 export default async function NewBusinessPage() {
-  const session = await verifyAdminSession(
-    cookies().get(ADMIN_SESSION_COOKIE)?.value,
-  );
+  const session = await currentSession();
   if (session?.role === "staff") redirect("/dashboard");
 
   return (

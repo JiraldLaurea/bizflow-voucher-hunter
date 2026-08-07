@@ -1,11 +1,13 @@
-import { listBusinesses, listCampaigns } from "@/server/admin";
 import Link from "next/link";
 import { FiEdit2 } from "react-icons/fi";
 import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
 import { FlashNotice } from "../_components/FlashNotice";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import {
+  cachedBusinesses,
+  cachedCampaigns,
+  currentSession,
+} from "@/server/dashboard-data";
 
 const MODE_LABELS: Record<string, string> = {
   restaurant: "Restaurant",
@@ -30,10 +32,12 @@ function formatDate(value: string) {
 }
 
 export default async function CampaignsPage() {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  const session = await currentSession();
   if (session?.role === "staff") redirect("/dashboard");
-  const businesses = await listBusinesses();
-  const campaigns = await listCampaigns();
+  const [businesses, campaigns] = await Promise.all([
+    cachedBusinesses(),
+    cachedCampaigns(),
+  ]);
 
   return (
     <>

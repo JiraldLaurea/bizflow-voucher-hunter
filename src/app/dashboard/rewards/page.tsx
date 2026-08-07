@@ -1,14 +1,12 @@
 import { rewardsNetworkOverview } from "@/server/rewards-network";
 import { HeldPurchaseActions, SettlementRowActions } from "../_components/RewardsAdminActions";
 import { RewardsStaffTools } from "../_components/RewardsStaffTools";
-import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
-import { listBusinesses } from "@/server/admin";
+import { cachedBusinesses, currentSession } from "@/server/dashboard-data";
 
 export default async function RewardsNetworkPage() {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  const session = await currentSession();
   if (session?.role === "staff") {
-    const business = (await listBusinesses()).find((item) =>
+    const business = (await cachedBusinesses()).find((item) =>
       session.businessIds.includes(item.id),
     );
     if (!business) {

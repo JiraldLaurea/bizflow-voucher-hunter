@@ -1,9 +1,7 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
-import { listBusinesses, listCampaigns } from "@/server/admin";
 import { BusinessManager } from "../_components/BusinessManager";
 import { FlashNotice } from "../_components/FlashNotice";
+import { cachedBusinesses, cachedCampaigns, currentSession } from "@/server/dashboard-data";
 
 /**
  * Businesses have their own page because they outlive any one campaign: the
@@ -12,15 +10,13 @@ import { FlashNotice } from "../_components/FlashNotice";
  * were per-campaign, which is exactly the confusion this avoids.
  */
 export default async function BusinessesPage() {
-  const session = await verifyAdminSession(
-    cookies().get(ADMIN_SESSION_COOKIE)?.value,
-  );
+  const session = await currentSession();
   // Staff validate vouchers for a business; they do not edit its public details.
   if (session?.role === "staff") redirect("/dashboard");
 
   const [businesses, campaigns] = await Promise.all([
-    listBusinesses(),
-    listCampaigns(),
+    cachedBusinesses(),
+    cachedCampaigns(),
   ]);
 
   return (

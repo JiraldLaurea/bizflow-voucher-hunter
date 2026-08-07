@@ -1,4 +1,4 @@
-import { listBusinesses, listCampaignsWithIndustry, listPools } from "@/server/admin";
+import { listPools } from "@/server/admin";
 import { FiAlertTriangle } from "react-icons/fi";
 import { manilaDateString } from "@/server/db";
 import { dashboardMetrics } from "@/server/voucher-engine";
@@ -8,8 +8,11 @@ import { FlashNotice } from "../_components/FlashNotice";
 import { RedemptionImport } from "../_components/RedemptionImport";
 import { scopedHref, selectScope } from "../_components/selectCampaign";
 import { ScopeSelector } from "../_components/ScopeSelector";
-import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import {
+  cachedBusinesses,
+  cachedCampaignsWithIndustry,
+  currentSession,
+} from "@/server/dashboard-data";
 import { filterCampaignsForSession } from "@/server/auth";
 import {
   listChangeRequests,
@@ -37,36 +40,41 @@ export default async function VouchersPage({
 }: {
   searchParams: { business?: string; campaign?: string; done?: string };
 }) {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
-  const campaigns = filterCampaignsForSession(session!, await listCampaignsWithIndustry());
-  const businesses = await listBusinesses();
+  const [session, allCampaigns, businesses] = await Promise.all([
+    currentSession(),
+    cachedCampaignsWithIndustry(),
+    cachedBusinesses(),
+  ]);
+  const campaigns = filterCampaignsForSession(session!, allCampaigns);
   const scope = selectScope(businesses, campaigns, searchParams);
   const selectedCampaign = scope.campaign;
   const isBusinessScoped = session?.role === "staff";
-  const voucherRequests =
-    isBusinessScoped && selectedCampaign && session
-      ? await listStaffChangeRequests(
-          selectedCampaign.id,
-          session.email,
-          "pool_create",
-        )
-      : [];
-  const adminVoucherRequests =
-    !isBusinessScoped && selectedCampaign
-      ? await listChangeRequests(selectedCampaign.id, "pool_create")
-      : [];
 
-  let slotRows: Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"] = [];
-  let pools: Awaited<ReturnType<typeof listPools>> = [];
-  if (selectedCampaign) {
-    try {
-      slotRows = (await dashboardMetrics(selectedCampaign.id)).slotPerformance;
-      pools = await listPools(selectedCampaign.id);
-    } catch {
-      slotRows = [];
-      pools = [];
-    }
-  }
+  // Slots and pools stay a pair: either both load or the page falls back to
+  // empty for both, which is what the single try/catch here used to guarantee.
+  const [voucherRequests, adminVoucherRequests, [slotRows, pools]] = await Promise.all([
+    isBusinessScoped && selectedCampaign && session
+      ? listStaffChangeRequests(selectedCampaign.id, session.email, "pool_create")
+      : Promise.resolve([]),
+    !isBusinessScoped && selectedCampaign
+      ? listChangeRequests(selectedCampaign.id, "pool_create")
+      : Promise.resolve([]),
+    selectedCampaign
+      ? Promise.all([
+          dashboardMetrics(selectedCampaign.id).then((metrics) => metrics.slotPerformance),
+          listPools(selectedCampaign.id),
+        ]).catch(
+          () =>
+            [[], []] as [
+              Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"],
+              Awaited<ReturnType<typeof listPools>>,
+            ],
+        )
+      : Promise.resolve([[], []] as [
+          Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"],
+          Awaited<ReturnType<typeof listPools>>,
+        ]),
+  ]);
   /**
    * Availability grouped by date rather than one entry per slot. A tier offered
    * at fifteen slots rendered as fifteen full timestamps, which wrapped over

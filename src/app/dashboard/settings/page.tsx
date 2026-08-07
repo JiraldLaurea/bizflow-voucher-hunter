@@ -1,12 +1,11 @@
 import { LiveSmsToggle } from "../_components/LiveSmsToggle";
 import { ResetDataButton } from "../_components/ResetDataButton";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
 import { isDevLiveSmsEnabled } from "@/server/runtime-settings";
+import { currentSession } from "@/server/dashboard-data";
 
 export default async function SettingsPage() {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
+  const session = await currentSession();
   if (session?.role !== "super_admin") redirect("/dashboard");
   const liveSmsEnabled = await isDevLiveSmsEnabled();
   return (

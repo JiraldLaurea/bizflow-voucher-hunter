@@ -1,22 +1,18 @@
-import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
-import { listBusinesses } from "@/server/admin";
 import { BusinessForm } from "../../../_components/BusinessForm";
 import { FormPage } from "../../../_components/FormPage";
+import { cachedBusinesses, currentSession } from "@/server/dashboard-data";
 
 export default async function EditBusinessPage({
   params,
 }: {
   params: { businessId: string };
 }) {
-  const session = await verifyAdminSession(
-    cookies().get(ADMIN_SESSION_COOKIE)?.value,
-  );
+  const session = await currentSession();
   // Staff validate vouchers for a business; they do not edit its public details.
   if (session?.role === "staff") redirect("/dashboard");
 
-  const business = (await listBusinesses()).find(
+  const business = (await cachedBusinesses()).find(
     (item) => item.id === params.businessId,
   );
   if (!business) notFound();

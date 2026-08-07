@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { listBusinesses, listCampaignsWithIndustry } from "@/server/admin";
 import { dashboardMetrics } from "@/server/voucher-engine";
 import { ChangeRequestActions } from "../_components/ChangeRequestActions";
 import { FlashNotice } from "../_components/FlashNotice";
 import { scopedHref, selectScope } from "../_components/selectCampaign";
 import { ScopeSelector } from "../_components/ScopeSelector";
-import { cookies } from "next/headers";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
+import {
+  cachedBusinesses,
+  cachedCampaignsWithIndustry,
+  currentSession,
+} from "@/server/dashboard-data";
 import { filterCampaignsForSession } from "@/server/auth";
 import {
   listChangeRequests,
@@ -18,33 +20,30 @@ export default async function SlotsPage({
 }: {
   searchParams: { business?: string; campaign?: string; done?: string };
 }) {
-  const session = await verifyAdminSession(cookies().get(ADMIN_SESSION_COOKIE)?.value);
-  const campaigns = filterCampaignsForSession(session!, await listCampaignsWithIndustry());
-  const businesses = await listBusinesses();
+  const [session, allCampaigns, businesses] = await Promise.all([
+    currentSession(),
+    cachedCampaignsWithIndustry(),
+    cachedBusinesses(),
+  ]);
+  const campaigns = filterCampaignsForSession(session!, allCampaigns);
   const scope = selectScope(businesses, campaigns, searchParams);
   const selectedCampaign = scope.campaign;
   const isBusinessScoped = session?.role === "staff";
-  const slotRequests =
+  // Which of the two request lists is used still depends on the role exactly as
+  // before; only the waiting is shared.
+  const [slotRequests, adminSlotRequests, slotRows] = await Promise.all([
     isBusinessScoped && selectedCampaign && session
-      ? await listStaffChangeRequests(
-          selectedCampaign.id,
-          session.email,
-          "slot_create",
-        )
-      : [];
-  const adminSlotRequests =
+      ? listStaffChangeRequests(selectedCampaign.id, session.email, "slot_create")
+      : Promise.resolve([]),
     !isBusinessScoped && selectedCampaign
-      ? await listChangeRequests(selectedCampaign.id, "slot_create")
-      : [];
-
-  let slotRows: Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"] = [];
-  if (selectedCampaign) {
-    try {
-      slotRows = (await dashboardMetrics(selectedCampaign.id)).slotPerformance;
-    } catch {
-      slotRows = [];
-    }
-  }
+      ? listChangeRequests(selectedCampaign.id, "slot_create")
+      : Promise.resolve([]),
+    selectedCampaign
+      ? dashboardMetrics(selectedCampaign.id)
+          .then((metrics) => metrics.slotPerformance)
+          .catch(() => [] as Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"])
+      : Promise.resolve([] as Awaited<ReturnType<typeof dashboardMetrics>>["slotPerformance"]),
+  ]);
 
   // The form is on its own route now, so the scope has to travel with the link.
   const newSlotQuery = selectedCampaign

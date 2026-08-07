@@ -1,17 +1,13 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-session";
-import { listBusinesses } from "@/server/admin";
 import { FormPage } from "../../_components/FormPage";
 import { NewCampaignForm } from "../../_components/NewCampaignForm";
+import { cachedBusinesses, currentSession } from "@/server/dashboard-data";
 
 export default async function NewCampaignPage() {
-  const session = await verifyAdminSession(
-    cookies().get(ADMIN_SESSION_COOKIE)?.value,
-  );
+  const session = await currentSession();
   if (session?.role === "staff") redirect("/dashboard");
 
-  const businesses = await listBusinesses();
+  const businesses = await cachedBusinesses();
 
   return (
     <FormPage
