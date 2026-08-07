@@ -35,6 +35,23 @@ const EXPIRY_TYPES = [
   { label: "Custom Days", value: "custom" },
 ];
 
+/**
+ * A slot's calendar date, spelled out.
+ *
+ * The weekday and month name are what let the eye tell one option from another:
+ * a column of `2026-07-08` differs from `2026-08-04` only in digits you have to
+ * read character by character. Parsed at Manila midnight so the day does not
+ * slide backward for a browser sitting west of UTC+8.
+ */
+function slotDate(date: string) {
+  return new Intl.DateTimeFormat("en-PH", {
+    day: "numeric",
+    month: "short",
+    weekday: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00+08:00`));
+}
+
 export type PoolRequestDraft = {
   benefitType: string;
   benefitValue: string;
@@ -312,7 +329,14 @@ export function PoolForm({
                   checked={slotIds.includes(slot.id)}
                   onChange={() => toggleSlot(slot.id)}
                 />
-                {slot.date} {slot.startTime}
+                <span className="pool-slot-option-label">
+                  <span className="pool-slot-option-date">
+                    {slotDate(slot.date)}
+                  </span>
+                  <span className="pool-slot-option-time">
+                    {slot.startTime}–{slot.endTime}
+                  </span>
+                </span>
               </label>
             ))}
           </div>
