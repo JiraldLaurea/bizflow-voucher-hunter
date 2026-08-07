@@ -15,7 +15,6 @@ describe("business venue details", () => {
     name: "Mesa Manila",
     logoText: "MM",
     industry: "restaurant" as const,
-    staffPin: "1234",
     address: "123 Ayala Ave, Makati City",
     contactNumber: "+63 2 8123 4567",
   };

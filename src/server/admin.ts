@@ -1,8 +1,7 @@
 import crypto from "node:crypto";
 import type { InArgs } from "@libsql/client";
 import { AppError } from "@/server/errors";
-import { all, getDb, mapBusiness, mapCampaign, mapPool, mapSlot, one, run, type Exec } from "@/server/db";
-import { hashStaffPin } from "@/server/staff-pin";
+import { all, batchAll, getDb, mapBusiness, mapCampaign, mapPool, mapSlot, one, run, type Exec } from "@/server/db";
 import type { Business, Campaign, CampaignSlot, VoucherPool } from "@/types/voucher";
 
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
@@ -11,7 +10,6 @@ export type CreateBusinessInput = {
   name: string;
   logoText: string;
   industry: Business["industry"];
-  staffPin: string;
   address: string;
   contactNumber: string;
   latitude?: number;
@@ -35,9 +33,6 @@ export async function listBusinesses(): Promise<Business[]> {
 
 export async function createBusiness(input: CreateBusinessInput): Promise<Business> {
   const db = await getDb();
-  if (!/^\d{4,6}$/.test(input.staffPin)) {
-    throw new AppError("E-BUSINESS-PIN", "staffPin must be 4 to 6 digits", 422);
-  }
   const address = input.address.trim();
   if (!address) {
     throw new AppError("E-BUSINESS-ADDRESS", "Address is required", 422);
@@ -62,11 +57,10 @@ export async function createBusiness(input: CreateBusinessInput): Promise<Busine
   };
   await run(
     db,
-    `INSERT INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number, latitude, longitude)
-     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber, @latitude, @longitude)`,
+    `INSERT INTO businesses (id, name, logo_text, industry, address, contact_number, latitude, longitude)
+     VALUES (@id, @name, @logoText, @industry, @address, @contactNumber, @latitude, @longitude)`,
     {
       ...business,
-      staffPin: hashStaffPin(input.staffPin),
       address: business.address ?? null,
       contactNumber: business.contactNumber ?? null,
       latitude: business.latitude ?? null,
@@ -357,8 +351,18 @@ export async function createSlot(campaignIdOrSlug: string, input: CreateSlotInpu
 export async function listPools(campaignIdOrSlug: string): Promise<PoolWithSlots[]> {
   const db = await getDb();
   const campaign = await getCampaign(campaignIdOrSlug);
-  const pools = (await all(db, "SELECT * FROM pools WHERE campaign_id = ?", [campaign.id])).map(mapPool);
-  const links = await all(db, "SELECT pool_id, slot_id FROM pool_slots", []);
+  // The link read is joined back to pools rather than selecting the whole
+  // pool_slots table: it used to return every campaign's links and throw all but
+  // this one's away in JS.
+  const [poolRows, links] = await batchAll(db, [
+    { sql: "SELECT * FROM pools WHERE campaign_id = ?", args: [campaign.id] },
+    {
+      sql: `SELECT ps.pool_id, ps.slot_id FROM pool_slots ps
+            JOIN pools p ON p.id = ps.pool_id WHERE p.campaign_id = ?`,
+      args: [campaign.id],
+    },
+  ]);
+  const pools = poolRows.map(mapPool);
   return pools.map((pool) => ({
     ...pool,
     slotIds: links.filter((l) => l.pool_id === pool.id).map((l) => l.slot_id as string)

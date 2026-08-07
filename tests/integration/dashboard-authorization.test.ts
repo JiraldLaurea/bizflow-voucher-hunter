@@ -118,17 +118,16 @@ describe("dashboard role and business authorization", () => {
     expect(rescheduleResponse.status).toBe(403);
   });
 
-  it("does not expose business PINs through the API", async () => {
+  // Was "does not expose business PINs through the API". The PIN is gone, but
+  // the scoping this asserted along the way is not covered anywhere else.
+  it("scopes the business list to the staff member's own business", async () => {
     const response = await businesses(
       await requestFor("staff", ["biz_demo_restaurant"], "http://localhost/api/businesses"),
     );
     const payload = await response.json();
     expect(response.status).toBe(200);
     expect(payload.data).toHaveLength(1);
-    expect(payload.data[0]).not.toHaveProperty("staffPin");
-
-    const stored = await one(await getDb(), "SELECT staff_pin FROM businesses WHERE id = ?", ["biz_demo_restaurant"]);
-    expect(String(stored?.staff_pin)).toMatch(/^scrypt\$/);
+    expect(payload.data[0].id).toBe("biz_demo_restaurant");
   });
 
   it("uses the signed-in identity for voucher audit records", async () => {

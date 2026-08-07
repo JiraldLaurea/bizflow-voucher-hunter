@@ -47,7 +47,6 @@ export function BusinessForm({ business }: { business?: Business }) {
   const [industry, setIndustry] = useState<string>(
     business?.industry ?? "restaurant",
   );
-  const [staffPin, setStaffPin] = useState("");
   const [address, setAddress] = useState(business?.address ?? "");
   const [contactNumber, setContactNumber] = useState(business?.contactNumber ?? "");
   const [pin, setPin] = useState<Pin | null>(
@@ -83,7 +82,6 @@ export function BusinessForm({ business }: { business?: Business }) {
             name,
             logoText,
             industry,
-            staffPin,
             address,
             contactNumber,
             latitude: pin?.latitude,
@@ -164,23 +162,6 @@ export function BusinessForm({ business }: { business?: Business }) {
           />
         </label>
       </FormCard>
-
-      {editing ? null : (
-        <FormCard
-          title="Staff access"
-          description="Staff enter this PIN to validate vouchers at the venue."
-        >
-          <label className="field">
-            <span>Staff PIN (4-6 digits)</span>
-            <input
-              inputMode="numeric"
-              onChange={(event) => setStaffPin(event.target.value)}
-              required
-              value={staffPin}
-            />
-          </label>
-        </FormCard>
-      )}
 
       <div className="form-page-actions">
         <Link className="button secondary" href={LIST_HREF}>

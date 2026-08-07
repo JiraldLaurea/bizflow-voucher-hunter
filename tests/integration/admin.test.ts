@@ -122,7 +122,6 @@ describe("admin CRUD", () => {
       name: "New Sample Cafe",
       logoText: "NSC",
       industry: "restaurant",
-      staffPin: "1357",
       address: "123 Sample Street, Makati City",
       contactNumber: "09171234567",
     });
@@ -136,19 +135,6 @@ describe("admin CRUD", () => {
       mode: "restaurant"
     });
     expect((await listCampaigns()).some((c) => c.id === campaign.id)).toBe(true);
-  });
-
-  it("rejects a business with an invalid staff PIN", async () => {
-    await expect(createBusiness({
-      name: "Bad Pin Co",
-      logoText: "BP",
-      industry: "retail",
-      staffPin: "12",
-      address: "123 Sample Street, Makati City",
-      contactNumber: "09171234567",
-    })).rejects.toThrow(
-      AppError
-    );
   });
 
   it("keeps approved and rejected staff requests in admin history", async () => {
