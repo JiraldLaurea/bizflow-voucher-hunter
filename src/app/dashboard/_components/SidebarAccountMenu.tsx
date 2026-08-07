@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiExternalLink, FiLogOut, FiMoreHorizontal } from "react-icons/fi";
+import {
+  FiBriefcase,
+  FiExternalLink,
+  FiLogOut,
+  FiMoreHorizontal,
+} from "react-icons/fi";
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super admin",
@@ -37,10 +42,14 @@ function initials(name: string, email: string) {
 export function SidebarAccountMenu({
   adminEmail,
   adminName,
+  businessName,
   role,
 }: {
   adminEmail: string;
   adminName: string;
+  /** The business a staff account is scoped to. Admins see every business, so
+      they are passed nothing and the line is left out. */
+  businessName?: string;
   role: "super_admin" | "admin" | "staff";
 }) {
   const router = useRouter();
@@ -163,6 +172,12 @@ export function SidebarAccountMenu({
             <span className="sidebar-account-email" title={adminEmail}>
               {adminEmail}
             </span>
+            {businessName ? (
+              <span className="sidebar-account-business" title={businessName}>
+                <FiBriefcase aria-hidden="true" />
+                <span>{businessName}</span>
+              </span>
+            ) : null}
           </div>
 
           <div className="sidebar-account-menu-items">

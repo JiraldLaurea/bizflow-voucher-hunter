@@ -153,7 +153,9 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">
+      {/* The mark is the way home, as it is on every other console: clicking a
+          product logo is a habit people arrive with. */}
+      <Link className="sidebar-brand" href="/dashboard">
         <Image
           alt=""
           className="logo-tile small"
@@ -162,15 +164,8 @@ export function Sidebar({
           src="/images/voucher-hunt-app-logo.png"
           width={36}
         />
-        <div>
-          <strong>Voucher Hunt</strong>
-          <div className="sidebar-brand-role">
-            {role === "staff"
-              ? `${staffBusinessName ?? "Unassigned business"} · Staff`
-              : "Admin"}
-          </div>
-        </div>
-      </div>
+        <strong>Voucher Hunt</strong>
+      </Link>
       <nav className="sidebar-nav">
         {visibleSections(role).map((section) => (
           <div className="sidebar-nav-section" key={section.title}>
@@ -189,9 +184,12 @@ export function Sidebar({
           </div>
         ))}
       </nav>
+      {/* The business a staff account is scoped to belongs to the account, not
+          to the product name it used to sit under. */}
       <SidebarAccountMenu
         adminEmail={adminEmail}
         adminName={adminName}
+        businessName={role === "staff" ? (staffBusinessName ?? "Unassigned business") : undefined}
         role={role}
       />
     </aside>
