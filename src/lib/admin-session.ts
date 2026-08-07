@@ -39,13 +39,33 @@ async function hmacKey(secret: string) {
   );
 }
 
+/**
+ * Deliberately not importing `@/server/dev-tools`: this module is loaded by
+ * `middleware.ts`, which runs on the edge runtime and must not pull in the
+ * server/AppError graph. The rule is kept identical to `devToolsEnabled()` —
+ * a recognised development environment or an explicit opt-in, never production.
+ */
+function developmentSecretAllowed() {
+  if (process.env.NODE_ENV === "production") return false;
+  if (process.env.ENABLE_DEV_TOOLS === "true") return true;
+  return (
+    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
+  );
+}
+
 function sessionSecret() {
   const secret = process.env.ADMIN_SESSION_SECRET;
   if (secret && secret.length >= 32) return secret;
   // Dev keeps working with no .env at all: derive the secret from
   // ADMIN_ACCESS_TOKEN when it is set, otherwise use a fixed local-only value so
-  // signing does not throw. Production always requires ADMIN_SESSION_SECRET.
-  if (process.env.NODE_ENV !== "production") {
+  // signing does not throw.
+  //
+  // Gated on a recognised development environment rather than merely "not
+  // production". The fallback string is in this file, so anywhere it is reachable
+  // with ADMIN_ACCESS_TOKEN unset, anyone can mint a valid super-admin session
+  // cookie — a deploy that simply forgot to set NODE_ENV must fail to boot
+  // instead of signing sessions with a published secret.
+  if (developmentSecretAllowed()) {
     const token = process.env.ADMIN_ACCESS_TOKEN || "unconfigured";
     return `bizflow-development-session:${token}:local-only`;
   }

@@ -1,8 +1,11 @@
 import crypto from "node:crypto";
 import type { Client, Transaction } from "@libsql/client";
+import { generateQrToken, generateVoucherCode } from "@/server/codes";
+import { assertDevToolsEnabled, devToolsEnabled } from "@/server/dev-tools";
 import { AppError } from "@/server/errors";
 import {
   all,
+  batchAll,
   getDb,
   manilaDateString,
   mapAttempt,
@@ -398,7 +401,10 @@ export async function listPublicVoucherPools(slug: string) {
   )
     .map(mapPool)
     .map((pool) => ({
-      ...(process.env.NODE_ENV !== "production" ? { poolId: pool.id } : {}),
+      // The pool id is only useful to the dev tool that forces a draw to a
+      // chosen tier, and publishing it alongside the weights hands an attacker
+      // both halves of that override. Same gate as the override itself.
+      ...(devToolsEnabled() ? { poolId: pool.id } : {}),
       benefitType: pool.benefitType,
       benefitValue: pool.benefitValue,
       displayLabel: pool.displayLabel,
@@ -590,14 +596,38 @@ export async function startHunt(input: {
   return huntState(db, result.campaign, result.user);
 }
 
+/**
+ * Picks a benefit tier by weight.
+ *
+ * Uses the CSPRNG, not `Math.random()`. V8 seeds `Math.random` with xorshift128+
+ * and its internal state is recoverable from a handful of consecutive outputs —
+ * and every draw publishes its own output, since the response names the tier
+ * that was won. With the pool weights already public on the campaign page, that
+ * was enough to predict which attempt would land the top tier and to spend
+ * attempts only when the prize was worth it.
+ *
+ * Weights are integers in practice, so the draw is done in integer space: one
+ * uniform pick over the total weight, no float rounding to reason about.
+ */
+/** Fractional weights are supported, so the draw scales to integers rather than rounding them away. */
+const WEIGHT_SCALE = 1_000_000;
+
 function weightedPool(pools: VoucherPool[], existingLabels: Set<string>) {
   const uniqueFirst = pools.filter((pool) => !existingLabels.has(pool.displayLabel));
   const candidates = uniqueFirst.length > 0 ? uniqueFirst : pools;
-  const total = candidates.reduce((sum, pool) => sum + pool.probabilityWeight, 0);
-  let point = Math.random() * total;
-  for (const pool of candidates) {
-    point -= pool.probabilityWeight;
-    if (point <= 0) return pool;
+  const weights = candidates.map((pool) =>
+    Math.max(0, Math.round(pool.probabilityWeight * WEIGHT_SCALE)),
+  );
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  if (total <= 0) return candidates[candidates.length - 1];
+
+  // randomInt is uniform over [0, total) and drawn from the CSPRNG, so the
+  // sequence of prizes carries no state an observer can recover. Integer space
+  // throughout: no float rounding to bias the tail tier.
+  let point = crypto.randomInt(0, total);
+  for (let index = 0; index < candidates.length; index += 1) {
+    point -= weights[index]!;
+    if (point < 0) return candidates[index];
   }
   return candidates[candidates.length - 1];
 }
@@ -659,7 +689,7 @@ export function generateCandidate(input: {
     ).map(mapPool);
     if (pools.length === 0) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this campaign", 409);
 
-    if (input.devPoolId && process.env.NODE_ENV === "production") {
+    if (input.devPoolId && !devToolsEnabled()) {
       throw new AppError("E-DEV-OVERRIDE", "Voucher selection override is unavailable", 400);
     }
     const pool = input.devPoolId
@@ -807,8 +837,8 @@ export function selectFinalVoucher(input: {
       slotId: slot.id,
       userId: user.id,
       selectedAttemptId: attempt.id,
-      voucherCode: `BIZ-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
-      qrToken: crypto.randomBytes(10).toString("hex"),
+      voucherCode: generateVoucherCode("BIZ"),
+      qrToken: generateQrToken(),
       benefitType: attempt.benefitType,
       benefitValue: attempt.benefitValue,
       displayLabel: attempt.displayLabel,
@@ -880,11 +910,32 @@ export async function sendVoucherConfirmationSms(voucherId: string): Promise<Sms
   });
 }
 
-/** Re-sends the SMS confirmation for an existing voucher, e.g. from a "resend" action. */
-export async function resendVoucherSms(input: { codeOrToken: string }): Promise<SmsResult & { voucherCode: string; to: string }> {
+/**
+ * Re-sends the SMS confirmation for an existing voucher.
+ *
+ * `phone` is required and must own the voucher. Without it this was an
+ * unauthenticated send-an-SMS-to-a-stranger endpoint: anyone who guessed or
+ * enumerated a code could bill us for a message and text its owner on repeat,
+ * and the 404-vs-200 difference confirmed which guesses were real codes.
+ * Ownership is checked against the voucher's own user row, so a valid code for
+ * someone else's voucher resolves to the same "not found" a bad code gets.
+ */
+export async function resendVoucherSms(input: {
+  codeOrToken: string;
+  phone: string;
+}): Promise<SmsResult & { voucherCode: string; to: string }> {
   const db = await getDb();
+  const normalized = normalizePhone(input.phone);
+  if (!normalized) {
+    throw new AppError("E-USER-PHONE", "A valid Philippine mobile number is required", 400);
+  }
   const voucher = await loadVoucherContext(db, input.codeOrToken);
   const context = await loadSmsContext(db, voucher);
+  if (context.user.phone !== normalized) {
+    // Deliberately the same error a missing code gets: whether a code exists is
+    // exactly what an enumerating caller is trying to learn.
+    throw new AppError("E-VOUCHER-404", "Voucher was not found", 404);
+  }
   const message = smsBody(context.business, context.campaign, voucher, context.slot);
   const result = await dispatchSms(db, {
     campaignId: context.campaign.id,
@@ -953,7 +1004,7 @@ function smsBody(
   voucher: { voucherCode: string; displayLabel: string; expiresAt: string },
   slot: CampaignSlot
 ) {
-  const name = business?.name ?? "BizFlow";
+  const name = business?.name ?? "Voucher Hunt";
   const window = `${slot.date}, ${slot.startTime}-${slot.endTime}`;
   const validUntil = voucher.expiresAt.slice(0, 10); // date only (YYYY-MM-DD)
   const isRestaurant = campaign.mode === "restaurant";
@@ -1039,7 +1090,18 @@ export async function redeemVoucher(input: { codeOrToken: string; staffName: str
     const voucher = await loadVoucherContext(tx, input.codeOrToken);
     if (voucher.status === "Redeemed") throw new AppError("E-VOUCHER-REDEEMED", "Voucher is already redeemed", 409);
     if (new Date(voucher.expiresAt).getTime() < Date.now()) throw new AppError("E-VOUCHER-EXPIRED", "Voucher is expired", 409);
-    await run(tx, "UPDATE vouchers SET status = 'Redeemed', redeemed_at = ? WHERE id = ?", [isoNow(), voucher.id]);
+    // Conditional on the status we just read, so two tills scanning the same
+    // code settle to one redemption rather than both passing the check above and
+    // both writing. The read-then-write it replaces only held because SQLite
+    // serialises write transactions — correctness should not rest on that.
+    const claimed = await run(
+      tx,
+      "UPDATE vouchers SET status = 'Redeemed', redeemed_at = ? WHERE id = ? AND status <> 'Redeemed'",
+      [isoNow(), voucher.id],
+    );
+    if (claimed !== 1) {
+      throw new AppError("E-VOUCHER-REDEEMED", "Voucher is already redeemed", 409);
+    }
     await run(tx, "UPDATE reservations SET status = 'Redeemed' WHERE voucher_id = ?", [voucher.id]);
     await run(
       tx,
@@ -1136,9 +1198,7 @@ export async function getHuntSnapshot(input: { campaignSlug: string; phone: stri
  * Never exposed in production; the calling route refuses there too.
  */
 export async function resetHuntForPhone(input: { campaignSlug: string; phone: string }) {
-  if (process.env.NODE_ENV === "production") {
-    throw new AppError("E-DEV-ONLY", "Hunt reset is a development-only tool", 403);
-  }
+  assertDevToolsEnabled("Hunt reset");
   return withTx(async (tx) => {
     const campaign = await getCampaignOrThrow(tx, input.campaignSlug);
     const normalized = normalizePhone(input.phone);
@@ -1223,44 +1283,100 @@ export async function resetHuntForPhone(input: { campaignSlug: string; phone: st
   });
 }
 
+const METRIC_EVENTS = ["campaign_page_view", "hunt_started", "voucher_candidate_generated"] as const;
+
+/**
+ * Every dashboard page that is scoped to a campaign renders from this, so it is
+ * on the critical path of most navigations.
+ *
+ * The rollups run as one batch rather than one statement each: against remote
+ * libSQL each statement is a network round trip, and this used to pay nine of
+ * them in sequence. The counting is left to SQL for the same reason the reads
+ * are batched — loading every voucher and attempt row only to `.filter()` them
+ * in JS made the response grow with the campaign's whole history.
+ */
 export async function dashboardMetrics(campaignId: string) {
   const db = await getDb();
   const campaign = await getCampaignOrThrow(db, campaignId);
-  const slots = await publicSlots(campaign.id);
-  const countEvent = async (name: string) =>
-    Number(
-      (await one(db, "SELECT COUNT(*) AS c FROM analytics_events WHERE campaign_id = ? AND event_name = ?", [campaign.id, name])).c
-    );
-  const vouchers = (await all(db, "SELECT * FROM vouchers WHERE campaign_id = ?", [campaign.id])).map(mapVoucher);
-  const attempts = (await all(db, "SELECT * FROM attempts WHERE campaign_id = ?", [campaign.id])).map(mapAttempt);
-  const noShows = Number(
-    (await one(db, "SELECT COUNT(*) AS c FROM reservations WHERE campaign_id = ? AND status = 'No-show'", [campaign.id])).c
+  const [slotRows, voucherRollup, attemptRollup, benefitRollup, eventRollup, noShowRows] =
+    await batchAll(db, [
+      { sql: "SELECT * FROM slots WHERE campaign_id = ?", args: [campaign.id] },
+      {
+        sql: `SELECT slot_id,
+                     COUNT(*) AS issued,
+                     SUM(CASE WHEN status = 'Redeemed' THEN 1 ELSE 0 END) AS redeemed
+              FROM vouchers WHERE campaign_id = ? GROUP BY slot_id`,
+        args: [campaign.id],
+      },
+      {
+        sql: "SELECT slot_id, COUNT(*) AS attempts FROM attempts WHERE campaign_id = ? GROUP BY slot_id",
+        args: [campaign.id],
+      },
+      {
+        // MIN(rowid) preserves the order benefits were first drawn in, which is
+        // the order this list has always rendered in.
+        sql: `SELECT display_label,
+                     COUNT(*) AS generated,
+                     SUM(CASE WHEN status = 'Selected' THEN 1 ELSE 0 END) AS selected
+              FROM attempts WHERE campaign_id = ?
+              GROUP BY display_label ORDER BY MIN(rowid)`,
+        args: [campaign.id],
+      },
+      {
+        sql: `SELECT event_name, COUNT(*) AS c FROM analytics_events
+              WHERE campaign_id = ? AND event_name IN (?, ?, ?) GROUP BY event_name`,
+        args: [campaign.id, ...METRIC_EVENTS],
+      },
+      {
+        sql: "SELECT COUNT(*) AS c FROM reservations WHERE campaign_id = ? AND status = 'No-show'",
+        args: [campaign.id],
+      },
+    ]);
+
+  // Benefit pools are campaign-level; a slot's "remaining" is its own capacity.
+  const slots = slotRows
+    .map(mapSlot)
+    .map((slot) => ({ ...slot, remainingPoolQuantity: slot.remainingCapacity }));
+
+  const vouchersBySlot = new Map(
+    voucherRollup.map((row) => [
+      row.slot_id as string,
+      { issued: Number(row.issued), redeemed: Number(row.redeemed ?? 0) },
+    ]),
   );
+  const attemptsBySlot = new Map(
+    attemptRollup.map((row) => [row.slot_id as string | null, Number(row.attempts)]),
+  );
+  const eventCounts = new Map(
+    eventRollup.map((row) => [row.event_name as string, Number(row.c)]),
+  );
+
+  const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+  const finalVouchersIssued = sum([...vouchersBySlot.values()].map((entry) => entry.issued));
+  const redemptions = sum([...vouchersBySlot.values()].map((entry) => entry.redeemed));
+
   return {
     campaign,
     summary: {
-      visits: await countEvent("campaign_page_view"),
-      hunts: await countEvent("hunt_started"),
-      attemptsUsed: attempts.length,
-      candidatesGenerated: await countEvent("voucher_candidate_generated"),
-      finalVouchersIssued: vouchers.length,
-      redemptions: vouchers.filter((v) => v.status === "Redeemed").length,
-      noShows
+      visits: eventCounts.get("campaign_page_view") ?? 0,
+      hunts: eventCounts.get("hunt_started") ?? 0,
+      attemptsUsed: sum([...attemptsBySlot.values()]),
+      candidatesGenerated: eventCounts.get("voucher_candidate_generated") ?? 0,
+      finalVouchersIssued,
+      redemptions,
+      noShows: Number(noShowRows[0]?.c ?? 0)
     },
     slotPerformance: slots.map((slot) => ({
       slot,
-      issued: vouchers.filter((v) => v.slotId === slot.id).length,
-      attempts: attempts.filter((a) => a.slotId === slot.id).length,
-      redeemed: vouchers.filter((v) => v.slotId === slot.id && v.status === "Redeemed").length
+      issued: vouchersBySlot.get(slot.id)?.issued ?? 0,
+      attempts: attemptsBySlot.get(slot.id) ?? 0,
+      redeemed: vouchersBySlot.get(slot.id)?.redeemed ?? 0
     })),
-    benefitPerformance: Object.values(
-      attempts.reduce<Record<string, { label: string; generated: number; selected: number }>>((acc, attempt) => {
-        acc[attempt.displayLabel] ??= { label: attempt.displayLabel, generated: 0, selected: 0 };
-        acc[attempt.displayLabel].generated += 1;
-        if (attempt.status === "Selected") acc[attempt.displayLabel].selected += 1;
-        return acc;
-      }, {})
-    )
+    benefitPerformance: benefitRollup.map((row) => ({
+      label: String(row.display_label),
+      generated: Number(row.generated),
+      selected: Number(row.selected ?? 0)
+    }))
   };
 }
 
@@ -1523,9 +1639,7 @@ export async function importRedemptions(input: { campaignId: string; csv: string
  * voucher to match. The result is a voucher that is valid for real reasons.
  */
 export async function devRefreshIssuedVouchers(input: { phone: string }) {
-  if (process.env.NODE_ENV === "production") {
-    throw new AppError("E-DEV-ONLY", "Refreshing vouchers is a development-only tool", 403);
-  }
+  assertDevToolsEnabled("Refreshing vouchers");
   const normalized = normalizePhone(input.phone);
   if (!normalized) throw new AppError("E-USER-PHONE", "A valid Philippine mobile number is required", 400);
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireSignedInCustomerPhone } from "@/server/customer-auth";
-import { AppError, fail, ok } from "@/server/errors";
+import { assertDevToolsEnabled } from "@/server/dev-tools";
+import { fail, ok } from "@/server/errors";
 import { enforceRateLimit } from "@/server/rate-limit";
 import { resetHuntForPhone } from "@/server/voucher-engine";
 
@@ -11,9 +12,7 @@ const schema = z.object({ campaignSlug: z.string().min(1) });
 // stock, so the flow can be replayed without reseeding the database.
 export async function POST(request: Request) {
   try {
-    if (process.env.NODE_ENV === "production") {
-      throw new AppError("E-DEV-ONLY", "Hunt reset is a development-only tool", 403);
-    }
+    assertDevToolsEnabled("Hunt reset");
     await enforceRateLimit(request, "hunt/reset", { limit: 30, windowMs: 60_000 });
     const phone = await requireSignedInCustomerPhone(request);
     const input = schema.parse(await request.json());

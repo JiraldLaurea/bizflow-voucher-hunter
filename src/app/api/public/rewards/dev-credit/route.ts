@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireSignedInCustomerPhone } from "@/server/customer-auth";
-import { AppError, fail, ok } from "@/server/errors";
+import { assertDevToolsEnabled } from "@/server/dev-tools";
+import { fail, ok } from "@/server/errors";
 import { enforceRateLimit } from "@/server/rate-limit";
 import { grantDevLoyaltyPoints } from "@/server/rewards-network";
 
@@ -18,13 +19,7 @@ const schema = z.object({
  */
 export async function POST(request: Request) {
   try {
-    if (process.env.NODE_ENV === "production") {
-      throw new AppError(
-        "E-DEV-ONLY",
-        "Granting Loyalty Points is a development-only tool",
-        403,
-      );
-    }
+    assertDevToolsEnabled("Granting Loyalty Points");
     await enforceRateLimit(request, "rewards/dev-credit", {
       limit: 30,
       windowMs: 60_000,

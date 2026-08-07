@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requireSignedInCustomerPhone } from "@/server/customer-auth";
+import { assertDevToolsEnabled } from "@/server/dev-tools";
 import { AppError, fail, ok } from "@/server/errors";
 import { enforceRateLimit } from "@/server/rate-limit";
 import {
@@ -21,13 +22,7 @@ const schema = z.object({ voucherCode: z.string().trim().min(3) });
  */
 export async function POST(request: Request) {
   try {
-    if (process.env.NODE_ENV === "production") {
-      throw new AppError(
-        "E-DEV-ONLY",
-        "Simulated collection is a development-only tool",
-        403,
-      );
-    }
+    assertDevToolsEnabled("Simulated collection");
     await enforceRateLimit(request, "rewards/dev-collect", {
       limit: 30,
       windowMs: 60_000,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { assertBusinessAccess, requireAdmin } from "@/server/auth";
 import { fail, ok } from "@/server/errors";
+import { enforceRateLimit } from "@/server/rate-limit";
 import { redeemRewardVoucher } from "@/server/rewards-network";
 
 const schema = z.object({
@@ -12,6 +13,13 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     const session = await requireAdmin(request);
+    // Spending a stranger's LP at your own till is the payoff for guessing a
+    // code, so the redeem leg is budgeted per account too, not just the lookup.
+    await enforceRateLimit(request, "staff/rewards/redeem", {
+      limit: 60,
+      windowMs: 60_000,
+      subject: session.email,
+    });
     const input = schema.parse(await request.json());
     assertBusinessAccess(session, input.businessId);
     const result = await redeemRewardVoucher({ ...input, staffName: session.email });

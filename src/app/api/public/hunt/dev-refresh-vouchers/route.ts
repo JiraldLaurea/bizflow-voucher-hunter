@@ -1,5 +1,6 @@
 import { requireSignedInCustomerPhone } from "@/server/customer-auth";
-import { AppError, fail, ok } from "@/server/errors";
+import { assertDevToolsEnabled } from "@/server/dev-tools";
+import { fail, ok } from "@/server/errors";
 import { enforceRateLimit } from "@/server/rate-limit";
 import { devRefreshIssuedVouchers } from "@/server/voucher-engine";
 
@@ -10,13 +11,7 @@ import { devRefreshIssuedVouchers } from "@/server/voucher-engine";
  */
 export async function POST(request: Request) {
   try {
-    if (process.env.NODE_ENV === "production") {
-      throw new AppError(
-        "E-DEV-ONLY",
-        "Refreshing vouchers is a development-only tool",
-        403,
-      );
-    }
+    assertDevToolsEnabled("Refreshing vouchers");
     await enforceRateLimit(request, "hunt/dev-refresh-vouchers", {
       limit: 30,
       windowMs: 60_000,

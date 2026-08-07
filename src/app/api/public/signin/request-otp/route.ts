@@ -24,6 +24,14 @@ export async function POST(request: Request) {
       windowMs: 5 * 60_000,
     });
     const input = schema.parse(await request.json());
+    // Also budget by the number being texted. The address limit above cannot
+    // stop an SMS flood — the attacker picks the address, the victim owns the
+    // number — and every send costs real SMPP credit.
+    await enforceRateLimit(request, "signin/request-otp", {
+      limit: 5,
+      windowMs: 15 * 60_000,
+      subject: input.phone,
+    });
     return ok(await requestSignInOtp(input));
   } catch (error) {
     return fail(error);

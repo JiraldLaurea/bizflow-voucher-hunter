@@ -17,6 +17,14 @@ export async function POST(request: Request) {
       windowMs: 5 * 60_000,
     });
     const input = schema.parse(await request.json());
+    // The account under attack is the number, not the address the guesses come
+    // from. Without this, spreading the attempts across addresses bought back
+    // an unlimited budget against one victim's six-digit code.
+    await enforceRateLimit(request, "signin/verify-otp", {
+      limit: 10,
+      windowMs: 15 * 60_000,
+      subject: input.phone,
+    });
     const { phone } = await verifySignInOtp(input);
     // Only now — after proving ownership — are the httpOnly auth cookies set.
     await setCustomerAuthCookies(phone);

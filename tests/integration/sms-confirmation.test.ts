@@ -52,7 +52,10 @@ describe("SMS confirmation", () => {
     const { voucher } = await issueVoucher("+639170009993");
     await sendVoucherConfirmationSms(voucher.id);
 
-    const resent = await resendVoucherSms({ codeOrToken: voucher.voucherCode });
+    const resent = await resendVoucherSms({
+      codeOrToken: voucher.voucherCode,
+      phone: "+639170009993",
+    });
     expect(resent.success).toBe(true);
     expect(resent.voucherCode).toBe(voucher.voucherCode);
     expect(resent.to).toBe("+639170009993");
@@ -60,6 +63,23 @@ describe("SMS confirmation", () => {
     const db = await getDb();
     const row = await one(db, "SELECT COUNT(*) AS c FROM sms_logs WHERE voucher_id = ?", [voucher.id]);
     expect(Number(row.c)).toBe(2);
+  });
+
+  it("refuses to resend a voucher belonging to another number", async () => {
+    const { voucher } = await issueVoucher("+639170009994");
+
+    // The stranger holds a genuine code — the resend must still fail, and with
+    // the same error a made-up code gets, so it cannot confirm the code is real.
+    await expect(
+      resendVoucherSms({
+        codeOrToken: voucher.voucherCode,
+        phone: "+639170008888",
+      }),
+    ).rejects.toMatchObject({ code: "E-VOUCHER-404" });
+
+    const db = await getDb();
+    const row = await one(db, "SELECT COUNT(*) AS c FROM sms_logs WHERE voucher_id = ?", [voucher.id]);
+    expect(Number(row.c)).toBe(0);
   });
 
   it("logs a failed attempt without throwing when the provider is misconfigured", async () => {

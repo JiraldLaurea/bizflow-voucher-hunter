@@ -10,7 +10,9 @@ import {
   recordAdminLogin,
   verifyPassword,
 } from "@/server/admin-users";
+import { devToolsEnabled } from "@/server/dev-tools";
 import { AppError, fail, ok } from "@/server/errors";
+import { enforceRateLimit } from "@/server/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -50,7 +52,24 @@ function sessionResponse(
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
-    const development = process.env.NODE_ENV !== "production";
+    // A console password is the keys to every business, every customer's PII,
+    // and the settlement ledger. This endpoint had no limiter at all, so it was
+    // an offline-speed password oracle reachable over the internet. Budget by
+    // address and again by the account under attack, since neither alone stops
+    // a distributed guesser aimed at one known admin address.
+    await enforceRateLimit(request, "auth/login", {
+      limit: 10,
+      windowMs: 10 * 60_000,
+    });
+    await enforceRateLimit(request, "auth/login", {
+      limit: 10,
+      windowMs: 10 * 60_000,
+      subject: input.email.trim().toLowerCase(),
+    });
+    // The bootstrap fallback below hands out a super-admin session for a
+    // password published in .env.example. It must never be reachable from a
+    // deploy that merely failed to set NODE_ENV — see devToolsEnabled.
+    const development = devToolsEnabled();
 
     // Managed accounts win over the environment credentials. The env pair stays
     // as the bootstrap login — it is what gets you into an empty console to
@@ -110,7 +129,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const name = isStaff ? (process.env.STAFF_NAME?.trim() || "Campaign Staff") : (process.env.ADMIN_NAME?.trim() || "BizFlow Admin");
+    const name = isStaff ? (process.env.STAFF_NAME?.trim() || "Campaign Staff") : (process.env.ADMIN_NAME?.trim() || "Voucher Hunt Admin");
     const role = isStaff ? "staff" as const : (process.env.ADMIN_ROLE?.trim() || "super_admin") as "super_admin" | "admin";
     const businessScope = isStaff
       ? process.env.STAFF_BUSINESS_IDS || (development ? "biz_demo_restaurant" : "")

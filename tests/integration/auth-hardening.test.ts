@@ -1,0 +1,207 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetDb } from "@/server/db";
+import { devToolsEnabled } from "@/server/dev-tools";
+import { requestSignInOtp, verifySignInOtp } from "@/server/otp";
+import { clientIp } from "@/server/rate-limit";
+import { grantDevLoyaltyPoints } from "@/server/rewards-network";
+import { POST as requestOtpRoute } from "@/app/api/public/signin/request-otp/route";
+import { POST as verifyOtpRoute } from "@/app/api/public/signin/verify-otp/route";
+import { POST as loginRoute } from "@/app/api/auth/login/route";
+
+const PHONE = "+639170001111";
+
+function jsonRequest(url: string, body: unknown, headers: Record<string, string> = {}) {
+  return new Request(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+/** The wrong six-digit code, whatever the right one happens to be. */
+function wrongCode(actual: string | undefined) {
+  return actual === "000000" ? "111111" : "000000";
+}
+
+describe("sign-in OTP brute force", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  it("burns the challenge after five wrong codes instead of allowing a million", async () => {
+    const issued = await requestSignInOtp({ phone: PHONE });
+    const bad = wrongCode(issued.devCode);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(verifySignInOtp({ phone: PHONE, code: bad })).rejects.toMatchObject({
+        code: "E-OTP-MISMATCH",
+      });
+    }
+
+    // Sixth guess: the challenge is spent, so even the *correct* code no longer
+    // works. Without this the code stayed guessable for its full 5-minute life.
+    await expect(
+      verifySignInOtp({ phone: PHONE, code: issued.devCode! }),
+    ).rejects.toMatchObject({ code: "E-OTP-404" });
+  });
+
+  it("caps how many codes one number can be sent, however many addresses ask", async () => {
+    for (let sent = 0; sent < 5; sent += 1) {
+      await expect(requestSignInOtp({ phone: PHONE })).resolves.toMatchObject({ sent: true });
+    }
+    await expect(requestSignInOtp({ phone: PHONE })).rejects.toMatchObject({
+      code: "E-OTP-THROTTLED",
+    });
+  });
+
+  it("invalidates an outstanding code when a new one is requested", async () => {
+    const first = await requestSignInOtp({ phone: PHONE });
+    await requestSignInOtp({ phone: PHONE });
+
+    // The superseded code must not still open the account: leaving old
+    // challenges live multiplied the number of 20-bit targets per number.
+    await expect(
+      verifySignInOtp({ phone: PHONE, code: first.devCode! }),
+    ).rejects.toMatchObject({ code: "E-OTP-MISMATCH" });
+  });
+
+  it("rate-limits verification per phone, not only per source address", async () => {
+    await requestSignInOtp({ phone: PHONE });
+
+    let throttled = false;
+    // Every request carries a different forwarded address, which is exactly the
+    // bypass the old limiter had: the attacker chooses that header.
+    for (let attempt = 0; attempt < 14 && !throttled; attempt += 1) {
+      const response = await verifyOtpRoute(
+        jsonRequest(
+          "http://localhost/api/public/signin/verify-otp",
+          { phone: PHONE, code: "000000" },
+          { "x-forwarded-for": `203.0.113.${attempt}` },
+        ),
+      );
+      if (response.status === 429) throttled = true;
+    }
+    expect(throttled).toBe(true);
+  });
+
+  it("rate-limits code requests per phone across rotating addresses", async () => {
+    let throttled = false;
+    for (let attempt = 0; attempt < 8 && !throttled; attempt += 1) {
+      const response = await requestOtpRoute(
+        jsonRequest(
+          "http://localhost/api/public/signin/request-otp",
+          { phone: "+639170002222" },
+          { "x-forwarded-for": `198.51.100.${attempt}` },
+        ),
+      );
+      if (response.status === 429) throttled = true;
+    }
+    expect(throttled).toBe(true);
+  });
+});
+
+describe("client address resolution", () => {
+  it("reads the hop our proxy appended, not the one the caller supplied", () => {
+    // A caller sending their own X-Forwarded-For puts their value first; the
+    // proxy appends the address it actually saw. Taking [0] let anyone pick
+    // their own rate-limit bucket and rotate it per request.
+    const spoofed = new Request("http://localhost/", {
+      headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.7" },
+    });
+    expect(clientIp(spoofed)).toBe("203.0.113.7");
+  });
+
+  it("prefers the platform header that cannot be appended to", () => {
+    const request = new Request("http://localhost/", {
+      headers: {
+        "x-forwarded-for": "1.1.1.1, 9.9.9.9",
+        "x-vercel-forwarded-for": "203.0.113.9",
+      },
+    });
+    expect(clientIp(request)).toBe("203.0.113.9");
+  });
+
+  it("never falls past the leftmost hop into caller-controlled territory", () => {
+    // More trusted hops configured than the header actually has: clamp to the
+    // first entry rather than reading undefined and bucketing everyone together.
+    const previous = process.env.TRUSTED_PROXY_HOPS;
+    process.env.TRUSTED_PROXY_HOPS = "5";
+    try {
+      const request = new Request("http://localhost/", {
+        headers: { "x-forwarded-for": "203.0.113.4" },
+      });
+      expect(clientIp(request)).toBe("203.0.113.4");
+    } finally {
+      if (previous === undefined) delete process.env.TRUSTED_PROXY_HOPS;
+      else process.env.TRUSTED_PROXY_HOPS = previous;
+    }
+  });
+});
+
+describe("console login brute force", () => {
+  beforeEach(async () => {
+    process.env.ADMIN_SESSION_SECRET =
+      "test-only-admin-session-secret-with-more-than-32-characters";
+    await resetDb();
+  });
+
+  it("throttles password guessing against one account across addresses", async () => {
+    let throttled = false;
+    for (let attempt = 0; attempt < 14 && !throttled; attempt += 1) {
+      const response = await loginRoute(
+        jsonRequest(
+          "http://localhost/api/auth/login",
+          { email: "admin@bizflow.local", password: `guess-${attempt}` },
+          { "x-forwarded-for": `192.0.2.${attempt}` },
+        ),
+      );
+      if (response.status === 429) throttled = true;
+    }
+    expect(throttled).toBe(true);
+  });
+});
+
+describe("dev-only tooling gate", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("stays closed for an unrecognised environment such as a preview deploy", () => {
+    vi.stubEnv("ENABLE_DEV_TOOLS", undefined);
+
+    // These are the values that made the old `NODE_ENV !== "production"` gate
+    // hand out free LP, forced draws and a published-password super-admin login.
+    for (const value of ["preview", "staging", undefined]) {
+      vi.stubEnv("NODE_ENV", value);
+      expect(devToolsEnabled()).toBe(false);
+    }
+  });
+
+  it("stays closed in production even with the opt-in flag set", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ENABLE_DEV_TOOLS", "true");
+    expect(devToolsEnabled()).toBe(false);
+  });
+
+  it("opens for development, test, and an explicit opt-in", () => {
+    vi.stubEnv("ENABLE_DEV_TOOLS", undefined);
+    vi.stubEnv("NODE_ENV", "development");
+    expect(devToolsEnabled()).toBe(true);
+    vi.stubEnv("NODE_ENV", "test");
+    expect(devToolsEnabled()).toBe(true);
+    vi.stubEnv("NODE_ENV", "staging");
+    vi.stubEnv("ENABLE_DEV_TOOLS", "true");
+    expect(devToolsEnabled()).toBe(true);
+  });
+
+  it("refuses to mint Loyalty Points once the gate is closed", async () => {
+    vi.stubEnv("ENABLE_DEV_TOOLS", undefined);
+    vi.stubEnv("NODE_ENV", "preview");
+
+    // The whole point: this endpoint creates spendable balance no partner has
+    // been billed for, and "preview" used to read as not-production.
+    await expect(
+      grantDevLoyaltyPoints({ phone: PHONE, amount: "500" }),
+    ).rejects.toMatchObject({ code: "E-DEV-ONLY" });
+  });
+});

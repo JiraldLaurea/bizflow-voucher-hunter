@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import { requireSignedInCustomerPhone } from "@/server/customer-auth";
-import { AppError, fail, ok } from "@/server/errors";
+import { assertDevToolsEnabled } from "@/server/dev-tools";
+import { fail, ok } from "@/server/errors";
 import { enforceRateLimit } from "@/server/rate-limit";
 import {
   creditRewardFromPurchase,
@@ -25,13 +26,7 @@ const schema = z.object({
  */
 export async function POST(request: Request) {
   try {
-    if (process.env.NODE_ENV === "production") {
-      throw new AppError(
-        "E-DEV-ONLY",
-        "Simulated purchases are a development-only tool",
-        403,
-      );
-    }
+    assertDevToolsEnabled("Simulated purchases");
     await enforceRateLimit(request, "rewards/dev-purchase", {
       limit: 30,
       windowMs: 60_000,

@@ -13,7 +13,6 @@ import type {
   VoucherAttempt,
   VoucherPool
 } from "@/types/voucher";
-import { hashStaffPin, isHashedStaffPin } from "@/server/staff-pin";
 
 // libSQL returns rows keyed by column name; mappers narrow them to domain types.
 type Row = any;
@@ -50,7 +49,6 @@ CREATE TABLE IF NOT EXISTS businesses (
   name TEXT NOT NULL,
   logo_text TEXT NOT NULL,
   industry TEXT NOT NULL,
-  staff_pin TEXT NOT NULL,
   address TEXT,
   contact_number TEXT,
   latitude REAL,
@@ -87,6 +85,7 @@ CREATE TABLE IF NOT EXISTS slots (
   remaining_capacity INTEGER NOT NULL,
   status TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_slots_campaign ON slots (campaign_id);
 CREATE TABLE IF NOT EXISTS pools (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL REFERENCES campaigns(id),
@@ -102,6 +101,7 @@ CREATE TABLE IF NOT EXISTS pools (
   status TEXT NOT NULL,
   restriction TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_pools_campaign ON pools (campaign_id);
 -- Which date/time slots offer each benefit tier. Rarer tiers map to fewer slots.
 CREATE TABLE IF NOT EXISTS pool_slots (
   pool_id TEXT NOT NULL REFERENCES pools(id),
@@ -154,6 +154,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT NOT NULL,
   UNIQUE (campaign_id, phone)
 );
+-- The customer list groups by phone across campaigns. UNIQUE (campaign_id, phone)
+-- leads with campaign_id, so it cannot serve that grouping.
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
 CREATE TABLE IF NOT EXISTS attempts (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -169,6 +172,10 @@ CREATE TABLE IF NOT EXISTS attempts (
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+-- The dashboard aggregates attempts per campaign, and per slot within it, on
+-- every campaign-scoped page load. Without this the metrics query scans the
+-- whole table, which is the largest table in an active campaign.
+CREATE INDEX IF NOT EXISTS idx_attempts_campaign ON attempts (campaign_id, slot_id);
 CREATE TABLE IF NOT EXISTS vouchers (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -186,6 +193,12 @@ CREATE TABLE IF NOT EXISTS vouchers (
   redeemed_at TEXT,
   UNIQUE (campaign_id, user_id)
 );
+-- The UNIQUE (campaign_id, user_id) index cannot serve the dashboard's
+-- per-slot/per-status rollups, which never constrain user_id.
+CREATE INDEX IF NOT EXISTS idx_vouchers_campaign ON vouchers (campaign_id, slot_id, status);
+-- Nor can it serve a lookup by user alone: campaign_id is its leading column, so
+-- the customer list's join from users to vouchers had no index at all.
+CREATE INDEX IF NOT EXISTS idx_vouchers_user ON vouchers (user_id);
 CREATE TABLE IF NOT EXISTS reservations (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -196,6 +209,7 @@ CREATE TABLE IF NOT EXISTS reservations (
   status TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_reservations_campaign ON reservations (campaign_id, status);
 CREATE TABLE IF NOT EXISTS sms_logs (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -230,6 +244,9 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   metadata TEXT,
   created_at TEXT NOT NULL
 );
+-- This table grows fastest of all and the dashboard only ever counts it by
+-- (campaign, event_name). The index turns those counts into range scans.
+CREATE INDEX IF NOT EXISTS idx_analytics_campaign_event ON analytics_events (campaign_id, event_name);
 CREATE TABLE IF NOT EXISTS referral_rewards (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -248,6 +265,10 @@ CREATE TABLE IF NOT EXISTS otp_challenges (
   expires_at TEXT NOT NULL,
   verified INTEGER NOT NULL DEFAULT 0,
   consumed_at TEXT,
+  -- Wrong guesses against this challenge. A six-digit code is only 20 bits, so
+  -- the code's secrecy rests entirely on this counter burning the challenge
+  -- before an attacker can walk the space. See verifySignInOtp.
+  attempts INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_otp_campaign_phone ON otp_challenges (campaign_id, phone);
@@ -547,9 +568,10 @@ async function init() {
   }
 
   await c.executeMultiple(SCHEMA);
-  await ensureStaffPinHashes(c);
+  await dropStaffPinColumn(c);
   await ensureRewardsSchema(c);
   await ensureSmsSchema(c);
+  await ensureAuthSchema(c);
 
   if (migrating) {
     // Full reset so seed changes (e.g. campaign titles) reach already-seeded
@@ -577,16 +599,18 @@ async function ensureDemoCustomer(c: Client) {
   await c.batch(demoCustomerStatements(), "write");
 }
 
-async function ensureStaffPinHashes(c: Client) {
-  const rows = (await c.execute("SELECT id, staff_pin FROM businesses")).rows as Row[];
-  for (const row of rows) {
-    const value = String(row.staff_pin ?? "");
-    if (value && !isHashedStaffPin(value)) {
-      await c.execute({
-        sql: "UPDATE businesses SET staff_pin = ? WHERE id = ?",
-        args: [hashStaffPin(value), String(row.id)],
-      });
-    }
+/**
+ * Drops the retired per-venue staff PIN.
+ *
+ * The column was written on every business create but never read: no code ever
+ * verified a PIN against it. Staff reach the console through `admin_users`
+ * accounts instead. `CREATE TABLE IF NOT EXISTS` cannot remove it from an
+ * already-created table, and leaving a NOT NULL column with no default would
+ * fail every later insert, so it has to go explicitly.
+ */
+async function dropStaffPinColumn(c: Client) {
+  if (await hasColumn(c, "businesses", "staff_pin")) {
+    await c.execute("ALTER TABLE businesses DROP COLUMN staff_pin");
   }
 }
 
@@ -687,6 +711,26 @@ async function ensureRewardsSchema(c: Client) {
      SET gross_amount_centavos = COALESCE(gross_amount_centavos, total_amount_centavos),
          service_fee_centavos = COALESCE(service_fee_centavos, 0)`,
   );
+}
+
+/**
+ * Brings already-deployed databases up to the current sign-in schema without a
+ * destructive version bump.
+ *
+ * `attempts` is what makes a six-digit OTP safe: without it a challenge stays
+ * guessable for its full five-minute life, and 10^6 is not a large number when
+ * the only other brake is a per-address limiter.
+ */
+async function ensureAuthSchema(c: Client) {
+  const authColumnAdds: Array<[string, string, string]> = [
+    ["otp_challenges", "attempts", "INTEGER NOT NULL DEFAULT 0"],
+    ["customer_tokens", "last_used_at", "TEXT"],
+  ];
+  for (const [table, column, definition] of authColumnAdds) {
+    if (!(await hasColumn(c, table, column))) {
+      await c.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
 }
 
 // Adds the SMPP delivery-receipt columns to already-deployed databases without a
@@ -798,12 +842,32 @@ export async function run(db: Exec, sql: string, args?: InArgs): Promise<number>
   return rs.rowsAffected;
 }
 
+/**
+ * Reads several independent result sets in a single round trip.
+ *
+ * Against remote libSQL every `execute` is a network round trip, so a page that
+ * needs five unrelated rollups pays five latencies before it can render. `batch`
+ * pays one. Read-only: use `withTx` when statements have to see each other.
+ */
+export async function batchAll(
+  client: Client,
+  statements: { sql: string; args?: InArgs }[],
+): Promise<Row[][]> {
+  const results = await client.batch(
+    statements.map((statement) =>
+      statement.args === undefined
+        ? statement.sql
+        : { sql: statement.sql, args: statement.args },
+    ) as InStatement[],
+    "read",
+  );
+  return results.map((result) => result.rows as Row[]);
+}
+
 
 /** Seed data. Also used to (re)populate the database for local dev and tests. */
 export const seedData: {
-  businesses: Array<
-    Business & { staffPin: string; depositCentavos: number }
-  >;
+  businesses: Array<Business & { depositCentavos: number }>;
   campaigns: Campaign[];
   slots: CampaignSlot[];
   pools: VoucherPool[];
@@ -848,7 +912,6 @@ export const seedData: {
       name: "Mesa Manila Test Kitchen",
       logoText: "MM",
       industry: "restaurant",
-      staffPin: "2468",
       // The PHP 5,000 network minimum, so a fresh demo starts fundable.
       depositCentavos: 5_000_00,
       address: "229 Nicanor Garcia St, Makati City, 1209 Metro Manila, Philippines",
@@ -861,7 +924,6 @@ export const seedData: {
       name: "SariSari Studio",
       logoText: "SS",
       industry: "online_shop",
-      staffPin: "1357",
       depositCentavos: 8_000_00,
       address: "1631 31st Street, Makati City, Metro Manila, Philippines",
       contactNumber: "09789632563",
@@ -875,7 +937,6 @@ export const seedData: {
       name: "Glow Lab Skin Clinic",
       logoText: "GL",
       industry: "beauty",
-      staffPin: "9753",
       depositCentavos: 5_000_00,
       address: "1 Zuellig Loop, Makati City, Metro Manila, Philippines",
       contactNumber: "09471234567",
@@ -1164,8 +1225,8 @@ async function ensureSeededRewardProductImages(c: Client) {
 }
 
 const INSERT_BUSINESS =
-  `INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, staff_pin, address, contact_number, latitude, longitude, deposit_balance_centavos)
-     VALUES (@id, @name, @logoText, @industry, @staffPin, @address, @contactNumber, @latitude, @longitude, @depositCentavos)`;
+  `INSERT OR IGNORE INTO businesses (id, name, logo_text, industry, address, contact_number, latitude, longitude, deposit_balance_centavos)
+     VALUES (@id, @name, @logoText, @industry, @address, @contactNumber, @latitude, @longitude, @depositCentavos)`;
 const INSERT_DEPOSIT_ENTRY = `INSERT OR IGNORE INTO business_deposit_entries (id, business_id, type, amount_centavos, balance_after_centavos, reference, note, recorded_by, statement_id, created_at)
      VALUES (@id, @businessId, 'TopUp', @amountCentavos, @amountCentavos, @reference, @note, 'Seed', NULL, @createdAt)`;
 const INSERT_REWARD_PRODUCT = `INSERT OR IGNORE INTO reward_products (id, business_id, name, description, image_url, price_centavos, status, created_at, updated_at)
@@ -1255,7 +1316,6 @@ async function seed(c: Client) {
         name: r.name,
         logoText: r.logoText,
         industry: r.industry,
-        staffPin: hashStaffPin(r.staffPin),
         // The columns are nullable, but the driver rejects `undefined`.
         address: r.address ?? null,
         contactNumber: r.contactNumber ?? null,

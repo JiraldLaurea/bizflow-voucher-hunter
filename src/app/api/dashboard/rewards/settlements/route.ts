@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assertRewardsAdmin, requireAdmin } from "@/server/auth";
+import { devToolsEnabled } from "@/server/dev-tools";
 import { fail, ok } from "@/server/errors";
 import {
   adjustRewardRedemption,
@@ -69,8 +70,9 @@ export async function POST(request: Request) {
           businessId: input.businessId,
           period: input.period,
           reviewer,
-          // Outside the 1st-7th window this is refused in production anyway.
-          devIgnoreWindow: process.env.NODE_ENV !== "production",
+          // Closing a month early moves real money. Only where dev tooling is
+          // recognised — `closeBusinessStatement` re-checks the same gate.
+          devIgnoreWindow: devToolsEnabled(),
         }),
       );
     }

@@ -39,8 +39,24 @@ describe("rate limiting", () => {
     await expect(enforceRateLimit(req("3.3.3.3"), "route-b", { limit: 1, windowMs: 60_000 })).resolves.toBeUndefined();
   });
 
-  it("parses the first x-forwarded-for hop and falls back to unknown", () => {
-    expect(clientIp(new Request("http://t", { headers: { "x-forwarded-for": "5.6.7.8, 10.0.0.1" } }))).toBe("5.6.7.8");
+  it("takes the last x-forwarded-for hop and falls back to unknown", () => {
+    // This asserted the FIRST hop, which is the entry a caller supplies: anyone
+    // could send `x-forwarded-for: 5.6.7.8` and pick their own bucket, rotating
+    // it per request to erase every limit in the app. The rightmost entry is the
+    // one our own proxy appended, so that is the one to key on.
+    expect(clientIp(new Request("http://t", { headers: { "x-forwarded-for": "5.6.7.8, 10.0.0.1" } }))).toBe("10.0.0.1");
     expect(clientIp(new Request("http://t"))).toBe("unknown");
+  });
+
+  it("gives a subject its own budget, separate from the caller's address", async () => {
+    // Money and credential endpoints limit on both. An attacker spread across
+    // addresses still shares one budget against the account they are attacking.
+    await enforceRateLimit(req("4.4.4.4"), "u2", { limit: 1, windowMs: 60_000, subject: "+639170000001" });
+    await expect(
+      enforceRateLimit(req("5.5.5.5"), "u2", { limit: 1, windowMs: 60_000, subject: "+639170000001" }),
+    ).rejects.toThrow(AppError);
+    await expect(
+      enforceRateLimit(req("4.4.4.4"), "u2", { limit: 1, windowMs: 60_000, subject: "+639170000002" }),
+    ).resolves.toBeUndefined();
   });
 });

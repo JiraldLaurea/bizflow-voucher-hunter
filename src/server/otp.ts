@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import { all, getDb, run } from "@/server/db";
+import { all, getDb, one, run } from "@/server/db";
+import { devToolsEnabled } from "@/server/dev-tools";
 import { AppError } from "@/server/errors";
 import { normalizePhone } from "@/server/phone";
 import { sendSms, type SmsResult } from "@/server/sms";
@@ -7,6 +8,19 @@ import { sendSms, type SmsResult } from "@/server/sms";
 const OTP_TTL_MS = 5 * 60_000;
 const isoNow = () => new Date().toISOString();
 const otpId = () => `otp_${crypto.randomBytes(6).toString("hex")}`;
+
+/**
+ * Wrong guesses a single challenge tolerates before it is burned.
+ *
+ * The code is 20 bits. Five tries per challenge means an attacker's odds are
+ * 5-in-a-million per code sent, and MAX_CODES_PER_PHONE_WINDOW caps how many
+ * codes they can cause to exist — so the whole attack is bounded by SMS the
+ * victim would notice, rather than by how fast the attacker can send requests.
+ */
+const MAX_VERIFY_ATTEMPTS = 5;
+/** Codes one number can have issued inside the window, however many addresses ask. */
+const MAX_CODES_PER_PHONE_WINDOW = 5;
+const PHONE_REQUEST_WINDOW_MS = 15 * 60_000;
 
 // Sign-in OTP is campaign-agnostic — it proves phone ownership for the account
 // itself, not for one campaign. The challenge table's campaign_id is plain
@@ -55,6 +69,24 @@ function codeMatches(expected: string, provided: string) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * How many codes this number has been sent recently.
+ *
+ * Per-address limits do not protect a phone: the address is the attacker's to
+ * choose, and the number being pumped is the victim's. This counts what was
+ * actually sent to the number, so an SMS flood costs the same whether it comes
+ * from one address or a thousand.
+ */
+async function codesSentRecently(db: Awaited<ReturnType<typeof getDb>>, phone: string) {
+  const since = new Date(Date.now() - PHONE_REQUEST_WINDOW_MS).toISOString();
+  const row = await one(
+    db,
+    "SELECT COUNT(*) AS c FROM otp_challenges WHERE campaign_id = ? AND phone = ? AND created_at >= ?",
+    [SIGNIN_SCOPE, phone, since],
+  );
+  return Number(row?.c ?? 0);
+}
+
 /** Generates a 6-digit sign-in code, stores its hash, and sends it via SMS. */
 export async function requestSignInOtp(input: {
   phone: string;
@@ -70,17 +102,34 @@ export async function requestSignInOtp(input: {
     return { sent: true, expiresAt: new Date(Date.now() + OTP_TTL_MS).toISOString() };
   }
 
+  if ((await codesSentRecently(db, phone)) >= MAX_CODES_PER_PHONE_WINDOW) {
+    throw new AppError(
+      "E-OTP-THROTTLED",
+      "Too many codes have been sent to this number. Try again in a few minutes.",
+      429,
+    );
+  }
+
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
   const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
+  // Supersede any code still outstanding for this number. Leaving them live
+  // multiplied the attacker's surface: every unconsumed challenge was another
+  // 20-bit target, and only the newest was ever checked.
   await run(
     db,
-    `INSERT INTO otp_challenges (id, campaign_id, phone, code_hash, expires_at, verified, created_at)
-     VALUES (?, ?, ?, ?, ?, 0, ?)`,
+    `UPDATE otp_challenges SET consumed_at = ?
+     WHERE campaign_id = ? AND phone = ? AND consumed_at IS NULL`,
+    [isoNow(), SIGNIN_SCOPE, phone],
+  );
+  await run(
+    db,
+    `INSERT INTO otp_challenges (id, campaign_id, phone, code_hash, expires_at, verified, attempts, created_at)
+     VALUES (?, ?, ?, ?, ?, 0, 0, ?)`,
     [otpId(), SIGNIN_SCOPE, phone, hashCode(SIGNIN_SCOPE, phone, code), expiresAt, isoNow()]
   );
   const result: SmsResult = await sendSms(
     phone,
-    `[BizFlow] Your sign-in code is ${code}. It expires in 5 minutes.`
+    `[Voucher Hunt] Your sign-in code is ${code}. It expires in 5 minutes.`
   );
   // Surface the code outside production so local/demo/tests can complete the
   // flow without a live SMS — but only when nothing was actually sent. With the
@@ -90,8 +139,7 @@ export async function requestSignInOtp(input: {
   return {
     sent: result.success,
     expiresAt,
-    devCode:
-      process.env.NODE_ENV === "production" || !usedMockProvider ? undefined : code
+    devCode: devToolsEnabled() && usedMockProvider ? code : undefined
   };
 }
 
@@ -123,10 +171,31 @@ export async function verifySignInOtp(input: {
      ORDER BY created_at DESC LIMIT 1`,
     [SIGNIN_SCOPE, phone]
   );
-  const row = rows[0] as { id: string; code_hash: string; expires_at: string } | undefined;
+  const row = rows[0] as
+    | { id: string; code_hash: string; expires_at: string; attempts?: number }
+    | undefined;
   if (!row) throw new AppError("E-OTP-404", "No verification code was requested for this number", 404);
   if (new Date(row.expires_at).getTime() < Date.now()) throw new AppError("E-OTP-EXPIRED", "Verification code has expired", 409);
-  if (row.code_hash !== hashCode(SIGNIN_SCOPE, phone, input.code)) {
+
+  // Count the guess before checking it, and burn the challenge once the budget
+  // is gone. Charging on failure alone would let a crash or a dropped response
+  // hand back a free attempt, and consuming the row is what makes the limit
+  // real: a spent challenge cannot be retried from a fresh address.
+  const attempts = Number(row.attempts ?? 0) + 1;
+  if (attempts > MAX_VERIFY_ATTEMPTS) {
+    await run(db, "UPDATE otp_challenges SET consumed_at = ? WHERE id = ?", [isoNow(), row.id]);
+    throw new AppError(
+      "E-OTP-ATTEMPTS",
+      "Too many incorrect codes. Request a new one.",
+      429,
+    );
+  }
+  await run(db, "UPDATE otp_challenges SET attempts = ? WHERE id = ?", [attempts, row.id]);
+
+  if (!codeMatches(row.code_hash, hashCode(SIGNIN_SCOPE, phone, input.code))) {
+    if (attempts >= MAX_VERIFY_ATTEMPTS) {
+      await run(db, "UPDATE otp_challenges SET consumed_at = ? WHERE id = ?", [isoNow(), row.id]);
+    }
     throw new AppError("E-OTP-MISMATCH", "Incorrect verification code", 400);
   }
   await run(db, "UPDATE otp_challenges SET verified = 1, consumed_at = ? WHERE id = ?", [isoNow(), row.id]);

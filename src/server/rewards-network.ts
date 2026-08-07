@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import type { Client, Transaction } from "@libsql/client";
-import { all, getDb, one, run, withTx } from "@/server/db";
+import { generateVoucherCode } from "@/server/codes";
+import { all, batchAll, getDb, one, run, withTx } from "@/server/db";
+import { assertDevToolsEnabled, devToolsEnabled } from "@/server/dev-tools";
 import { AppError } from "@/server/errors";
 import { normalizePhone } from "@/server/phone";
 import type {
@@ -741,7 +743,7 @@ export async function convertRewardCreditToVoucher(input: {
 
     const updated = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]));
     const voucherId = id("rvch");
-    const voucherCode = `RWD-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    const voucherCode = generateVoucherCode("RWD");
     const qrToken = token("rvoucher");
     const expires = new Date();
     expires.setFullYear(expires.getFullYear() + 1);
@@ -1027,57 +1029,55 @@ export async function adjustRewardRedemption(input: { redemptionId: string; revi
 
 export async function rewardsNetworkOverview() {
   const db = await getDb();
-  const totals = await one(
-    db,
-    `SELECT
-      COALESCE(SUM(balance_centavos), 0) AS outstanding_credit,
-      COALESCE(SUM(lifetime_earned_centavos), 0) AS lifetime_earned,
-      COALESCE(SUM(lifetime_converted_centavos), 0) AS lifetime_converted,
-      COUNT(*) AS wallets
-     FROM reward_wallets`,
-  );
-  const pending = await one(
-    db,
-    `SELECT
-       COALESCE(SUM(settlement_amount_centavos), 0) AS total,
-       COALESCE(SUM(service_fee_centavos), 0) AS fees,
-       COUNT(*) AS count
-     FROM reward_voucher_redemptions
-     WHERE settlement_status = 'Pending'`,
-  );
-  const held = await one(
-    db,
-    "SELECT COUNT(*) AS count FROM reward_purchases WHERE status = 'Held'",
-  );
-  const purchases = (
-    await all(
-      db,
-      `SELECT p.*, w.phone, b.name AS business_name
+  // Five independent rollups for one page: batched so they cost one round trip
+  // rather than five sequential ones.
+  const [totalsRows, pendingRows, heldRows, purchaseRows, redemptionRows] = await batchAll(db, [
+    {
+      sql: `SELECT
+        COALESCE(SUM(balance_centavos), 0) AS outstanding_credit,
+        COALESCE(SUM(lifetime_earned_centavos), 0) AS lifetime_earned,
+        COALESCE(SUM(lifetime_converted_centavos), 0) AS lifetime_converted,
+        COUNT(*) AS wallets
+       FROM reward_wallets`,
+    },
+    {
+      sql: `SELECT
+         COALESCE(SUM(settlement_amount_centavos), 0) AS total,
+         COALESCE(SUM(service_fee_centavos), 0) AS fees,
+         COUNT(*) AS count
+       FROM reward_voucher_redemptions
+       WHERE settlement_status = 'Pending'`,
+    },
+    { sql: "SELECT COUNT(*) AS count FROM reward_purchases WHERE status = 'Held'" },
+    {
+      sql: `SELECT p.*, w.phone, b.name AS business_name
        FROM reward_purchases p
        JOIN reward_wallets w ON w.id = p.wallet_id
        JOIN businesses b ON b.id = p.business_id
        ORDER BY p.created_at DESC
        LIMIT 20`,
-    )
-  ).map((row) => ({
-    ...mapPurchase(row),
-    maskedPhone: maskPhone(row.phone),
-    businessName: row.business_name,
-    purchaseAmount: centavosToMoney(row.purchase_amount_centavos),
-    rewardAmount: centavosToLoyaltyPoints(row.reward_amount_centavos),
-  }));
-  const redemptions = (
-    await all(
-      db,
-      `SELECT r.*, w.phone, b.name AS business_name, v.voucher_code
+    },
+    {
+      sql: `SELECT r.*, w.phone, b.name AS business_name, v.voucher_code
        FROM reward_voucher_redemptions r
        JOIN reward_wallets w ON w.id = r.wallet_id
        JOIN businesses b ON b.id = r.business_id
        JOIN reward_vouchers v ON v.id = r.voucher_id
        ORDER BY r.created_at DESC
        LIMIT 20`,
-    )
-  ).map((row) => ({
+    },
+  ]);
+  const totals = totalsRows[0];
+  const pending = pendingRows[0];
+  const held = heldRows[0];
+  const purchases = purchaseRows.map((row) => ({
+    ...mapPurchase(row),
+    maskedPhone: maskPhone(row.phone),
+    businessName: row.business_name,
+    purchaseAmount: centavosToMoney(row.purchase_amount_centavos),
+    rewardAmount: centavosToLoyaltyPoints(row.reward_amount_centavos),
+  }));
+  const redemptions = redemptionRows.map((row) => ({
     ...mapRedemption(row),
     maskedPhone: maskPhone(row.phone),
     businessName: row.business_name,
@@ -1557,8 +1557,7 @@ export async function closeBusinessStatement(input: {
         409,
       );
     }
-    const ignoreWindow =
-      input.devIgnoreWindow === true && process.env.NODE_ENV !== "production";
+    const ignoreWindow = input.devIgnoreWindow === true && devToolsEnabled();
     if (today.day > 7 && !ignoreWindow) {
       throw new AppError(
         "E-STATEMENT-WINDOW",
@@ -1982,7 +1981,7 @@ export async function purchaseRewardProduct(input: {
       await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]),
     );
     const voucherId = id("rvch");
-    const voucherCode = `RWD-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+    const voucherCode = generateVoucherCode("RWD");
     const qrToken = token("rvoucher");
     const expires = new Date();
     expires.setFullYear(expires.getFullYear() + 1);
@@ -2059,13 +2058,7 @@ export async function grantDevLoyaltyPoints(input: {
   phone: string;
   amount: string | number;
 }) {
-  if (process.env.NODE_ENV === "production") {
-    throw new AppError(
-      "E-DEV-ONLY",
-      "Granting Loyalty Points is a development-only tool",
-      403,
-    );
-  }
+  assertDevToolsEnabled("Granting Loyalty Points");
   return withTx(async (tx) => {
     const wallet = await walletByPhone(tx, requireWalletPhone(input.phone));
     if (!wallet) {
@@ -2235,13 +2228,7 @@ export async function listWalletPurchases(input: { phone: string }) {
  * is the same arithmetic production runs.
  */
 export async function devBackdateLpActivity(input: { businessId: string }) {
-  if (process.env.NODE_ENV === "production") {
-    throw new AppError(
-      "E-DEV-ONLY",
-      "Backdating LP activity is a development-only tool",
-      403,
-    );
-  }
+  assertDevToolsEnabled("Backdating LP activity");
   return withTx(async (tx) => {
     await getBusinessOrThrow(tx, input.businessId);
     const current = manilaDateParts().period;

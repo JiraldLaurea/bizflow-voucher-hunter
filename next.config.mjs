@@ -18,6 +18,48 @@ const nextConfig = {
   experimental: {
     typedRoutes: false,
     serverComponentsExternalPackages: ["@libsql/client", "libsql", "smpp"]
+  },
+  /**
+   * Baseline response headers. None of these stop the attacks that matter most
+   * here — they are the layer that limits what a bug elsewhere can be turned
+   * into: a stolen session replayed over plain HTTP, the dashboard framed to
+   * trick an admin into clicking through a settlement, a voucher code carried
+   * to a third party in a Referer.
+   *
+   * No CSP yet: the dashboard renders `data:` campaign artwork and Next.js
+   * injects inline bootstrap script, so a policy strict enough to be worth
+   * having needs nonce plumbing. Tracked in docs/SECURITY.md as accepted risk.
+   */
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), geolocation=(self), microphone=()",
+          },
+          {
+            // Two years, preloadable. HTTPS-only is already true in practice;
+            // this stops the first request of a session being downgradable.
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
+        ],
+      },
+      {
+        // Never let an API response be cached by a shared proxy: these carry
+        // wallet balances, voucher codes and customer PII.
+        source: "/api/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+    ];
   }
 };
 
