@@ -91,6 +91,15 @@ export function buildDeleteAccountUrl() {
   return `${getApiBaseUrl()}/delete-account`;
 }
 
+/**
+ * The customer landing page, which explains what the app does and lists the
+ * partner offers. It is the same page the store listing points at, so there is
+ * one description of the product rather than a second copy inside the app.
+ */
+export function buildClientLandingUrl() {
+  return `${getApiBaseUrl()}/client`;
+}
+
 export function buildReferralLink(campaignSlug: string, referrerUserId: string) {
   const query = new URLSearchParams({
     campaign: campaignSlug,

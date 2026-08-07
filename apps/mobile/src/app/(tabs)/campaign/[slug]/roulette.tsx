@@ -1,13 +1,7 @@
 import type { VoucherAttempt } from "@bizflow/shared";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import { StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -21,13 +15,14 @@ import { Button, InlineError } from "@/components/FormControls";
 import { HuntHeading, StepHeader } from "@/components/HuntUi";
 import { getDevPoolId } from "@/dev/devTools";
 import { useHunt } from "@/hunt/HuntContext";
-import { RouletteReel, TapHint, type RouletteReelHandle } from "@/hunt/RouletteReel";
+import { RouletteReel, type RouletteReelHandle } from "@/hunt/RouletteReel";
 import { subscribeToHuntReset } from "@/hunt/resetSignal";
 import {
   placeholderRouletteItems,
   rouletteLoop,
   rouletteSequence,
 } from "@/hunt/sequence";
+import { ReelButton } from "@/hunt/ReelButton";
 import { UnlockCelebration } from "@/hunt/UnlockCelebration";
 import { useTranslation } from "@/i18n/LanguageContext";
 import { voucherDisplayLabel } from "@/lib/format";
@@ -61,12 +56,10 @@ export default function RouletteScreen() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [items, setItems] = useState<RoulettePreview[]>(placeholderRouletteItems());
   const [settledIndex, setSettledIndex] = useState<number | null>(null);
-  const [message, setMessage] = useState("");
   const [winner, setWinner] = useState<RoulettePreview | null>(null);
   const [error, setError] = useState("");
   const [canConfirm, setCanConfirm] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const resultEntrance = useSharedValue(0);
 
   // The draw that the reel will land on, once it arrives.
   const pendingStop = useRef<{
@@ -93,26 +86,19 @@ export default function RouletteScreen() {
       if (stopRunning.current) return;
       const currentGeneration = generation.current;
       stopRunning.current = true;
+      // The button reports the coast itself, in place of its own label.
       setPhase("landing");
-      // No sub-message here: the "Slowing down..." heading already says it.
-      setMessage("");
 
       const landedIndex = await reel.current?.stopOn(draw.winner, draw.items);
       if (generation.current !== currentGeneration) return;
       setSettledIndex(landedIndex ?? null);
       setWinner(draw.winner);
       setPhase("selected");
-      // "Selected" reads as though the visitor picked it — the reel landed on it.
-      setMessage(
-        t("roulette.youWon", {
-          label: voucherDisplayLabel(t, draw.winner),
-        }),
-      );
       addAttempt(draw.attempt);
       // The web lets the win land for a beat before offering the confirm button.
       setTimeout(() => setCanConfirm(true), SETTLE_MS);
     },
-    [addAttempt, t],
+    [addAttempt],
   );
 
   useEffect(
@@ -129,37 +115,12 @@ export default function RouletteScreen() {
         setPhase("idle");
         setSettledIndex(null);
         setWinner(null);
-        setMessage("");
         setError("");
         setCanConfirm(false);
         setConfirming(false);
       }),
     [slug],
   );
-
-  useEffect(() => {
-    if (!winner) {
-      resultEntrance.value = 0;
-      return;
-    }
-    resultEntrance.value = withTiming(1, {
-      duration: 520,
-      easing: Easing.out(Easing.back(1.35)),
-    });
-  }, [resultEntrance, winner]);
-
-  const hasWinner = winner !== null;
-  const resultStyle = useAnimatedStyle(() => ({
-    opacity: hasWinner ? resultEntrance.value : 1,
-    transform: [
-      {
-        translateY: hasWinner ? (1 - resultEntrance.value) * 8 : 0,
-      },
-      {
-        scale: hasWinner ? 0.92 + resultEntrance.value * 0.08 : 1,
-      },
-    ],
-  }), [hasWinner]);
 
   useEffect(() => {
     // Wait for the snapshot before drawing. Deciding while it is still in flight
@@ -181,9 +142,6 @@ export default function RouletteScreen() {
       drawAbort.current = controller;
       setPhase("searching");
       setError("");
-      // One message for the whole spin — changing it when the draw lands mid-spin
-      // reads as a glitch.
-      setMessage(t("roulette.spinningHint"));
       reel.current?.startSpin();
 
       try {
@@ -237,7 +195,8 @@ export default function RouletteScreen() {
         if (!active || controller.signal.aborted) return;
         reel.current?.reset();
         setPhase("idle");
-        setMessage("");
+        // A tap that was waiting on this draw has nothing left to stop.
+        stopRequested.current = false;
         // A campaign switch can finish hydrating between opening this screen and
         // the draw request. If the server reports that its base spin was already
         // used, resume the campaign's authoritative attempt rather than showing
@@ -296,10 +255,13 @@ export default function RouletteScreen() {
     token,
   ]);
 
-  function handleTap() {
+  function handleStop() {
     if (phase !== "searching" || stopRunning.current) return;
     if (!pendingStop.current) {
+      // The draw has not landed yet. Move to the coasting state anyway so the
+      // press is visibly acknowledged; `spin` honours the request when it does.
       stopRequested.current = true;
+      setPhase("landing");
       return;
     }
     const draw = pendingStop.current;
@@ -307,16 +269,12 @@ export default function RouletteScreen() {
     void runStop(draw);
   }
 
-  const spinning = phase === "searching";
-  // A failed draw drops the phase back to idle with the reel stopped, so the
-  // heading must not keep claiming it is spinning.
-  const title = error
-    ? t("roulette.spinUnavailable")
-    : winner
-      ? `🎉 ${t("roulette.unlocked")}`
-      : phase === "landing"
-        ? t("roulette.slowing")
-        : t("roulette.spinning");
+  function confirmVoucher() {
+    setConfirming(true);
+    router.push({ pathname: "/campaign/[slug]/results", params: { slug } });
+  }
+
+  const stopping = phase === "landing";
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -324,57 +282,76 @@ export default function RouletteScreen() {
       <View style={styles.body}>
         <Text style={styles.lead}>{t("roulette.intro")}</Text>
 
+        {/* The reel itself is no longer the target — the button below it is, so
+            there is one obvious way to stop and it is not the moving artwork. */}
         <View style={styles.reelWrap}>
-          <Pressable
-            accessibilityLabel={spinning ? t("roulette.tapToStopLabel") : undefined}
-            accessibilityRole={spinning ? "button" : undefined}
-            disabled={!spinning}
-            onPress={handleTap}
-          >
-            <RouletteReel items={items} ref={reel} settledIndex={settledIndex} />
-          </Pressable>
+          <RouletteReel items={items} ref={reel} settledIndex={settledIndex} />
           {winner ? <UnlockCelebration /> : null}
         </View>
-        {/* Keep this slot mounted after the reel stops. Removing it changed the
-            body's measured height and made the entire roulette jump vertically. */}
-        <TapHint visible={spinning} />
 
-        {/* Everything below the reel lives in one zone that grows as the copy and
-            confirm button appear, without moving the reel above it. */}
+        {/* One fixed-height zone under the reel, so the reel never moves as this
+            swaps between stop control, result and error. */}
         <View style={styles.below}>
-          <Animated.View style={resultStyle}>
-            <HuntHeading subtitle={message || undefined} title={title} />
-          </Animated.View>
-          {error ? <InlineError message={error} /> : null}
           {error ? (
-            <View style={styles.action}>
-              <Button
-                variant="secondary"
-                onPress={() =>
-                  router.replace({ pathname: "/campaign/[slug]", params: { slug } })
+            <>
+              <HuntHeading title={t("roulette.spinUnavailable")} />
+              <InlineError message={error} />
+              <View style={styles.action}>
+                <Button
+                  variant="secondary"
+                  onPress={() =>
+                    router.replace({ pathname: "/campaign/[slug]", params: { slug } })
+                  }
+                >
+                  {t("results.returnCampaign")}
+                </Button>
+              </View>
+            </>
+          ) : (
+            <>
+              {/* One button, one position, from the first frame to the last. It
+                  is the same decision changing hands as the spin resolves, so a
+                  second button appearing lower down would read as the screen
+                  rearranging itself at the moment it should feel settled. */}
+              <ReelButton
+                accessibilityLabel={
+                  winner ? undefined : t("roulette.tapToStopLabel")
                 }
-              >
-                {t("results.returnCampaign")}
-              </Button>
-            </View>
-          ) : null}
-          {winner && canConfirm ? (
-            <View style={styles.action}>
-              <Button
-                loading={confirming}
-                loadingLabel={t("roulette.confirming")}
-                onPress={() => {
-                  setConfirming(true);
-                  router.push({
-                    pathname: "/campaign/[slug]/results",
-                    params: { slug },
-                  });
-                }}
-              >
-                {t("roulette.confirm")}
-              </Button>
-            </View>
-          ) : null}
+                disabled={winner ? !canConfirm : phase === "idle"}
+                label={
+                  winner
+                    ? confirming
+                      ? t("roulette.confirming")
+                      : t("roulette.confirm")
+                    : stopping
+                      ? t("roulette.slowing")
+                      : t("roulette.stopReel")
+                }
+                loading={winner ? confirming : stopping}
+                onPress={winner ? confirmVoucher : handleStop}
+              />
+
+              {/* The caption under it carries whatever the button is not saying:
+                  how to play while spinning, and the win once it lands. The
+                  voucher itself is on the ticket above, so this only has to
+                  report that the spin resolved — the prize label rides along for
+                  screen readers, which cannot scan the reel the way the eye can. */}
+              {winner ? (
+                <Text
+                  accessibilityLabel={t("roulette.youWon", {
+                    label: voucherDisplayLabel(t, winner),
+                  })}
+                  style={styles.unlocked}
+                >
+                  {t("roulette.unlocked")}
+                </Text>
+              ) : (
+                <Text style={styles.hint}>
+                  {stopping ? t("roulette.slowingHint") : t("roulette.stopHint")}
+                </Text>
+              )}
+            </>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -402,9 +379,34 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   below: {
-    height: 190,
-    marginTop: spacing.xl,
+    // Fixed, and sized for the tallest state — now the failed-spin one, since
+    // the win is a single line. Letting it size to its content moved the reel
+    // every time the copy changed.
+    height: 180,
+    marginTop: spacing.lg,
     paddingHorizontal: 18,
+  },
+  /** Same 14pt offset as `hint`, so the caption line does not shift as the two
+      swap under a button that is holding still. */
+  unlocked: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 15,
+    letterSpacing: 0.6,
+    lineHeight: 19,
+    marginTop: 14,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  hint: {
+    alignSelf: "center",
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 14,
+    maxWidth: 280,
+    textAlign: "center",
   },
   reelWrap: {
     overflow: "visible",

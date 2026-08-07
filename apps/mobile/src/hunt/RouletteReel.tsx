@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -24,7 +24,7 @@ import type { RoulettePreview } from "@/api/client";
 import { VoucherTicket } from "@/components/VoucherTicket";
 import { useTranslation } from "@/i18n/LanguageContext";
 import { voucherDetail } from "@/lib/format";
-import { colors, fonts, radius, spacing } from "@/theme";
+import { colors, radius } from "@/theme";
 
 /* Reel geometry and motion constants — copied from the web `PublicStepClient` so
    the spin feels identical. Changing one here means changing it there too. */
@@ -277,13 +277,7 @@ export const RouletteReel = forwardRef<RouletteReelHandle, Props>(
           }
 
           return (
-            <View
-              key={`${item.displayLabel}-${index}`}
-              style={[
-                styles.card,
-                settledIndex !== null && styles.unselectedCard,
-              ]}
-            >
+            <View key={`${item.displayLabel}-${index}`} style={styles.card}>
               <VoucherTicket
                 benefit={item}
                 detail={voucherDetail(t, item)}
@@ -342,43 +336,6 @@ export const RouletteReel = forwardRef<RouletteReelHandle, Props>(
   },
 );
 
-/** `.roulette-tap-hint` — the pulsing pill that tells you the reel is stoppable. */
-export function TapHint({ visible = true }: { visible?: boolean }) {
-  const t = useTranslation();
-  const pulse = useSharedValue(0);
-
-  useEffect(() => {
-    pulse.value = withRepeat(
-      withTiming(1, {
-        duration: 650,
-        easing: Easing.inOut(Easing.quad),
-      }),
-      -1,
-      true,
-    );
-    return () => cancelAnimation(pulse);
-  }, [pulse]);
-
-  const hintStyle = useAnimatedStyle(() => ({
-    opacity: 0.9 + pulse.value * 0.1,
-    transform: [
-      { translateY: -pulse.value * 2 },
-      { scale: 1 + pulse.value * 0.055 },
-    ],
-  }));
-
-  return (
-    <View
-      style={[styles.tapHintAnchor, !visible && styles.tapHintHidden]}
-      pointerEvents="none"
-    >
-      <Animated.View style={[styles.tapHint, hintStyle]}>
-        <Text style={styles.tapHintText}>{t("roulette.tapToStop")}</Text>
-      </Animated.View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   stage: {
     backgroundColor: "#f7f4ff",
@@ -408,9 +365,6 @@ const styles = StyleSheet.create({
   card: {
     position: "relative",
     width: CARD_WIDTH,
-  },
-  unselectedCard: {
-    opacity: 0.48,
   },
   winnerFrame: {
     borderColor: "rgba(124, 77, 255, 0.42)",
@@ -452,34 +406,5 @@ const styles = StyleSheet.create({
     top: 13,
     width: 0,
     zIndex: 5,
-  },
-  tapHintAnchor: {
-    alignSelf: "center",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: -spacing.xl,
-    minHeight: 31,
-    minWidth: 108,
-    zIndex: 6,
-  },
-  tapHint: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.pill,
-    paddingHorizontal: 13,
-    paddingVertical: 5,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
-    elevation: 4,
-  },
-  tapHintHidden: {
-    opacity: 0,
-  },
-  tapHintText: {
-    color: colors.surface,
-    fontFamily: fonts.bold,
-    fontSize: 11,
-    letterSpacing: 0.3,
   },
 });

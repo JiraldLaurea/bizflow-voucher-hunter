@@ -15,15 +15,15 @@ import {
 import QRCode from "react-native-qrcode-svg";
 
 import {
+  buildClientLandingUrl,
   buildDeleteAccountUrl,
   buildReferralLink,
-  convertRewardCredit,
   getReferralLinkIdentity,
   getOrCreateRewardWallet,
   type RewardWalletSnapshot,
 } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
-import { Button, Field, InlineError } from "@/components/FormControls";
+import { Button, InlineError } from "@/components/FormControls";
 import { Icon } from "@/components/Icon";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { Screen } from "@/components/Screen";
@@ -40,8 +40,6 @@ export default function MoreScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [wallet, setWallet] = useState<RewardWalletSnapshot | null>(null);
   const [walletBusy, setWalletBusy] = useState(true);
-  const [convertAmount, setConvertAmount] = useState("");
-  const [expandedVoucherId, setExpandedVoucherId] = useState("");
   const [tokenVisible, setTokenVisible] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -69,34 +67,6 @@ export default function MoreScreen() {
       void loadWallet();
     }, [loadWallet]),
   );
-
-  async function handleConvert() {
-    if (!token || !wallet) return;
-    if (!convertAmount.trim()) {
-      setError(t("loyalty.amountRequired"));
-      return;
-    }
-    setWalletBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      await convertRewardCredit(
-        { walletSecret: wallet.walletSecret, amount: convertAmount.trim() },
-        token,
-      );
-      setConvertAmount("");
-      setNotice(t("loyalty.converted"));
-      setWallet(await getOrCreateRewardWallet(token));
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : t("loyalty.convertError"),
-      );
-    } finally {
-      setWalletBusy(false);
-    }
-  }
 
   async function handleSignOut() {
     setError("");
@@ -157,6 +127,14 @@ export default function MoreScreen() {
       await WebBrowser.openBrowserAsync(buildDeleteAccountUrl());
     } catch {
       setError(t("more.deleteAccountError"));
+    }
+  }
+
+  async function openClientLanding() {
+    try {
+      await WebBrowser.openBrowserAsync(buildClientLandingUrl());
+    } catch {
+      setError(t("more.aboutError"));
     }
   }
 
@@ -331,123 +309,6 @@ export default function MoreScreen() {
                 </View>
               ) : null}
             </View>
-
-            <Field
-              keyboardType="decimal-pad"
-              label={t("loyalty.convertLabel")}
-              onChangeText={setConvertAmount}
-              placeholder="50.00"
-              value={convertAmount}
-            />
-            <Button
-              disabled={!convertAmount.trim()}
-              loading={walletBusy}
-              loadingLabel={t("loyalty.converting")}
-              onPress={() => void handleConvert()}
-            >
-              Create LP Voucher
-            </Button>
-
-            {wallet.vouchers.length > 0 ? (
-              <View style={styles.rewardSection}>
-                <Text style={styles.rewardTitle}>{t("loyalty.rewardsTitle")}</Text>
-                <View style={styles.rewardList}>
-                  {wallet.vouchers.slice(0, 3).map((voucher) => {
-                    const expanded = voucher.id === expandedVoucherId;
-                    return (
-                      <View style={styles.rewardCard} key={voucher.id}>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityState={{ expanded }}
-                          onPress={() =>
-                            setExpandedVoucherId(expanded ? "" : voucher.id)
-                          }
-                          style={({ pressed }) => [
-                            styles.rewardRow,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <Text style={styles.rewardCode}>
-                            {voucher.voucherCode}
-                          </Text>
-                          <Text style={styles.rewardMeta}>
-                            {formatPoints(voucher.remainingCentavos)} ·{" "}
-                            {voucher.status}
-                          </Text>
-                          <View
-                            style={[
-                              styles.rewardArrow,
-                              expanded && styles.rewardArrowExpanded,
-                            ]}
-                          >
-                            <Icon
-                              color={colors.primary}
-                              name="chevron-right"
-                              size={18}
-                            />
-                          </View>
-                        </Pressable>
-                        {expanded ? (
-                          <View style={styles.rewardDetails}>
-                            <View style={styles.rewardQr}>
-                              <QRCode
-                                backgroundColor={colors.surface}
-                                color={colors.ink}
-                                quietZone={8}
-                                size={148}
-                                value={voucher.qrToken}
-                              />
-                            </View>
-                            <View style={styles.rewardActions}>
-                              <Pressable
-                                accessibilityRole="button"
-                                onPress={() =>
-                                  void copyToClipboard(
-                                    voucher.voucherCode,
-                                    "LP voucher code",
-                                  )
-                                }
-                                style={({ pressed }) => [
-                                  styles.rewardActionButton,
-                                  pressed && styles.pressed,
-                                ]}
-                              >
-                                <Icon color={colors.ink} name="copy" size={15} />
-                                <Text style={styles.rewardActionText}>
-                                  Copy Code
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                accessibilityRole="button"
-                                onPress={() =>
-                                  void copyToClipboard(
-                                    voucher.qrToken,
-                                    "LP voucher QR token",
-                                  )
-                                }
-                                style={({ pressed }) => [
-                                  styles.rewardActionButton,
-                                  pressed && styles.pressed,
-                                ]}
-                              >
-                                <Icon color={colors.ink} name="copy" size={15} />
-                                <Text style={styles.rewardActionText}>
-                                  Copy QR Token
-                                </Text>
-                              </Pressable>
-                            </View>
-                            <Text style={styles.qrHint}>
-                              Partner staff can scan this QR or enter the voucher
-                              code in the staff Loyalty Points page.
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : null}
           </>
         ) : null}
       </View>
@@ -470,6 +331,18 @@ export default function MoreScreen() {
       <LanguagePicker />
       <NotificationSettings />
       <DevToolsPanel />
+      {/* The landing page the store listing already points at. Opening it in a
+          browser rather than restating it in a screen keeps one description of
+          the product, the same reasoning as the deletion page below. */}
+      <Pressable
+        accessibilityRole="link"
+        onPress={() => void openClientLanding()}
+        style={({ pressed }) => [styles.aboutRow, pressed && styles.pressed]}
+      >
+        <Icon color={colors.primary} name="info" size={18} />
+        <Text style={styles.aboutRowText}>{t("more.about")}</Text>
+        <Icon color={colors.textMuted} name="external-link" size={16} />
+      </Pressable>
       <Button
         loading={isSigningOut}
         onPress={() => void handleSignOut()}
@@ -491,13 +364,26 @@ export default function MoreScreen() {
   );
 }
 
-function formatPoints(value: number) {
-  return `${new Intl.NumberFormat("en-PH", {
-    maximumFractionDigits: 2,
-  }).format(value / 100)} LP`;
-}
-
 const styles = StyleSheet.create({
+  aboutRow: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: spacing.md,
+    minHeight: 48,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  aboutRowText: {
+    color: colors.ink,
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: 14,
+  },
   deleteAccount: {
     alignItems: "center",
     marginTop: spacing.lg,
@@ -712,13 +598,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 10,
   },
-  qrHint: {
-    color: colors.textMuted,
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: "center",
-  },
   walletToken: {
     gap: spacing.sm,
   },
@@ -739,13 +618,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: 13,
   },
+  /* Stacked, not side by side: the token is a 35-character opaque string that
+     wraps to two lines at this width, and a button centred against a wrapping
+     block sits at neither line's baseline. Full width also gives the copy
+     action the same footprint as the reveal button directly above it. */
   walletTokenValue: {
-    alignItems: "center",
+    alignItems: "stretch",
     backgroundColor: "#fbfdff",
     borderColor: colors.borderSoft,
     borderRadius: radius.md,
     borderWidth: 1,
-    flexDirection: "row",
     gap: spacing.sm,
     padding: 7,
   },
@@ -753,7 +635,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: radius.sm,
     color: colors.ink,
-    flex: 1,
     fontFamily: "monospace",
     fontSize: 11,
     fontWeight: "700",
@@ -769,98 +650,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 5,
+    justifyContent: "center",
     minHeight: 36,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
   copyButtonText: {
-    color: colors.ink,
-    fontFamily: fonts.semibold,
-    fontSize: 12,
-  },
-  rewardSection: {
-    gap: spacing.md,
-    marginTop: spacing.sm,
-  },
-  rewardTitle: {
-    color: colors.ink,
-    fontFamily: fonts.bold,
-    fontSize: 17,
-  },
-  rewardList: {
-    gap: spacing.sm,
-  },
-  rewardCard: {
-    gap: spacing.sm,
-  },
-  rewardRow: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    minHeight: 54,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  rewardCode: {
-    color: colors.ink,
-    flex: 1,
-    fontFamily: "monospace",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  rewardMeta: {
-    color: colors.textMuted,
-    fontFamily: fonts.regular,
-    fontSize: 12,
-  },
-  rewardArrow: {
-    transform: [{ rotate: "0deg" }],
-  },
-  rewardArrowExpanded: {
-    transform: [{ rotate: "90deg" }],
-  },
-  rewardDetails: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.borderSoft,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: spacing.md,
-    padding: spacing.md,
-  },
-  rewardQr: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 168,
-    width: 168,
-  },
-  rewardActions: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    width: "100%",
-  },
-  rewardActionButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    flexDirection: "row",
-    gap: 5,
-    justifyContent: "center",
-    minHeight: 42,
-    paddingHorizontal: 10,
-  },
-  rewardActionText: {
     color: colors.ink,
     fontFamily: fonts.semibold,
     fontSize: 12,

@@ -182,6 +182,17 @@ export default function ShopPurchasesScreen() {
                         style={styles.detailRow}
                         value={item.voucherCode}
                       />
+                      {/* The scannable value, for the times staff cannot scan —
+                          a cracked lens, a dim screen — and type it instead.
+                          Only while collectable: once redeemed the token is
+                          dead and offering it to copy just misleads. */}
+                      {item.collectable ? (
+                        <CopyableCode
+                          label={t("shop.qrToken")}
+                          style={styles.detailRow}
+                          value={item.qrToken}
+                        />
+                      ) : null}
                       <View style={styles.detailRow}>
                         <Text style={styles.detailLabel}>
                           {t("shop.purchasedOn")}
