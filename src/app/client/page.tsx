@@ -10,58 +10,113 @@ import {
   HandoverIcon,
   HuntIcon,
 } from "@/app/_components/MarketingIcons";
+import { LanguageSelector } from "@/app/_components/LanguageSelector";
+import { clientTranslator, type ClientTranslationKey } from "@/i18n/client";
+import { resolveLanguage } from "@/lib/locale";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 
 const APP_ICON = "/images/voucher-hunt-app-logo.png";
 
-export const metadata: Metadata = {
-  title: "Voucher Hunt for Customers",
-  description:
-    "Win vouchers, book an eligible time and collect Loyalty Points with the Voucher Hunt customer app.",
-};
+/**
+ * `resolveLanguage()` reads the cookie and `Accept-Language`, neither of which
+ * can be known at build time, so the page renders per request. The business
+ * landing page is already `force-dynamic` for the same reason.
+ */
+export const dynamic = "force-dynamic";
 
-const CLIENT_STEPS = [
+/**
+ * The tab title and the link preview follow the same language as the page, so a
+ * Korean visitor sharing the URL does not paste an English description of a
+ * Korean page.
+ */
+export function generateMetadata(): Metadata {
+  const t = clientTranslator(resolveLanguage());
+  return { title: t("meta.title"), description: t("meta.description") };
+}
+
+/**
+ * The three steps, the three app screens and the three LP Shop steps are lists
+ * of keys rather than of strings: the copy lives in the catalogue and the
+ * artwork lives here, so a translator never has to step around an icon import.
+ */
+const CLIENT_STEPS: {
+  icon: React.ReactNode;
+  title: ClientTranslationKey;
+  body: ClientTranslationKey;
+}[] = [
   {
     icon: <HuntIcon aria-hidden="true" />,
-    title: "Hunt",
-    body: "Open a campaign from a participating business and reveal your voucher.",
+    title: "steps.hunt.title",
+    body: "steps.hunt.body",
   },
   {
     icon: <BookIcon aria-hidden="true" />,
-    title: "Book",
-    body: "Choose an available time when your winning voucher can be used.",
+    title: "steps.book.title",
+    body: "steps.book.body",
   },
   {
     icon: <EarnIcon aria-hidden="true" />,
-    title: "Earn",
-    body: "Show your QR in store and earn Loyalty Points on eligible purchases.",
+    title: "steps.earn.title",
+    body: "steps.earn.body",
   },
 ];
 
-const APP_SCREENS = [
+const APP_SCREENS: {
+  alt: ClientTranslationKey;
+  body: ClientTranslationKey;
+  image: string;
+  title: ClientTranslationKey;
+}[] = [
   {
-    alt: "Voucher Hunt app showing active campaigns from nearby businesses",
-    body: "Find active campaigns from participating businesses.",
+    alt: "preview.discover.alt",
+    body: "preview.discover.body",
     image: "/images/client-app/discover-v2.png",
-    title: "Discover",
+    title: "preview.discover.title",
   },
   {
-    alt: "Voucher Hunt app showing available dates and time slots for a voucher",
-    body: "Reserve one of the times made available for your reward.",
+    alt: "preview.book.alt",
+    body: "preview.book.body",
     image: "/images/client-app/book-v2.png",
-    title: "Book",
+    title: "preview.book.title",
   },
   {
-    alt: "Voucher Hunt app showing a won voucher and its redemption QR code",
-    body: "Keep the voucher and redemption QR ready in the app.",
+    alt: "preview.redeem.alt",
+    body: "preview.redeem.body",
     image: "/images/client-app/redeem-v2.png",
-    title: "Redeem",
+    title: "preview.redeem.title",
+  },
+];
+
+const SHOP_STEPS: {
+  icon: React.ReactNode;
+  title: ClientTranslationKey;
+  body: ClientTranslationKey;
+}[] = [
+  {
+    icon: <ChooseItemIcon aria-hidden="true" />,
+    title: "shop.choose.title",
+    body: "shop.choose.body",
+  },
+  {
+    icon: <CollectPartnerIcon aria-hidden="true" />,
+    title: "shop.collect.title",
+    body: "shop.collect.body",
+  },
+  {
+    icon: <HandoverIcon aria-hidden="true" />,
+    title: "shop.verify.title",
+    body: "shop.verify.body",
   },
 ];
 
 export default function ClientLandingPage() {
+  const language = resolveLanguage();
+  const t = clientTranslator(language);
+
   return (
-    <div className="marketing client-landing">
+    // `lang` sits here rather than on <html> so the root layout stays static for
+    // every other route, matching the business landing page.
+    <div className="marketing client-landing" lang={language}>
       <header className="marketing-nav">
         <div className="marketing-shell marketing-nav-inner client-nav-inner">
           <Link className="marketing-wordmark" href="/client">
@@ -75,15 +130,21 @@ export default function ClientLandingPage() {
             />
             Voucher&nbsp;Hunt
           </Link>
-          <nav className="marketing-nav-links client-nav-links" aria-label="Customer page">
-            <a href="#how-it-works">How it works</a>
-            <a href="#app-preview">Inside the app</a>
-            <a href="#lp-shop">LP Shop</a>
-            <a href="#loyalty-points">Loyalty Points</a>
+          <nav
+            className="marketing-nav-links client-nav-links"
+            aria-label={t("nav.sections")}
+          >
+            <a href="#how-it-works">{t("nav.howItWorks")}</a>
+            <a href="#app-preview">{t("nav.insideApp")}</a>
+            <a href="#lp-shop">{t("nav.lpShop")}</a>
+            <a href="#loyalty-points">{t("nav.loyalty")}</a>
           </nav>
-          <Link className="marketing-nav-switcher" href="/">
-            For Businesses
-          </Link>
+          <div className="marketing-nav-actions">
+            <LanguageSelector language={language} />
+            <Link className="marketing-nav-switcher" href="/">
+              {t("nav.forBusinesses")}
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -92,21 +153,18 @@ export default function ClientLandingPage() {
           <div className="client-hero-bg" aria-hidden="true" />
           <div className="marketing-shell client-hero-inner">
             <div className="client-hero-copy">
-              <p className="marketing-eyebrow">The customer app</p>
-              <h1>Win it. Book it. Enjoy it.</h1>
-              <p>
-                Discover voucher campaigns from participating businesses, reserve
-                the right time and keep every reward in one place.
-              </p>
+              <p className="marketing-eyebrow">{t("hero.eyebrow")}</p>
+              <h1>{t("hero.title")}</h1>
+              <p>{t("hero.lead")}</p>
               <span
-                aria-label="Download on Google Play — coming soon"
+                aria-label={t("hero.storeButtonLabel")}
                 className="marketing-button marketing-button-lg client-store-button"
                 role="img"
               >
                 <FaGooglePlay aria-hidden="true" />
-                Download on Google Play
+                {t("hero.storeButton")}
               </span>
-              <p className="client-store-note">Coming soon — button is disabled for now.</p>
+              <p className="client-store-note">{t("hero.storeNote")}</p>
             </div>
           </div>
         </section>
@@ -114,15 +172,15 @@ export default function ClientLandingPage() {
         <section className="client-steps-section" id="how-it-works">
           <div className="marketing-shell">
             <div className="client-section-head">
-              <p className="marketing-eyebrow">How it works</p>
-              <h2>One simple journey.</h2>
+              <p className="marketing-eyebrow">{t("steps.eyebrow")}</p>
+              <h2>{t("steps.title")}</h2>
             </div>
             <ol className="client-steps">
               {CLIENT_STEPS.map((step) => (
                 <li key={step.title}>
                   <span>{step.icon}</span>
-                  <h3>{step.title}</h3>
-                  <p>{step.body}</p>
+                  <h3>{t(step.title)}</h3>
+                  <p>{t(step.body)}</p>
                 </li>
               ))}
             </ol>
@@ -133,13 +191,10 @@ export default function ClientLandingPage() {
           <div className="marketing-shell">
             <div className="client-app-preview-head">
               <div>
-                <p className="marketing-eyebrow">Inside the app</p>
-                <h2>See the full journey.</h2>
+                <p className="marketing-eyebrow">{t("preview.eyebrow")}</p>
+                <h2>{t("preview.title")}</h2>
               </div>
-              <p>
-                From finding a campaign to showing the final QR, every step stays
-                in one customer app.
-              </p>
+              <p>{t("preview.lead")}</p>
             </div>
 
             <div className="client-app-screens">
@@ -147,7 +202,7 @@ export default function ClientLandingPage() {
                 <figure className="client-app-screen" key={screen.title}>
                   <div className="client-phone-frame">
                     <Image
-                      alt={screen.alt}
+                      alt={t(screen.alt)}
                       height={1856}
                       sizes="(max-width: 760px) 72vw, 260px"
                       src={screen.image}
@@ -155,61 +210,46 @@ export default function ClientLandingPage() {
                     />
                   </div>
                   <figcaption>
-                    <strong>{screen.title}</strong>
-                    <span>{screen.body}</span>
+                    <strong>{t(screen.title)}</strong>
+                    <span>{t(screen.body)}</span>
                   </figcaption>
                 </figure>
               ))}
             </div>
-            <p className="client-app-demo-note">Screens show a demo campaign.</p>
+            <p className="client-app-demo-note">{t("preview.note")}</p>
           </div>
         </section>
 
         <section className="client-shop" id="lp-shop">
           <div className="marketing-shell client-shop-grid">
             <div className="client-shop-copy">
-              <p className="marketing-eyebrow">LP Shop</p>
-              <h2>Turn Loyalty Points into something real.</h2>
-              <p className="client-shop-lead">
-                Customers spend earned LP on items from participating partners,
-                then collect their purchase in person with a verified code.
-              </p>
+              <p className="marketing-eyebrow">{t("shop.eyebrow")}</p>
+              <h2>{t("shop.title")}</h2>
+              <p className="client-shop-lead">{t("shop.lead")}</p>
               <ol className="client-shop-steps">
-                <li>
-                  <span><ChooseItemIcon aria-hidden="true" /></span>
-                  <div>
-                    <strong>Choose an item</strong>
-                    <p>Browse products and see the LP price before buying.</p>
-                  </div>
-                </li>
-                <li>
-                  <span><CollectPartnerIcon aria-hidden="true" /></span>
-                  <div>
-                    <strong>Collect from the partner</strong>
-                    <p>The app keeps the purchase ready for collection.</p>
-                  </div>
-                </li>
-                <li>
-                  <span><HandoverIcon aria-hidden="true" /></span>
-                  <div>
-                    <strong>Verify at handover</strong>
-                    <p>Partner staff scan the code and complete the order.</p>
-                  </div>
-                </li>
+                {SHOP_STEPS.map((step) => (
+                  <li key={step.title}>
+                    <span>{step.icon}</span>
+                    <div>
+                      <strong>{t(step.title)}</strong>
+                      <p>{t(step.body)}</p>
+                    </div>
+                  </li>
+                ))}
               </ol>
             </div>
 
             <figure className="client-shop-screen">
               <div className="client-phone-frame">
                 <Image
-                  alt="Voucher Hunt LP Shop showing a points balance and participating partner products"
+                  alt={t("shop.screenAlt")}
                   height={844}
                   sizes="(max-width: 760px) 76vw, 340px"
                   src="/images/client-app/lp-shop-v1.jpg"
                   width={390}
                 />
               </div>
-              <figcaption>Actual app screen · Demo data</figcaption>
+              <figcaption>{t("shop.caption")}</figcaption>
             </figure>
           </div>
         </section>
@@ -217,13 +257,10 @@ export default function ClientLandingPage() {
         <section className="client-loyalty" id="loyalty-points">
           <div className="marketing-shell client-loyalty-inner">
             <div>
-              <p className="marketing-eyebrow">Loyalty Points</p>
-              <h2>Every visit can lead to the next reward.</h2>
+              <p className="marketing-eyebrow">{t("loyalty.eyebrow")}</p>
+              <h2>{t("loyalty.title")}</h2>
             </div>
-            <p>
-              Earn LP on eligible purchases, then use it for real items from
-              participating partner shops.
-            </p>
+            <p>{t("loyalty.body")}</p>
           </div>
         </section>
       </main>
@@ -240,9 +277,12 @@ export default function ClientLandingPage() {
             />
             Voucher&nbsp;Hunt
           </span>
-          <nav className="marketing-footer-links" aria-label="Customer page links">
-            <Link href="/">For Businesses</Link>
-            <Link href="/privacy">Privacy</Link>
+          <nav
+            className="marketing-footer-links"
+            aria-label={t("footer.linksLabel")}
+          >
+            <Link href="/">{t("nav.forBusinesses")}</Link>
+            <Link href="/privacy">{t("footer.privacy")}</Link>
             <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
           </nav>
         </div>

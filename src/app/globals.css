@@ -7590,10 +7590,19 @@ th {
     backdrop-filter: saturate(180%) blur(12px);
 }
 
+/*
+ * Spacing here is tighter than it looks like it needs to be. The row carries a
+ * wordmark, five section links and four actions, and adding the language
+ * selector pushed the English links ("How it works", "What you get") into
+ * wrapping onto a second line around 1280px. The gaps below and the `nowrap`
+ * rule under `.marketing-nav-links` are what buy that space back — measured
+ * against the pre-selector layout from 1600px down, they hold the row on one
+ * line at every width the links are visible.
+ */
 .marketing-nav-inner {
     display: flex;
     align-items: center;
-    gap: 32px;
+    gap: 26px;
     height: 68px;
 }
 
@@ -7625,10 +7634,20 @@ th {
 .marketing-nav-links {
     display: flex;
     align-items: center;
-    gap: 28px;
+    gap: 22px;
     margin-right: auto;
     font-size: 0.9rem;
     font-weight: 500;
+}
+
+/* Only above 1100px, where holding one line still fits inside the viewport.
+   Below it the links wrap exactly as they did before the selector existed —
+   forcing `nowrap` down there trades a wrapped row for a horizontally
+   scrolling page, which is the worse of the two. */
+@media (min-width: 1100px) {
+    .marketing-nav-links a {
+        white-space: nowrap;
+    }
 }
 
 /* The nav's three link styles all changed colour on hover with nothing easing
@@ -7653,8 +7672,17 @@ th {
 .marketing-nav-actions {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 10px;
     flex: 0 0 auto;
+}
+
+/* The first thing to go when the row runs out of room: the same action is a
+   full-size button in the hero immediately below, so nothing becomes
+   unreachable. Supersedes the old 520px rule, which this now covers. */
+@media (max-width: 1150px) {
+    .marketing-nav-login {
+        display: none;
+    }
 }
 
 .marketing-nav-login {
@@ -7685,6 +7713,128 @@ th {
 .marketing-nav-login:hover,
 .marketing-nav-login:focus-visible {
     color: var(--purple);
+}
+
+/*
+ * --- Language selector ---
+ * A pill with the globe, the current language and a caret, with the native
+ * <select> stretched transparently over all of it: the OS picker opens from
+ * anywhere on the control, and every visible part is ours to style. Options
+ * cannot be styled in any browser, which is fine for four language names.
+ *
+ * Quieter than the two pills beside it on purpose — bordered rather than
+ * filled, so the eye reaches "For clients" and "Talk to us" first and finds
+ * this only when it is looking for it.
+ */
+.marketing-language {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--muted);
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
+}
+
+/* Same hover language as the ghost button, which is the other bordered control
+   on the page: tint the fill, take the border and the text to purple. */
+.marketing-language:hover,
+.marketing-language:focus-within {
+    border-color: var(--purple);
+    background: var(--purple-tint);
+    color: var(--purple);
+}
+
+/* The select paints nothing, so the pill carries the focus ring for it —
+   keyboard focus only, since clicking a <select> focuses it too and a ring
+   around something the pointer is already on is just noise. */
+.marketing-language:has(.marketing-language-select:focus-visible) {
+    outline: 2px solid var(--purple);
+    outline-offset: 2px;
+}
+
+.marketing-language-globe {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+}
+
+/* Stays grey while the pill is at rest so the language itself is the darkest
+   thing in the control, then follows the pill to purple on hover. */
+.marketing-language-name,
+.marketing-language-name-short {
+    color: var(--navy);
+    font-size: 0.875rem;
+    font-weight: 650;
+    line-height: 1;
+    transition: color 0.15s ease;
+}
+
+.marketing-language:hover .marketing-language-name,
+.marketing-language:hover .marketing-language-name-short,
+.marketing-language:focus-within .marketing-language-name,
+.marketing-language:focus-within .marketing-language-name-short {
+    color: var(--purple);
+}
+
+/* The narrow form is the one that gets swapped in below 900px. */
+.marketing-language-name-short {
+    display: none;
+}
+
+/* The affordance the removed native arrow used to be. Lighter than the label
+   because it is a hint about the control, not information. */
+.marketing-language-caret {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    opacity: 0.65;
+}
+
+/*
+ * Invisible, but still the whole control: it keeps the value, the accessible
+ * name, the keyboard behaviour and the OS picker, and covers the pill so a
+ * click anywhere opens it.
+ */
+.marketing-language-select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* The option list is drawn by the OS, so it ignores the page's colours and
+   needs an explicit pairing to stay readable in a dark UI. */
+.marketing-language-select option {
+    background: #ffffff;
+    color: var(--navy);
+}
+
+/* router.refresh() re-renders on the server, so there is a beat where the old
+   language is still on screen. Fading the control marks it as working without
+   moving anything. */
+.marketing-language[data-pending] {
+    opacity: 0.6;
+}
+
+.marketing-language[data-pending] .marketing-language-select {
+    cursor: progress;
 }
 
 /*
@@ -7776,7 +7926,10 @@ th {
     .marketing-button-ghost,
     .marketing-nav-links a,
     .marketing-nav-login,
-    .marketing-nav-switcher {
+    .marketing-nav-switcher,
+    .marketing-language,
+    .marketing-language-name,
+    .marketing-language-name-short {
         transition: none;
     }
 
@@ -8923,6 +9076,37 @@ th {
 
 /* --- Responsive --- */
 @media (max-width: 900px) {
+    /*
+     * From here down the pill wears the narrow form of the name — 한 rather
+     * than 한국어 — so the visitor can still see which language they are on
+     * once the row is too tight to spell one out. The spelt-out name costs
+     * ~60px, which below 900px is the difference between the nav fitting and
+     * the page scrolling sideways; the narrow form costs about a fifth of
+     * that. Checked at every width from 1600px down to 360px.
+     */
+    .marketing-language {
+        gap: 5px;
+        padding: 0 8px;
+    }
+
+    .marketing-language-name {
+        display: none;
+    }
+
+    .marketing-language-name-short {
+        display: inline;
+    }
+
+    /* The section links are still shown here and are what runs out of room
+       first, so the row's gaps tighten before any link is dropped. */
+    .marketing-nav-links {
+        gap: 14px;
+    }
+
+    .marketing-nav-inner {
+        gap: 18px;
+    }
+
     .marketing-problem-grid,
     .marketing-steps,
     .marketing-loyalty-steps,
@@ -8973,6 +9157,14 @@ th {
     .marketing-nav-inner {
         justify-content: space-between;
         gap: 16px;
+    }
+
+    /* The section links are gone by this width, so there is room to breathe
+       again: the globe, the name and the caret already carry the pill past a
+       44px thumb target, and the padding puts it comfortably clear. The 38px
+       height is shared with every other pill in this row. */
+    .marketing-language {
+        padding: 0 10px;
     }
 
     .marketing-hero {
@@ -9100,7 +9292,27 @@ th {
 }
 
 @media (max-width: 520px) {
-    .marketing-nav-login {
+    /*
+     * The last nav action to give way, on both landing pages. Nothing becomes
+     * unreachable: "For Clients" has a section of its own near the foot of the
+     * business page, and "For Businesses" is in the customer page's footer.
+     * Dropping it here is what stops the header overflowing on a 360px screen,
+     * which it did even before the language selector was added.
+     */
+    .marketing-nav-switcher {
+        display: none;
+    }
+
+    /* With only the wordmark and "Talk to us" left beside it, the pill gives up
+       its caret: the border already reads as a control, and the ~25px that buys
+       is what keeps a 360px header from scrolling sideways. The language itself
+       stays — it is the one thing here worth the room. */
+    .marketing-language {
+        gap: 4px;
+        padding: 0 7px;
+    }
+
+    .marketing-language-caret {
         display: none;
     }
 
