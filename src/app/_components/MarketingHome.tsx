@@ -154,8 +154,8 @@ export function MarketingHome({
           <nav className="marketing-nav-links" aria-label={t("nav.sections")}>
             <a href="#how-it-works">{t("nav.howItWorks")}</a>
             <a href="#loyalty">{t("nav.loyalty")}</a>
-            <a href="#dashboard">{t("nav.dashboard")}</a>
             <a href="#capabilities">{t("nav.capabilities")}</a>
+            <a href="#dashboard">{t("nav.dashboard")}</a>
             {showcase.length > 0 ? <a href="#demo">{t("nav.demo")}</a> : null}
           </nav>
 

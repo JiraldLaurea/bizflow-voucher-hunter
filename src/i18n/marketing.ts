@@ -28,11 +28,16 @@ const en = {
     "Customers win a voucher, book a time you choose and earn Loyalty Points they can spend with participating partner shops.",
 
   // -- Navigation --
+  //
+  // Nav labels are their own keys rather than the matching `*.eyebrow` strings:
+  // a jump link has one line of a crowded bar to work with, so it is shortened
+  // past what the section heading itself should say. "Loyalty" and "Features"
+  // here, "Loyalty Points" and "What you get" once you land on the section.
   "nav.sections": "Page sections",
   "nav.howItWorks": "How it works",
-  "nav.loyalty": "Loyalty Points",
+  "nav.loyalty": "Loyalty",
   "nav.dashboard": "Dashboard",
-  "nav.capabilities": "What you get",
+  "nav.capabilities": "Features",
   "nav.demo": "Demo",
   "nav.forClients": "For Clients",
   "nav.businessLogin": "Business log in",
@@ -167,9 +172,9 @@ const ko: Catalogue = {
 
   "nav.sections": "페이지 섹션",
   "nav.howItWorks": "이용 방법",
-  "nav.loyalty": "로열티 포인트",
+  "nav.loyalty": "로열티",
   "nav.dashboard": "대시보드",
-  "nav.capabilities": "제공 기능",
+  "nav.capabilities": "기능",
   "nav.demo": "데모",
   "nav.forClients": "고객용",
   "nav.businessLogin": "비즈니스 로그인",
@@ -283,9 +288,9 @@ const zh: Catalogue = {
 
   "nav.sections": "页面板块",
   "nav.howItWorks": "运作方式",
-  "nav.loyalty": "忠诚积分",
+  "nav.loyalty": "积分",
   "nav.dashboard": "管理后台",
-  "nav.capabilities": "功能一览",
+  "nav.capabilities": "功能",
   "nav.demo": "演示",
   "nav.forClients": "顾客入口",
   "nav.businessLogin": "商家登录",
@@ -392,9 +397,9 @@ const ja: Catalogue = {
 
   "nav.sections": "ページ内セクション",
   "nav.howItWorks": "ご利用の流れ",
-  "nav.loyalty": "ロイヤルティポイント",
+  "nav.loyalty": "ポイント",
   "nav.dashboard": "ダッシュボード",
-  "nav.capabilities": "できること",
+  "nav.capabilities": "機能",
   "nav.demo": "デモ",
   "nav.forClients": "お客様向け",
   "nav.businessLogin": "ビジネスログイン",
