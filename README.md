@@ -1,54 +1,82 @@
 # Voucher Hunt Engine
 
-Reservation-based voucher hunting MVP for SMEs. A customer picks a campaign, spins to reveal voucher candidates, selects one, then books a date/time slot **from the windows that voucher's benefit tier is offered at**, and redeems it through a staff/admin surface.
+Reservation-based voucher hunting for SMEs. A customer picks a campaign, spins to reveal voucher candidates, selects one, then books a date/time slot **from the windows that voucher's benefit tier is offered at**, and redeems it in store. A network-wide Loyalty Points wallet runs alongside it.
+
+**The customer experience is an Android app.** It lives in `apps/mobile`
+(Expo / React Native). The admin dashboard and the staff redemption screen stay
+web. Both clients talk to the same Next.js API in this repo.
+
+## Surfaces
+
+| Surface | Where | Audience |
+|---|---|---|
+| Customer app | `apps/mobile` (Expo / Android) | Customers — hunt, book, vouchers, wallet, shop |
+| Business landing page | `/` | SME owners evaluating the product |
+| Customer landing page | `/client` | Customers — what the app does, install link |
+| Admin dashboard | `/dashboard` | Business owners and admins |
+| Staff validation | `/staff` | In-store staff redeeming vouchers and wallet QRs |
+| Web customer flow | `/campaign/[slug]/…` | Fallback only — kept reachable for existing QR codes and deep links |
+
+The web customer flow is no longer the primary client. It still works, and
+`/campaign/[slug]` remains the target of printed QR codes and referral links, but
+new customer-facing work goes to the app. Retiring it is a post-launch decision
+(`docs/MOBILE_APP_MIGRATION.md` §Phase 7); the API and dashboard stay either way.
 
 ## Current Scope
 
-- Mobile-first public voucher hunt flow
+- Customer voucher hunt shipped as an Expo/React Native **Android app**, with a web fallback flow
+- **Loyalty Points (LP)**: daily app-use and referral awards, 5% earn on scanned in-store purchases, conversion to `RWD-` LP vouchers, partner redemption with partial use, and monthly partner settlement (see `docs/REWARDS.md`)
+- In-app **shop** for spending LP with participating partners
 - Desktop-optimized admin dashboard
-- Desktop-optimized staff validation and redemption page
+- Desktop-optimized staff validation and redemption page (vouchers, LP vouchers, wallet QR credit)
+- Push notifications to the app (`docs/NOTIFICATIONS.md`) and app localization (`docs/I18N.md`)
 - libSQL/Turso persistence (`@libsql/client`) with transactional, race-safe stock control — serverless-ready for Vercel
 - Admin CRUD API for campaigns, slots, and voucher pools (session + token guarded)
 - Real SMS delivery layer (Movider/Twilio/Infobip/ClickSend) with mock fallback
 - Server-enforced referral extra attempts
-- Phone **OTP sign-in** for every customer, so a voucher can only be issued to a verified number
-- **IP rate limiting** on public hunt/OTP/referral endpoints (hashed IPs)
+- Phone **OTP sign-in** for every customer, so a voucher can only be issued to a verified number — codes expire, count attempts, burn after five wrong guesses, and are capped per number
+- **Rate limiting** on public hunt/OTP/referral, admin login, and value-moving endpoints, keyed on the address a trusted proxy reported and budgeted by both address and subject (hashed)
+- Cryptographically random prize draws and 80-bit voucher/loyalty codes, so neither can be predicted or enumerated
+- Dev-only tooling (loyalty grants, forced roulette outcomes, resets, OTP echo) behind a fail-closed gate that never opens in production
 - Staff **no-show** tagging and **reservation rescheduling** (per-campaign `allowReschedule`)
 - **CSV redemption import** (e.g. Shopify used-codes report) from the dashboard
 - Sold-out recovery UI that suggests alternate available slots
 - Dashboard metrics and multi-section CSV export
 - Unit and integration tests, including concurrency, OTP, rate-limit, and lifecycle guarantees
 
-## Public Customer Flow
+## Customer Flow
 
 **The draw comes before the booking.** The prize is drawn campaign-wide first,
 and the slot picker then offers only the windows that prize's tier is bound to
-(`pool_slots`). An earlier version of this file described the reverse — date and
-time first — which has not been true since the roulette landed. Rarity is set by
-`probability_weight` alone, never by how many slots a tier is offered at.
+(`pool_slots`). Rarity is set by `probability_weight` alone, never by how many
+slots a tier is offered at.
 
-| Step | Page | Route |
+| Step | App screen (`apps/mobile/src/app`) | Web fallback route |
 |---|---|---|
-| 1 | Campaign Landing | `/campaign/july-dinner` |
-| 2 | Hunt Intro | `/campaign/july-dinner/hunt` |
-| 3 | Voucher Roulette | `/campaign/july-dinner/roulette` |
-| 4 | Voucher Results | `/campaign/july-dinner/results` |
-| 5 | Date & Time (tier-gated) | `/campaign/july-dinner/datetime` |
-| 6 | Confirm & Details | `/campaign/july-dinner/confirm` |
-| 7 | Confirmation SMS/QR | `/campaign/july-dinner/confirmation` |
+| 1 | Campaign directory — `(tabs)/index` | — (the web root is the business landing page) |
+| 2 | Campaign landing — `(tabs)/campaign/[slug]/index` | `/campaign/july-dinner` |
+| 3 | Voucher roulette — `…/roulette` | `/campaign/july-dinner/roulette` |
+| 4 | Voucher results — `…/results` | `/campaign/july-dinner/results` |
+| 5 | Date & time, tier-gated — `…/datetime` | `/campaign/july-dinner/datetime` |
+| 6 | Confirm & details — `…/confirm` | `/campaign/july-dinner/confirm` |
+| 7 | Confirmation SMS/QR — `…/confirmation` | `/campaign/july-dinner/confirmation` |
 
-Sign-in is a single global phone-OTP step (`/api/public/signin/request-otp`),
-not a per-campaign gate: the old per-campaign `requireOtp` flag is gone.
+The app opens the roulette straight from the campaign landing CTA; the web flow
+keeps an extra hunt-intro step at `/campaign/[slug]/hunt`.
 
-Online shop campaign:
+Outside the hunt the app carries three more tabs: **Vouchers** (issued vouchers
+and their redemption QR), **Shop** (spend LP with participating partners), and
+**More** (account, Loyalty Points wallet, language, sign out).
 
-```text
-/campaign/8pm-drop
-```
+Sign-in is a single global phone-OTP step (`/api/public/signin/request-otp`), not
+a per-campaign gate. The app authenticates with a **bearer token** in secure
+storage; the web flow uses httpOnly cookies. Both resolve server-side to the same
+verified phone, and a data reset invalidates both.
 
-The customer-facing flow also ships as an Expo/React Native Android app
-(`apps/mobile`), which mirrors these steps screen for screen. The admin and
-staff surfaces stay web-only. See `docs/MOBILE_APP_MIGRATION.md`.
+Online shop campaigns work the same way — e.g. `/campaign/8pm-drop`.
+
+Migration background and the remaining phase decisions are in
+`docs/MOBILE_APP_MIGRATION.md`.
 
 ## Admin and Staff Routes
 
@@ -80,9 +108,27 @@ Public anti-abuse / verification endpoints (rate-limited, no admin token):
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/public/signin/request-otp` | POST | Send a 6-digit sign-in OTP via SMS |
-| `/api/public/signin/verify-otp` | POST | Verify the code and establish the customer session |
+| `/api/public/signin/verify-otp` | POST | Verify the code and establish the customer session. Also returns a bearer token when the caller opts in with `{issueToken:true}` or `X-Client: mobile` |
 | `/api/public/signin/session` | GET | Current customer session, if any |
-| `/api/public/signin/signout` | POST | Clear the customer session |
+| `/api/public/signin/signout` | POST | Clear the customer session, or delete the presented bearer token |
+
+Customer endpoints the app drives (session = cookie **or** bearer token):
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/public/campaigns` | GET | Campaign directory cards |
+| `/api/public/campaigns/{slug}` | GET | One campaign + business + slots |
+| `/api/public/hunt/start` | POST | Sign in to a campaign / current hunt state |
+| `/api/public/hunt/attempt` | POST | Draw one candidate |
+| `/api/public/hunt/slots` | GET | Slots offered for a candidate's tier |
+| `/api/public/hunt/select` | POST | Issue the final voucher; sends confirmation SMS |
+| `/api/public/vouchers` | GET | The signed-in phone's issued vouchers |
+| `/api/public/rewards/wallet` | GET / POST | Loyalty Points wallet, ledger, and daily award |
+| `/api/public/rewards/convert` | POST | Convert LP into an `RWD-` LP voucher |
+| `/api/public/referral/*` | varies | Referral open/claim/state — grants bonus spins |
+
+Staff redemption endpoints live under `/api/staff` (voucher validate/redeem,
+LP-voucher validate/redeem, wallet credit, no-show, reschedule).
 
 Example:
 
@@ -95,17 +141,21 @@ curl -X POST http://127.0.0.1:3000/api/campaigns \
 
 ## Tech Stack
 
-- Next.js App Router
+- Next.js App Router (API, dashboard, staff, marketing, web fallback flow)
+- Expo / React Native with expo-router (`apps/mobile`, Android)
+- npm workspaces: root = web app, `apps/mobile`, `packages/shared` (`@bizflow/shared` — isomorphic types and helpers used by both clients)
 - React
 - TypeScript
 - Zod
 - React Icons
-- Inter via `next/font/local`
+- Inter (UI) and Outfit (product wordmark) via `next/font/local`
 - Vitest
 - Playwright test scaffold
 - libSQL datastore (`@libsql/client`): a local SQLite file for dev/tests (`DATABASE_PATH`), Turso (`DATABASE_URL`) in production
 
 ## Setup
+
+Web (API, dashboard, staff):
 
 ```bash
 npm install
@@ -118,6 +168,18 @@ Open:
 http://127.0.0.1:3000
 ```
 
+Customer app:
+
+```bash
+npm run mobile           # expo start
+npm run mobile:android   # expo run:android
+npm run mobile:typecheck
+```
+
+Point the app's `API_BASE_URL` at the deployed domain or at the dev machine's LAN
+address (`http://192.168.x.x:3000`). `localhost` does not resolve from a phone,
+and the Android emulator reaches the host as `10.0.2.2`.
+
 ## Validation
 
 Run before handoff:
@@ -127,6 +189,13 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+```
+
+Those four gates cover the web app and the shared package. The mobile app is
+checked separately:
+
+```bash
+npm run mobile:typecheck
 ```
 
 Additional scripts:
@@ -170,6 +239,28 @@ Slot capacity and voucher-pool quantity are protected against race conditions:
 
 Covered by `tests/integration/concurrency.test.ts`. On Turso these guarantees hold across serverless instances (single primary with transactional writes).
 
+## Security
+
+Sign-in, voucher redemption, and the loyalty ledger are the surfaces that move
+value. `docs/SECURITY.md` records the trust boundaries, the invariants enforced in
+code, the accepted risks, and a deployment checklist.
+
+Two environment variables have to be right or protections weaken silently:
+
+- `TRUSTED_PROXY_HOPS` — how many proxies sit in front of the app. Rate limits key
+  on the address the outermost trusted hop reported; everything to its left in
+  `X-Forwarded-For` was supplied by the caller. `1` suits Vercel or a single
+  nginx/Cloudflare. Set it too high and callers can pick their own bucket again,
+  which makes every limit in the app decorative.
+- `ENABLE_DEV_TOOLS` — gates every tool that mints value or bypasses a rule:
+  loyalty grants, simulated till scans, forced roulette outcomes, hunt resets,
+  statement backdating, the OTP echo, and the bootstrap login fallback. It fails
+  closed — on automatically in `development` and `test`, off for anything
+  unrecognised (unset, `preview`, `staging`), and ignored when `NODE_ENV=production`.
+
+Staff and admin access runs through `admin_users` accounts managed at
+`/dashboard/team`; there is no per-business PIN.
+
 ## Important Notes
 
 - `npm install` has reported dependency vulnerabilities, including a Next.js security warning. Perform a dependency security review before production use.
@@ -181,7 +272,10 @@ Covered by `tests/integration/concurrency.test.ts`. On Turso these guarantees ho
 Before production:
 
 - Provision a Turso database and set `DATABASE_URL` / `DATABASE_AUTH_TOKEN` (the data layer is already serverless-ready via `@libsql/client`).
-- Add real SMS provider integration.
-- Add OTP or stronger duplicate prevention for high-value campaigns.
-- Add rate limiting and a real admin auth/session layer (the current admin API uses a single shared token).
-- Re-run E2E and security tests after the persistence layer is replaced.
+- Set `ADMIN_SESSION_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `ADMIN_ACCESS_TOKEN`. Production has no bootstrap fallback — the login route returns `E-ADMIN-CONFIG` without them.
+- Set `TRUSTED_PROXY_HOPS` to the real proxy depth and leave `ENABLE_DEV_TOOLS` unset.
+- Configure a real SMS provider. Use `SMS_PROVIDER=smpp_worker` for the hosted SMPP path, since binding directly from Vercel never works (see `.env.example`).
+- Work through the deployment checklist in `docs/SECURITY.md`.
+- Set the app's `API_BASE_URL` to the production HTTPS domain, then build and ship the AAB — see `docs/PLAY_RELEASE.md` and `docs/PLAY_CONSOLE_ANSWERS.md`.
+- Unset `REVIEW_ACCOUNT_PHONE` / `REVIEW_ACCOUNT_OTP` once the app is live; they are a long-lived fixed-code sign-in for Play reviewers.
+- Perform a dependency security review and re-run E2E.
