@@ -7,6 +7,7 @@ import { listCampaigns } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, Field, InlineError, Select } from "@/components/FormControls";
 import {
+  clearDevPoolIds,
   devToolsEnabled,
   getDevPoolId,
   grantLoyaltyPoints,
@@ -111,21 +112,23 @@ export function DevToolsPanel() {
     [slug],
   );
 
+  // Unlike the pool picker above, this is not scoped to the selected campaign:
+  // it clears every campaign this number has hunted.
   async function runReset() {
-    if (!token || !slug) return;
+    if (!token) return;
     setBusy(true);
     setError("");
     setMessage("");
     try {
       // Cancel any roulette request kept mounted behind the More tab before the
       // server deletes its attempt. Otherwise that request can recreate it.
-      publishHuntReset(slug);
-      const result = await resetHunt(slug, token);
+      publishHuntReset();
+      const result = await resetHunt(token);
       // Forcing a pool only makes sense for a hunt that has not been spent.
-      await setDevPoolId(slug, "");
+      await clearDevPoolIds();
       setPoolId("");
       setMessage(
-        `Hunt reset — cleared ${result.attemptsCleared} attempt(s) and ${result.vouchersCleared} voucher(s).`,
+        `Hunt reset — cleared ${result.attemptsCleared} attempt(s) and ${result.vouchersCleared} voucher(s) across ${result.campaignsReset} campaign(s).`,
       );
       // Remove the hidden campaign stack. Re-entering a campaign now always
       // begins at its details page.
@@ -372,7 +375,7 @@ export function DevToolsPanel() {
 
       <Text style={styles.label}>Reset the voucher hunt</Text>
       <Button
-        disabled={!slug}
+        disabled={!token}
         loading={busy}
         loadingLabel="Resetting…"
         variant="secondary"
@@ -381,8 +384,9 @@ export function DevToolsPanel() {
         Reset My Hunt
       </Button>
       <Text style={styles.copy}>
-        Clears this number&apos;s attempts, voucher, and reservation for this campaign
-        and returns the stock, so you can hunt again from the start.
+        Clears this number&apos;s attempts, vouchers, and reservations across every
+        campaign it has hunted and returns the stock, so you can hunt again from the
+        start.
       </Text>
 
       {message ? <Text style={styles.message}>{message}</Text> : null}

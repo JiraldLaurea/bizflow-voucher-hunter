@@ -45,19 +45,25 @@ export async function setDevPoolId(campaignSlug: string, poolId: string) {
   await SecureStore.setItemAsync(DEV_POOL_KEY, JSON.stringify(choices));
 }
 
+/** Every campaign's forced pool, dropped together with a hunt reset. */
+export async function clearDevPoolIds() {
+  await SecureStore.deleteItemAsync(DEV_POOL_KEY);
+}
+
 export type HuntResetResult = {
+  campaignsReset: number;
   attemptsCleared: number;
   vouchersCleared: number;
 };
 
-/** Clears this phone's hunt for a campaign and returns the held stock to the pools. */
-export function resetHunt(
-  campaignSlug: string,
-  token: string,
-): Promise<HuntResetResult> {
+/**
+ * Clears this phone's hunt across every campaign it has hunted and returns the
+ * held stock to the pools. Not scoped to a campaign — the token identifies the
+ * phone, and a reset is meant to put the whole demo back at the start.
+ */
+export function resetHunt(token: string): Promise<HuntResetResult> {
   return apiRequest<HuntResetResult>("/api/public/hunt/reset", {
     method: "POST",
-    body: { campaignSlug },
     token,
   });
 }

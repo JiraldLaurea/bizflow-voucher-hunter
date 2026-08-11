@@ -196,15 +196,14 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
 
   useEffect(
     () =>
-      subscribeToHuntReset((resetSlug) => {
-        if (resetSlug !== slug) return;
+      subscribeToHuntReset(() => {
         // The reset endpoint already cleared the authoritative server state.
         // Drop every local continuation marker so the campaign CTA starts a
         // fresh roulette instead of routing to a stale Results screen.
         setFlow({ ...emptyFlow });
         setError(null);
       }),
-    [slug],
+    [],
   );
 
   const reload = useCallback(() => setReloadToken((value) => value + 1), []);

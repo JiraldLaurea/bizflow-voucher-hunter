@@ -55,6 +55,22 @@ export function clearAllFlowState() {
   }
 }
 
+/** Every campaign slug with saved flow state, for a patch that spans all of them. */
+export function savedFlowCampaignSlugs(): string[] {
+  const slugs: string[] = [];
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(flowStoragePrefix)) {
+        slugs.push(key.slice(flowStoragePrefix.length));
+      }
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+  return slugs;
+}
+
 /**
  * Fields a hunt reset clears. Sign-in identity (phone/name/email/session/user)
  * is deliberately left alone so the visitor stays signed in.

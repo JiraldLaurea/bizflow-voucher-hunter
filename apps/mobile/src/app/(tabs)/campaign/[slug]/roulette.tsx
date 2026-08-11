@@ -103,8 +103,7 @@ export default function RouletteScreen() {
 
   useEffect(
     () =>
-      subscribeToHuntReset((resetSlug) => {
-        if (resetSlug !== slug) return;
+      subscribeToHuntReset(() => {
         generation.current += 1;
         drawAbort.current?.abort();
         drawAbort.current = null;
@@ -119,7 +118,7 @@ export default function RouletteScreen() {
         setCanConfirm(false);
         setConfirming(false);
       }),
-    [slug],
+    [],
   );
 
   useEffect(() => {

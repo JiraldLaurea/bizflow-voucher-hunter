@@ -103,10 +103,7 @@ describe("voucher engine (hunt-first flow)", () => {
     await startHunt({ ...base, name: "Jane Doe" });
     await generateCandidate(base);
 
-    const reset = await resetHuntForPhone({
-      campaignSlug: base.campaignSlug,
-      phone: base.phone,
-    });
+    const reset = await resetHuntForPhone({ phone: base.phone });
     expect(reset.attemptsCleared).toBe(1);
 
     const cleared = await getHuntSnapshot({
@@ -120,6 +117,26 @@ describe("voucher engine (hunt-first flow)", () => {
     await expect(generateCandidate(base)).resolves.toMatchObject({
       sourceType: "base",
     });
+  });
+
+  // A tester who has spun on two campaigns expects one reset to put the whole
+  // demo back at the start, not to leave the other campaign mid-hunt.
+  it("resets every campaign the number has hunted, not just one", async () => {
+    const other = { ...base, campaignSlug: "8pm-drop" };
+    await startHunt({ ...base, name: "Jane Doe" });
+    await generateCandidate(base);
+    await startHunt({ ...other, name: "Jane Doe" });
+    await generateCandidate(other);
+
+    const reset = await resetHuntForPhone({ phone: base.phone });
+    expect(reset.campaignsReset).toBe(2);
+    expect(reset.attemptsCleared).toBe(2);
+
+    for (const campaignSlug of [base.campaignSlug, other.campaignSlug]) {
+      const cleared = await getHuntSnapshot({ campaignSlug, phone: base.phone });
+      expect(cleared.attempts).toHaveLength(0);
+      expect(cleared.voucher).toBeUndefined();
+    }
   });
 
   it("lists rarity-gated slots for the chosen candidate", async () => {

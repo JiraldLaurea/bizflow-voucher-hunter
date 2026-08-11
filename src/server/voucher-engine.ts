@@ -1188,98 +1188,122 @@ export async function getHuntSnapshot(input: { campaignSlug: string; phone: stri
 }
 
 /**
- * Development-only: wipe one phone number's hunt for a campaign so it can be run
- * again from scratch. Returns the stock it reclaimed to the pools/slots, which is
- * the whole point — deleting the rows alone would leak inventory:
+ * One campaign's share of a hunt reset. Runs inside the caller's transaction so
+ * a reset spanning several campaigns is still all-or-nothing.
+ *
+ * Returns the stock it reclaimed to the pools/slots, which is the whole point —
+ * deleting the rows alone would leak inventory:
  *  - attempts still holding stock (Candidate/Held/Selected) return it to their pool
  *  - each deleted voucher returns its seat to the slot (and un-sells-out the slot)
  * The user row itself is kept, so the visitor stays signed in.
+ */
+async function resetCampaignHunt(tx: Transaction | Client, user: EndUser) {
+  const campaignId = user.campaignId;
+
+  // Return pool stock held by any attempt that never made it back on its own.
+  const attempts = (
+    await all(tx, "SELECT * FROM attempts WHERE campaign_id = ? AND user_id = ?", [campaignId, user.id])
+  ).map(mapAttempt);
+  let poolsRestored = 0;
+  for (const attempt of attempts) {
+    if (attempt.status === "Candidate" || attempt.status === "Held" || attempt.status === "Selected") {
+      await run(
+        tx,
+        `UPDATE pools
+         SET remaining_quantity = remaining_quantity + 1,
+             status = CASE WHEN status = 'depleted' THEN 'active' ELSE status END
+         WHERE id = ?`,
+        [attempt.poolId]
+      );
+      poolsRestored += 1;
+    }
+  }
+
+  // Return each issued voucher's seat to its slot.
+  const vouchers = (
+    await all(tx, "SELECT * FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaignId, user.id])
+  ).map(mapVoucher);
+  for (const voucher of vouchers) {
+    await run(
+      tx,
+      `UPDATE slots
+       SET remaining_capacity = remaining_capacity + 1,
+           status = CASE WHEN status = 'sold_out' THEN 'available' ELSE status END
+       WHERE id = ?`,
+      [voucher.slotId]
+    );
+  }
+
+  await run(tx, "DELETE FROM reservations WHERE campaign_id = ? AND user_id = ?", [campaignId, user.id]);
+  await run(tx, "DELETE FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaignId, user.id]);
+  const attemptsCleared = await run(
+    tx,
+    "DELETE FROM attempts WHERE campaign_id = ? AND user_id = ?",
+    [campaignId, user.id],
+  );
+  // A development reset represents a clean campaign run, including the bonus
+  // spins earned during the run being cleared.
+  await run(
+    tx,
+    "DELETE FROM referral_rewards WHERE campaign_id = ? AND referrer_user_id = ?",
+    [campaignId, user.id],
+  );
+
+  const remainingAttempts = Number(
+    (
+      await one(
+        tx,
+        "SELECT COUNT(*) AS c FROM attempts WHERE campaign_id = ? AND user_id = ?",
+        [campaignId, user.id],
+      )
+    )?.c ?? 0,
+  );
+  if (remainingAttempts !== 0) {
+    throw new AppError(
+      "E-RESET-INCOMPLETE",
+      "Voucher hunt attempts could not be cleared",
+      500,
+    );
+  }
+
+  return { attemptsCleared, vouchersCleared: vouchers.length, poolsRestored };
+}
+
+/**
+ * Development-only: wipe one phone number's hunt so it can be run again from
+ * scratch.
+ *
+ * Every campaign the number has hunted is reset, not just the one whose page
+ * the dev tools happen to be open on. A tester who has spun on two campaigns
+ * wants "reset" to mean the demo is back at the start, and resetting them one
+ * page at a time left half-finished hunts behind that then read as bugs. The
+ * `users` table is keyed per campaign, so this is one row per campaign hunted.
+ *
+ * All of it runs in a single transaction: a reset that cleared two campaigns
+ * and failed on the third would leave inventory in a state no page reflects.
  *
  * Never exposed in production; the calling route refuses there too.
  */
-export async function resetHuntForPhone(input: { campaignSlug: string; phone: string }) {
+export async function resetHuntForPhone(input: { phone: string }) {
   assertDevToolsEnabled("Hunt reset");
   return withTx(async (tx) => {
-    const campaign = await getCampaignOrThrow(tx, input.campaignSlug);
     const normalized = normalizePhone(input.phone);
-    const userRow = normalized
-      ? await one(tx, "SELECT * FROM users WHERE campaign_id = ? AND phone = ?", [campaign.id, normalized])
-      : undefined;
-    if (!userRow) throw new AppError("E-USER-404", "No hunt session found for this phone number", 404);
-    const user = mapUser(userRow);
-
-    // Return pool stock held by any attempt that never made it back on its own.
-    const attempts = (
-      await all(tx, "SELECT * FROM attempts WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id])
-    ).map(mapAttempt);
-    let poolsRestored = 0;
-    for (const attempt of attempts) {
-      if (attempt.status === "Candidate" || attempt.status === "Held" || attempt.status === "Selected") {
-        await run(
-          tx,
-          `UPDATE pools
-           SET remaining_quantity = remaining_quantity + 1,
-               status = CASE WHEN status = 'depleted' THEN 'active' ELSE status END
-           WHERE id = ?`,
-          [attempt.poolId]
-        );
-        poolsRestored += 1;
-      }
+    const userRows = normalized
+      ? await all(tx, "SELECT * FROM users WHERE phone = ? ORDER BY campaign_id", [normalized])
+      : [];
+    if (userRows.length === 0) {
+      throw new AppError("E-USER-404", "No hunt session found for this phone number", 404);
     }
 
-    // Return each issued voucher's seat to its slot.
-    const vouchers = (
-      await all(tx, "SELECT * FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id])
-    ).map(mapVoucher);
-    for (const voucher of vouchers) {
-      await run(
-        tx,
-        `UPDATE slots
-         SET remaining_capacity = remaining_capacity + 1,
-             status = CASE WHEN status = 'sold_out' THEN 'available' ELSE status END
-         WHERE id = ?`,
-        [voucher.slotId]
-      );
+    const totals = { attemptsCleared: 0, vouchersCleared: 0, poolsRestored: 0 };
+    for (const userRow of userRows) {
+      const cleared = await resetCampaignHunt(tx, mapUser(userRow));
+      totals.attemptsCleared += cleared.attemptsCleared;
+      totals.vouchersCleared += cleared.vouchersCleared;
+      totals.poolsRestored += cleared.poolsRestored;
     }
 
-    await run(tx, "DELETE FROM reservations WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
-    await run(tx, "DELETE FROM vouchers WHERE campaign_id = ? AND user_id = ?", [campaign.id, user.id]);
-    const attemptsCleared = await run(
-      tx,
-      "DELETE FROM attempts WHERE campaign_id = ? AND user_id = ?",
-      [campaign.id, user.id],
-    );
-    // A development reset represents a clean campaign run, including the bonus
-    // spins earned during the run being cleared.
-    await run(
-      tx,
-      "DELETE FROM referral_rewards WHERE campaign_id = ? AND referrer_user_id = ?",
-      [campaign.id, user.id],
-    );
-
-    const remainingAttempts = Number(
-      (
-        await one(
-          tx,
-          "SELECT COUNT(*) AS c FROM attempts WHERE campaign_id = ? AND user_id = ?",
-          [campaign.id, user.id],
-        )
-      )?.c ?? 0,
-    );
-    if (remainingAttempts !== 0) {
-      throw new AppError(
-        "E-RESET-INCOMPLETE",
-        "Voucher hunt attempts could not be cleared",
-        500,
-      );
-    }
-
-    return {
-      campaignSlug: campaign.slug,
-      attemptsCleared,
-      vouchersCleared: vouchers.length,
-      poolsRestored
-    };
+    return { campaignsReset: userRows.length, ...totals };
   });
 }
 

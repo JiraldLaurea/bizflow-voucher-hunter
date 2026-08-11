@@ -22,6 +22,7 @@ import {
   huntResetPatch,
   patchFlowState,
   readFlowString,
+  savedFlowCampaignSlugs,
 } from "@/lib/flow-storage";
 import { claimedVouchersStorageKey } from "@/lib/voucher-display";
 import type {
@@ -274,17 +275,22 @@ export function MoreScreen({
     setDevResetMessage("");
     try {
       const result = await api<{
+        campaignsReset: number;
         attemptsCleared: number;
         vouchersCleared: number;
       }>("/api/public/hunt/reset", {
         method: "POST",
-        body: JSON.stringify({ campaignSlug, phone }),
       });
-      patchFlowState(campaignSlug, huntResetPatch);
+      // The server reset every campaign, so clear the cached flow for every
+      // campaign too — leaving another campaign's saved attempts behind would
+      // show a hunt the database no longer has.
+      for (const slug of savedFlowCampaignSlugs()) {
+        patchFlowState(slug, huntResetPatch);
+      }
       window.localStorage.removeItem(claimedVouchersStorageKey);
       setDevPoolId("");
       setDevResetMessage(
-        `Hunt reset — cleared ${result.attemptsCleared} attempt(s) and ${result.vouchersCleared} voucher(s).`,
+        `Hunt reset — cleared ${result.attemptsCleared} attempt(s) and ${result.vouchersCleared} voucher(s) across ${result.campaignsReset} campaign(s).`,
       );
     } catch (caught) {
       setDevResetMessage(
@@ -581,9 +587,9 @@ export function MoreScreen({
                   </button>
                 </label>
                 <p>
-                  Clears this number&apos;s attempts, voucher, and reservation
-                  for this campaign and returns the stock, so you can hunt again
-                  from the start.
+                  Clears this number&apos;s attempts, vouchers, and reservations
+                  across every campaign it has hunted and returns the stock, so
+                  you can hunt again from the start.
                 </p>
                 {devResetMessage ? (
                   <p className="dev-tool-message">{devResetMessage}</p>
