@@ -176,6 +176,12 @@ CREATE TABLE IF NOT EXISTS attempts (
 -- every campaign-scoped page load. Without this the metrics query scans the
 -- whole table, which is the largest table in an active campaign.
 CREATE INDEX IF NOT EXISTS idx_attempts_campaign ON attempts (campaign_id, slot_id);
+-- The same page also rolls attempts up per benefit label, and the index above
+-- cannot serve that: slot_id leads, so the planner narrows to the campaign and
+-- then builds a temp B-tree for the GROUP BY. Measured at 180k attempts that
+-- rollup took 500ms while the equivalent voucher rollup — which does have a
+-- covering index — took 10ms, on the same page load.
+CREATE INDEX IF NOT EXISTS idx_attempts_campaign_label ON attempts (campaign_id, display_label);
 CREATE TABLE IF NOT EXISTS vouchers (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,

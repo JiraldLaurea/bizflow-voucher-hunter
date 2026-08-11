@@ -85,30 +85,53 @@ export async function listCustomers(
   const searchClause = term ? " AND (u.phone LIKE ? OR u.name LIKE ?)" : "";
   const searchArgs = term ? [`%${term}%`, `%${term}%`] : [];
 
+  // Two passes on purpose. Ordering by MAX(u.created_at) means the sort cannot
+  // begin until every customer has been grouped, so a single-statement version
+  // pays the voucher join, the wallet join and three COUNT(DISTINCT) temp
+  // B-trees for the whole table before LIMIT discards all but 500 rows — the
+  // limit saved transfer, not work, and the page got linearly slower forever
+  // (measured: 96ms at 20k customers, 309ms at 60k).
+  //
+  // `page` therefore picks the 500 phones on this page while touching only
+  // `users`, and the aggregate query below joins vouchers and wallets for those
+  // 500 alone. The search filter is applied in both halves rather than only the
+  // first, so the counts still describe the matching rows exactly as before.
   const rows = await all(
     db,
-    `SELECT
-       u.phone AS phone,
+    `WITH page AS (
+       SELECT
+         u.phone AS phone,
+         MAX(u.created_at) AS last_activity_at,
+         MIN(u.created_at) AS first_seen_at
+       FROM users u
+       JOIN campaigns c ON c.id = u.campaign_id
+       WHERE 1 = 1${scope.clause}${searchClause}
+       GROUP BY u.phone
+       ORDER BY last_activity_at DESC
+       LIMIT 500
+     )
+     SELECT
+       p.phone AS phone,
        -- Grouped by phone, so pick the latest non-null name/email this person
        -- gave across their campaign rows. Without these the list always fell
        -- back to rendering the phone number even for named customers.
        MAX(u.name) AS name,
        MAX(u.email) AS email,
-       MAX(u.created_at) AS last_activity_at,
-       MIN(u.created_at) AS first_seen_at,
+       p.last_activity_at AS last_activity_at,
+       p.first_seen_at AS first_seen_at,
        COUNT(DISTINCT u.campaign_id) AS campaign_count,
        COUNT(DISTINCT v.id) AS voucher_count,
        COUNT(DISTINCT CASE WHEN v.status = 'Redeemed' THEN v.id END) AS redeemed_count,
        w.balance_centavos AS loyalty_balance_centavos
-     FROM users u
+     FROM page p
+     JOIN users u ON u.phone = p.phone
      JOIN campaigns c ON c.id = u.campaign_id
      LEFT JOIN vouchers v ON v.user_id = u.id
-     LEFT JOIN reward_wallets w ON w.phone = u.phone
+     LEFT JOIN reward_wallets w ON w.phone = p.phone
      WHERE 1 = 1${scope.clause}${searchClause}
-     GROUP BY u.phone
-     ORDER BY last_activity_at DESC
-     LIMIT 500`,
-    [...scope.args, ...searchArgs],
+     GROUP BY p.phone
+     ORDER BY p.last_activity_at DESC`,
+    [...scope.args, ...searchArgs, ...scope.args, ...searchArgs],
   );
 
   return rows.map(mapSummary);
