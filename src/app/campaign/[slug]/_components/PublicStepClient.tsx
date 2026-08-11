@@ -31,7 +31,10 @@ import {
   claimedVouchersStorageKey,
   type ClaimedVoucher,
 } from "@/lib/voucher-display";
-import { getVoucherPresentation } from "@/lib/voucher-presentation";
+import {
+  getVoucherPresentation,
+  isSelectableAttempt,
+} from "@/lib/voucher-presentation";
 import { toDisplayPhone } from "@/lib/phone-display";
 import type {
   Campaign,
@@ -805,11 +808,15 @@ export function PublicStepClient({
 
   const currentStepNumber = steps.findIndex((item) => item.id === step) + 1;
   const selectedSlot = slots.find((slot) => slot.id === state.selectedSlotId);
-  const selectedAttempt = state.attempts.find(
+  // The hunt snapshot carries every attempt this number has ever drawn on the
+  // campaign, expired ones included, so a spin from weeks ago came back as a
+  // pickable full-price card and only the 409 at selection said otherwise.
+  const selectableAttempts = state.attempts.filter(isSelectableAttempt);
+  const selectedAttempt = selectableAttempts.find(
     (attempt) => attempt.id === state.selectedAttemptId,
   );
   const visibleResult =
-    selectedAttempt ?? state.attempts[state.attempts.length - 1];
+    selectedAttempt ?? selectableAttempts[selectableAttempts.length - 1];
   // The reel is tappable for the whole free spin — including the brief window
   // before the draw returns, where a tap is queued rather than ignored. Keeping
   // this independent of pendingSpinStop is what lets the copy stay constant.
@@ -2050,7 +2057,7 @@ export function PublicStepClient({
           </p>
           {!flowHydrated ? (
             <ContentSkeleton />
-          ) : state.attempts.length === 0 ? (
+          ) : selectableAttempts.length === 0 ? (
             <div className="info-card">
               <p>No voucher result yet.</p>
               <Link
@@ -2064,7 +2071,7 @@ export function PublicStepClient({
           ) : (
             <div className="single-result-stack">
               <div className="candidate-grid">
-                {state.attempts.map((attempt) => {
+                {selectableAttempts.map((attempt) => {
                   const presentation = getVoucherPresentation(attempt);
                   const selected = attempt.id === state.selectedAttemptId;
                   return (

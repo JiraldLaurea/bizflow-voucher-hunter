@@ -1,4 +1,9 @@
-import type { CampaignSlot, Voucher, VoucherAttempt } from "@bizflow/shared";
+import {
+  isSelectableAttempt,
+  type CampaignSlot,
+  type Voucher,
+  type VoucherAttempt,
+} from "@bizflow/shared";
 import {
   createContext,
   type PropsWithChildren,
@@ -99,20 +104,8 @@ function preferredAttemptId(
   currentId = "",
 ): string {
   const current = attempts.find((attempt) => attempt.id === currentId);
-  if (current?.status === "Candidate" || current?.status === "Held") {
-    return current.id;
-  }
-  return (
-    attempts
-      .slice()
-      .reverse()
-      .find(
-        (attempt) =>
-          attempt.status === "Candidate" || attempt.status === "Held",
-      )?.id ??
-    attempts.at(-1)?.id ??
-    ""
-  );
+  if (current && isSelectableAttempt(current)) return current.id;
+  return attempts.slice().reverse().find(isSelectableAttempt)?.id ?? "";
 }
 
 export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: string }>) {
@@ -276,8 +269,14 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
     return snapshot;
   }, [campaign, slug, token]);
 
+  // Only ever resolves to an attempt that can still be selected, so a stale id
+  // left in flow state cannot re-enable the screens that act on it.
   const selectedAttempt = useMemo(
-    () => flow.attempts.find((attempt) => attempt.id === flow.selectedAttemptId),
+    () =>
+      flow.attempts.find(
+        (attempt) =>
+          attempt.id === flow.selectedAttemptId && isSelectableAttempt(attempt),
+      ),
     [flow.attempts, flow.selectedAttemptId],
   );
 

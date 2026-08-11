@@ -1,6 +1,22 @@
-import type { VoucherPool } from "./types";
+import type { AttemptStatus, VoucherPool } from "./types";
 
 export type VoucherRarity = "standard" | "rare" | "epic" | "legendary";
+
+/**
+ * Whether an attempt is still a voucher option the customer can act on.
+ *
+ * The hunt snapshot returns every attempt a number has ever drawn on a
+ * campaign, in whatever state it ended up, so a results screen that renders the
+ * list as-is offers spins from weeks ago as live choices. The server accepts a
+ * selection only in these two states and answers anything else with
+ * E-ATTEMPT-STATE — an Expired attempt has already returned its stock to the
+ * pool, and a Selected one has become a voucher.
+ *
+ * Shared so both apps draw the same line the server does.
+ */
+export function isSelectableAttempt(attempt: { status: AttemptStatus }) {
+  return attempt.status === "Candidate" || attempt.status === "Held";
+}
 
 type VoucherBenefit = Pick<VoucherPool, "benefitType" | "benefitValue">;
 

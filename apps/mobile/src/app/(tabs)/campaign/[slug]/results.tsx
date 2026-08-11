@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AppState,
   Pressable,
@@ -10,6 +10,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { isSelectableAttempt } from "@bizflow/shared";
 
 import { buildReferralLink } from "@/api/client";
 import { Button, InlineError } from "@/components/FormControls";
@@ -34,6 +36,15 @@ export default function ResultsScreen() {
   } = useHunt();
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState("");
+
+  // The snapshot carries every attempt this number has ever drawn on the
+  // campaign, expired ones included — a spin from a fortnight ago came back as a
+  // full-price card the customer could tap, and only the 409 at selection said
+  // otherwise. Options are what can still be picked.
+  const options = useMemo(
+    () => flow.attempts.filter(isSelectableAttempt),
+    [flow.attempts],
+  );
 
   const refreshReferralState = useCallback(() => {
     void refreshSnapshot().catch(() => {
@@ -94,7 +105,7 @@ export default function ResultsScreen() {
         <Text style={styles.title}>{t("results.title")}</Text>
         <Text style={styles.lead}>{t("results.lead")}</Text>
 
-        {flow.attempts.length === 0 ? (
+        {options.length === 0 ? (
           <InfoCard>
             <Text style={styles.infoText}>{t("results.noResult")}</Text>
             <Button
@@ -107,7 +118,7 @@ export default function ResultsScreen() {
           </InfoCard>
         ) : (
           <View style={styles.stack}>
-            {flow.attempts.map((attempt) => {
+            {options.map((attempt) => {
               const selected = attempt.id === flow.selectedAttemptId;
               return (
                 <Pressable
