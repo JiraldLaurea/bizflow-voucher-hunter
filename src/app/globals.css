@@ -8013,6 +8013,7 @@ th {
     position: relative;
     isolation: isolate;
     overflow: hidden;
+    min-height: 630px;
     padding: 104px 0 92px;
 }
 
@@ -9168,6 +9169,7 @@ th {
     }
 
     .marketing-hero {
+        min-height: 760px;
         padding: 72px 0 68px;
     }
 
