@@ -24,6 +24,10 @@ import {
   type PublicSlot,
 } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
+import {
+  mergeAttempts,
+  reconcileSnapshotAttempts,
+} from "@/hunt/reconcileAttempts";
 import { subscribeToHuntReset } from "@/hunt/resetSignal";
 import { getVisitorSessionId } from "@/hunt/session";
 
@@ -92,13 +96,6 @@ type HuntContextValue = {
 
 const HuntContext = createContext<HuntContextValue | null>(null);
 
-/** Newest-wins merge that keeps attempt order stable, as the web's does. */
-function mergeAttempts(current: VoucherAttempt[], incoming: VoucherAttempt[]) {
-  const byId = new Map(current.map((attempt) => [attempt.id, attempt]));
-  for (const attempt of incoming) byId.set(attempt.id, attempt);
-  return Array.from(byId.values());
-}
-
 function preferredAttemptId(
   attempts: VoucherAttempt[],
   currentId = "",
@@ -117,6 +114,10 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
   const [reloadToken, setReloadToken] = useState(0);
   const [sessionId, setSessionId] = useState("");
   const [flow, setFlow] = useState<FlowState>(emptyFlow);
+  // Draw responses are authoritative writes, but a snapshot read routed through
+  // another production replica can briefly lag behind them. Track those locally
+  // acknowledged attempts until a snapshot sees them or the grace window ends.
+  const pendingAttempts = useRef(new Map<string, number>());
   // Read by callbacks that must not re-create themselves on every flow change.
   const flowRef = useRef(flow);
   flowRef.current = flow;
@@ -154,23 +155,30 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
           const issuedSlot = snapshot.voucher
             ? publicCampaign.slots.find((slot) => slot.id === snapshot.voucher?.slotId)
             : undefined;
-          setFlow((current) => ({
-            ...current,
-            userId: snapshot.user.id,
-            attempts: snapshot.attempts,
-            selectedAttemptId: preferredAttemptId(
-              snapshot.attempts,
-              current.selectedAttemptId,
-            ),
-            bonusAttempts: snapshot.remainingBonusAttempts,
-            shareCount: snapshot.sharesGrantedToday,
-            name: current.name || snapshot.user.name || "",
-            email: current.email || snapshot.user.email || "",
-            issued:
-              snapshot.voucher && issuedSlot
-                ? { voucher: snapshot.voucher, slot: issuedSlot }
-                : current.issued,
-          }));
+          setFlow((current) => {
+            const attempts = reconcileSnapshotAttempts({
+              current: current.attempts,
+              incoming: snapshot.attempts,
+              pending: pendingAttempts.current,
+            });
+            return {
+              ...current,
+              userId: snapshot.user.id,
+              attempts,
+              selectedAttemptId: preferredAttemptId(
+                attempts,
+                current.selectedAttemptId,
+              ),
+              bonusAttempts: snapshot.remainingBonusAttempts,
+              shareCount: snapshot.sharesGrantedToday,
+              name: current.name || snapshot.user.name || "",
+              email: current.email || snapshot.user.email || "",
+              issued:
+                snapshot.voucher && issuedSlot
+                  ? { voucher: snapshot.voucher, slot: issuedSlot }
+                  : current.issued,
+            };
+          });
         } catch {
           // No hunt session yet — the landing screen's CTA creates one.
         }
@@ -194,6 +202,7 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
         // Drop every local continuation marker so the campaign CTA starts a
         // fresh roulette instead of routing to a stale Results screen.
         setFlow({ ...emptyFlow });
+        pendingAttempts.current.clear();
         setError(null);
       }),
     [],
@@ -206,6 +215,7 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
   }, []);
 
   const addAttempt = useCallback((attempt: VoucherAttempt) => {
+    pendingAttempts.current.set(attempt.id, Date.now());
     setFlow((current) => ({
       ...current,
       attempts: mergeAttempts(current.attempts, [attempt]),
@@ -223,23 +233,30 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
     const issuedSlot = state.voucher
       ? campaign?.slots.find((slot) => slot.id === state.voucher?.slotId)
       : undefined;
-    setFlow((current) => ({
-      ...current,
-      userId: state.user.id,
-      attempts: state.attempts,
-      selectedAttemptId: preferredAttemptId(
-        state.attempts,
-        current.selectedAttemptId,
-      ),
-      bonusAttempts: state.remainingBonusAttempts,
-      shareCount: state.sharesGrantedToday,
-      name: current.name || state.user.name || "",
-      email: current.email || state.user.email || "",
-      issued:
-        state.voucher && issuedSlot
-          ? { voucher: state.voucher, slot: issuedSlot }
-          : null,
-    }));
+    setFlow((current) => {
+      const attempts = reconcileSnapshotAttempts({
+        current: current.attempts,
+        incoming: state.attempts,
+        pending: pendingAttempts.current,
+      });
+      return {
+        ...current,
+        userId: state.user.id,
+        attempts,
+        selectedAttemptId: preferredAttemptId(
+          attempts,
+          current.selectedAttemptId,
+        ),
+        bonusAttempts: state.remainingBonusAttempts,
+        shareCount: state.sharesGrantedToday,
+        name: current.name || state.user.name || "",
+        email: current.email || state.user.email || "",
+        issued:
+          state.voucher && issuedSlot
+            ? { voucher: state.voucher, slot: issuedSlot }
+            : null,
+      };
+    });
     return state;
   }, [campaign, sessionId, slug, token]);
 
@@ -249,23 +266,30 @@ export function HuntProvider({ children, slug }: PropsWithChildren<{ slug: strin
     const issuedSlot = snapshot.voucher
       ? campaign?.slots.find((slot) => slot.id === snapshot.voucher?.slotId)
       : undefined;
-    setFlow((current) => ({
-      ...current,
-      userId: snapshot.user.id,
-      attempts: snapshot.attempts,
-      selectedAttemptId: preferredAttemptId(
-        snapshot.attempts,
-        current.selectedAttemptId,
-      ),
-      bonusAttempts: snapshot.remainingBonusAttempts,
-      shareCount: snapshot.sharesGrantedToday,
-      name: current.name || snapshot.user.name || "",
-      email: current.email || snapshot.user.email || "",
-      issued:
-        snapshot.voucher && issuedSlot
-          ? { voucher: snapshot.voucher, slot: issuedSlot }
-          : null,
-    }));
+    setFlow((current) => {
+      const attempts = reconcileSnapshotAttempts({
+        current: current.attempts,
+        incoming: snapshot.attempts,
+        pending: pendingAttempts.current,
+      });
+      return {
+        ...current,
+        userId: snapshot.user.id,
+        attempts,
+        selectedAttemptId: preferredAttemptId(
+          attempts,
+          current.selectedAttemptId,
+        ),
+        bonusAttempts: snapshot.remainingBonusAttempts,
+        shareCount: snapshot.sharesGrantedToday,
+        name: current.name || snapshot.user.name || "",
+        email: current.email || snapshot.user.email || "",
+        issued:
+          snapshot.voucher && issuedSlot
+            ? { voucher: snapshot.voucher, slot: issuedSlot }
+            : null,
+      };
+    });
     return snapshot;
   }, [campaign, slug, token]);
 
