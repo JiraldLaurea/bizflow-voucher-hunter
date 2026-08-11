@@ -285,7 +285,6 @@ export default function RouletteScreen() {
             there is one obvious way to stop and it is not the moving artwork. */}
         <View style={styles.reelWrap}>
           <RouletteReel items={items} ref={reel} settledIndex={settledIndex} />
-          {winner ? <UnlockCelebration /> : null}
         </View>
 
         {/* One fixed-height zone under the reel, so the reel never moves as this
@@ -353,6 +352,7 @@ export default function RouletteScreen() {
           )}
         </View>
       </View>
+      {winner ? <UnlockCelebration /> : null}
     </SafeAreaView>
   );
 }
