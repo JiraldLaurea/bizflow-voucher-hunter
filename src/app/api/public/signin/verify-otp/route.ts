@@ -2,6 +2,7 @@ import { z } from "zod";
 import { issueCustomerToken, setCustomerAuthCookies } from "@/server/customer-auth";
 import { fail, ok } from "@/server/errors";
 import { verifySignInOtp } from "@/server/otp";
+import { normalizePhone } from "@/server/phone";
 import { enforceRateLimit } from "@/server/rate-limit";
 
 const schema = z.object({
@@ -20,10 +21,17 @@ export async function POST(request: Request) {
     // The account under attack is the number, not the address the guesses come
     // from. Without this, spreading the attempts across addresses bought back
     // an unlimited budget against one victim's six-digit code.
+    //
+    // Keyed on the normalized number, never the raw input: `09171234567`,
+    // `+639171234567`, `639171234567` and every spaced/dashed/bracketed spelling
+    // of them are one account but were one bucket each, so an attacker could
+    // mint fresh budget indefinitely just by re-punctuating the same number.
+    // That matters most to the fixed-code accounts in `@/server/otp`, whose
+    // codes never expire and are never consumed.
     await enforceRateLimit(request, "signin/verify-otp", {
       limit: 10,
       windowMs: 15 * 60_000,
-      subject: input.phone,
+      subject: normalizePhone(input.phone) ?? input.phone,
     });
     const { phone } = await verifySignInOtp(input);
     // Only now — after proving ownership — are the httpOnly auth cookies set.

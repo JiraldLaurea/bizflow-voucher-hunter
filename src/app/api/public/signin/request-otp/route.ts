@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { fail, ok } from "@/server/errors";
 import { requestSignInOtp } from "@/server/otp";
+import { normalizePhone } from "@/server/phone";
 import { enforceRateLimit } from "@/server/rate-limit";
 
 /**
@@ -26,11 +27,12 @@ export async function POST(request: Request) {
     const input = schema.parse(await request.json());
     // Also budget by the number being texted. The address limit above cannot
     // stop an SMS flood — the attacker picks the address, the victim owns the
-    // number — and every send costs real SMPP credit.
+    // number — and every send costs real SMPP credit. Normalized, so the same
+    // number spelled three ways shares one budget rather than getting three.
     await enforceRateLimit(request, "signin/request-otp", {
       limit: 5,
       windowMs: 15 * 60_000,
-      subject: input.phone,
+      subject: normalizePhone(input.phone) ?? input.phone,
     });
     return ok(await requestSignInOtp(input));
   } catch (error) {
