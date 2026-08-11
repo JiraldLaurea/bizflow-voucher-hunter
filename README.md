@@ -257,6 +257,12 @@ Two environment variables have to be right or protections weaken silently:
   statement backdating, the OTP echo, and the bootstrap login fallback. It fails
   closed — on automatically in `development` and `test`, off for anything
   unrecognised (unset, `preview`, `staging`), and ignored when `NODE_ENV=production`.
+- `DEV_ACCOUNT_PHONE` — one customer number that keeps the self-scoped hunt tools
+  (reset my hunt, refresh my vouchers, force my own next draw) in production,
+  where the flag above never opens. The money-moving tools stay refused for it,
+  and it grants no console access. Read per request, so unsetting it revokes
+  immediately. Pair with `DEV_ACCOUNT_OTP` only if the number is not a handset
+  you hold — that is a password that never expires.
 
 Staff and admin access runs through `admin_users` accounts managed at
 `/dashboard/team`; there is no per-business PIN.

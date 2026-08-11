@@ -114,3 +114,70 @@ describe("Play review account", () => {
     ).rejects.toBeInstanceOf(AppError);
   });
 });
+
+// The production developer account may also sign in with a fixed code, on the
+// same terms as the reviewer above and through the same code path. The tools it
+// carries are gated separately — see auth-hardening.test.ts.
+describe("developer account sign-in", () => {
+  const devPhone = "+639614073159";
+  const devCode = "739204";
+  const reviewPhone = "+639171234567";
+  const reviewCode = "482913";
+
+  beforeEach(async () => {
+    await resetDb();
+    process.env.DEV_ACCOUNT_PHONE = "09614073159";
+    process.env.DEV_ACCOUNT_OTP = devCode;
+  });
+
+  afterEach(() => {
+    delete process.env.DEV_ACCOUNT_PHONE;
+    delete process.env.DEV_ACCOUNT_OTP;
+    delete process.env.REVIEW_ACCOUNT_PHONE;
+    delete process.env.REVIEW_ACCOUNT_OTP;
+  });
+
+  it("accepts its fixed code without an SMS, and never consumes it", async () => {
+    const requested = await requestSignInOtp({ phone: devPhone });
+    expect(requested.sent).toBe(true);
+    expect(requested.devCode).toBeUndefined();
+
+    expect((await verifySignInOtp({ phone: devPhone, code: devCode })).phone).toBe(devPhone);
+    expect((await verifySignInOtp({ phone: devPhone, code: devCode })).phone).toBe(devPhone);
+  });
+
+  it("rejects a wrong code", async () => {
+    await expect(
+      verifySignInOtp({ phone: devPhone, code: "000000" }),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("coexists with the review account rather than replacing it", async () => {
+    process.env.REVIEW_ACCOUNT_PHONE = "09171234567";
+    process.env.REVIEW_ACCOUNT_OTP = reviewCode;
+
+    expect((await verifySignInOtp({ phone: devPhone, code: devCode })).phone).toBe(devPhone);
+    expect((await verifySignInOtp({ phone: reviewPhone, code: reviewCode })).phone).toBe(
+      reviewPhone,
+    );
+    // Each code belongs to its own number and must not open the other's.
+    await expect(
+      verifySignInOtp({ phone: devPhone, code: reviewCode }),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("stays on the SMS path when only the phone is configured", async () => {
+    // The intended setup for a number you actually hold: tools without a
+    // password that never expires.
+    delete process.env.DEV_ACCOUNT_OTP;
+    await expect(
+      verifySignInOtp({ phone: devPhone, code: devCode }),
+    ).rejects.toBeInstanceOf(AppError);
+
+    const requested = await requestSignInOtp({ phone: devPhone });
+    expect(requested.devCode).toMatch(/^\d{6}$/);
+    expect((await verifySignInOtp({ phone: devPhone, code: requested.devCode! })).phone).toBe(
+      devPhone,
+    );
+  });
+});

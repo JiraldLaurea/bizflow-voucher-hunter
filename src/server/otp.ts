@@ -39,27 +39,44 @@ function requireValidPhone(phone: string) {
 }
 
 /**
- * Google Play review account.
+ * Numbers that sign in with a fixed code instead of an SMS.
  *
- * Play reviewers have no Philippine handset, so the SMS code never reaches them,
- * and `devCode` is suppressed in production by design. Play's App access form
- * demands "reusable login details that do not expire", so exactly one number is
- * allowed to sign in with a fixed code instead.
+ * Two callers need this, for the same reason: sign-in is an SMS OTP to a
+ * Philippine handset and `devCode` is suppressed in production by design, so
+ * whoever holds neither is locked out of the live app.
  *
- * Configured entirely by env and inert unless BOTH vars are set:
- *   REVIEW_ACCOUNT_PHONE – the number given to Play, any accepted PH format
- *   REVIEW_ACCOUNT_OTP   – the 6-digit code given to Play
+ *   REVIEW_ACCOUNT_PHONE / REVIEW_ACCOUNT_OTP
+ *     The Google Play reviewer. Play's App access form demands "reusable login
+ *     details that do not expire". An ordinary customer account, no elevated
+ *     rights. Unset once review passes — see docs/PLAY_CONSOLE_ANSWERS.md §2.
  *
- * Scope is deliberately narrow: this is an ordinary customer account with no
- * elevated rights, and the bypass applies only to the one number. Unset both
- * vars once review passes — see docs/PLAY_CONSOLE_ANSWERS.md §2.
+ *   DEV_ACCOUNT_PHONE / DEV_ACCOUNT_OTP
+ *     The production developer account (see `@/server/dev-tools`). The OTP half
+ *     is optional and independent of the tools half: leave it unset when the
+ *     number is a handset you actually hold, and sign in by real SMS — a code
+ *     that never expires is strictly more attack surface than one that does.
+ *
+ * Each pair is inert unless both of its vars are set and the code is six digits,
+ * so no deploy acquires one by accident. A fixed code is long-lived, so it wants
+ * to be random rather than memorable — it is a password, not a one-time code.
  */
-function reviewAccount(): { phone: string; code: string } | null {
-  const configuredPhone = process.env.REVIEW_ACCOUNT_PHONE?.trim();
-  const code = process.env.REVIEW_ACCOUNT_OTP?.trim();
+type FixedCodeAccount = { phone: string; code: string };
+
+function fixedCodeAccount(phoneVar: string, codeVar: string): FixedCodeAccount | null {
+  const configuredPhone = process.env[phoneVar]?.trim();
+  const code = process.env[codeVar]?.trim();
   if (!configuredPhone || !code || !/^\d{6}$/.test(code)) return null;
   const phone = normalizePhone(configuredPhone);
   return phone ? { phone, code } : null;
+}
+
+/** The fixed-code entry for `phone`, or null when it signs in by SMS like everyone else. */
+function fixedCodeAccountFor(phone: string): FixedCodeAccount | null {
+  const accounts = [
+    fixedCodeAccount("REVIEW_ACCOUNT_PHONE", "REVIEW_ACCOUNT_OTP"),
+    fixedCodeAccount("DEV_ACCOUNT_PHONE", "DEV_ACCOUNT_OTP"),
+  ];
+  return accounts.find((account) => account?.phone === phone) ?? null;
 }
 
 /** Constant-time compare, so a wrong guess leaks nothing about the real code. */
@@ -94,11 +111,11 @@ export async function requestSignInOtp(input: {
   const db = await getDb();
   const phone = requireValidPhone(input.phone);
 
-  // No challenge row and no SMS for the review account: the number is not a real
-  // handset, so sending would only burn provider credit and log a failure. The
-  // client advances to the code screen on a successful response, which is what
-  // the reviewer needs.
-  if (reviewAccount()?.phone === phone) {
+  // No challenge row and no SMS for a fixed-code account: the number may not be
+  // a real handset, so sending would only burn provider credit and log a
+  // failure. The client advances to the code screen on a successful response,
+  // which is all the caller needs.
+  if (fixedCodeAccountFor(phone)) {
     return { sent: true, expiresAt: new Date(Date.now() + OTP_TTL_MS).toISOString() };
   }
 
@@ -154,11 +171,13 @@ export async function verifySignInOtp(input: {
   const db = await getDb();
   const phone = requireValidPhone(input.phone);
 
-  // The review account's fixed code is accepted without a stored challenge, and
-  // is never consumed — Play re-reviews on every update, so it must not expire.
-  const review = reviewAccount();
-  if (review && review.phone === phone) {
-    if (!codeMatches(review.code, input.code)) {
+  // A fixed code is accepted without a stored challenge and is never consumed —
+  // Play re-reviews on every update, so it must not expire. Nothing here limits
+  // guesses; the per-number limiter on the verify route is what bounds a brute
+  // force against a code that never rotates itself.
+  const fixed = fixedCodeAccountFor(phone);
+  if (fixed) {
+    if (!codeMatches(fixed.code, input.code)) {
       throw new AppError("E-OTP-MISMATCH", "Incorrect verification code", 400);
     }
     return { phone };

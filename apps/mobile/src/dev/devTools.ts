@@ -3,11 +3,20 @@ import * as SecureStore from "expo-secure-store";
 import { apiRequest, type RoulettePreview } from "@/api/client";
 
 /**
- * Development-only helpers behind the More tab's dev panel, mirroring the web's
- * `.dev-voucher-picker`. Everything here is gated on `__DEV__`, and the reset
- * endpoint refuses in production server-side as well.
+ * Helpers behind the More tab's dev panel, mirroring the web's
+ * `.dev-voucher-picker`. Every endpoint here is gated server-side as well.
+ *
+ * `__DEV__` covers a local build against a dev backend. It cannot cover the
+ * other case — a store build signed in as the production developer account —
+ * because it is compiled out of a release bundle, so that answer comes from the
+ * session (`useAuth().devTools`) instead.
+ *
+ * The two are not equivalent: a dev build may use everything below, while the
+ * production developer account gets only the self-scoped hunt tools. The LP and
+ * partner-till helpers refuse in production for every account, so the panel
+ * hides them rather than offering a button that always 403s.
  */
-export const devToolsEnabled = __DEV__;
+export const devBuild = __DEV__;
 
 const DEV_POOL_KEY = "voucher_hunt_dev_pool_choices";
 
@@ -29,8 +38,12 @@ async function readChoices(): Promise<PoolChoices> {
   }
 }
 
+/**
+ * No `__DEV__` guard: a release build signed in as the developer account has to
+ * be able to read back the choice it just made. Only the panel writes this
+ * store, and the server rejects a forced draw from anyone not entitled to one.
+ */
 export async function getDevPoolId(campaignSlug: string): Promise<string> {
-  if (!devToolsEnabled) return "";
   const choices = await readChoices();
   return choices[campaignSlug] ?? "";
 }

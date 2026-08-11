@@ -33,6 +33,13 @@ export type LoyaltyAward = {
 };
 
 type AuthContextValue = {
+  /**
+   * Whether the backend grants this session the dev tools. Answered by the
+   * server because a release build's `__DEV__` is false even when the signed-in
+   * number is the production developer account. Advisory: the tools themselves
+   * are gated again on every request.
+   */
+  devTools: boolean;
   isLoading: boolean;
   loyaltyAward: LoyaltyAward | null;
   phone: string | null;
@@ -45,6 +52,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const [devTools, setDevTools] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loyaltyAward, setLoyaltyAward] = useState<LoyaltyAward | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
@@ -55,6 +63,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       SecureStore.deleteItemAsync(TOKEN_KEY),
       SecureStore.deleteItemAsync(PHONE_KEY),
     ]);
+    setDevTools(false);
     setLoyaltyAward(null);
     setPhone(null);
     setToken(null);
@@ -127,12 +136,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!token) return;
 
+    let active = true;
     let requestInFlight = false;
     const checkSession = async () => {
       if (requestInFlight) return;
       requestInFlight = true;
       try {
-        await validateCustomerSession(token);
+        const session = await validateCustomerSession(token);
+        if (active) setDevTools(session.devTools === true);
       } catch {
         // Authenticated 401 responses are handled centrally by apiRequest.
         // Network failures must not sign the customer out.
@@ -140,6 +151,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         requestInFlight = false;
       }
     };
+
+    // Once up front, not only on the interval: this call is now also what tells
+    // a release build whether the dev panel belongs on the More tab, and waiting
+    // a full tick to find out reads as the panel being broken.
+    void checkSession();
 
     const appStateSubscription = AppState.addEventListener(
       "change",
@@ -155,6 +171,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     );
 
     return () => {
+      active = false;
       appStateSubscription.remove();
       clearInterval(interval);
     };
@@ -202,6 +219,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const value = useMemo(
     () => ({
+      devTools,
       isLoading,
       loyaltyAward,
       phone,
@@ -212,6 +230,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }),
     [
       completeSignIn,
+      devTools,
       dismissLoyaltyAward,
       isLoading,
       loyaltyAward,

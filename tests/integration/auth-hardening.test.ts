@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb } from "@/server/db";
-import { devToolsEnabled } from "@/server/dev-tools";
+import {
+  assertDevToolsEnabledFor,
+  devToolsEnabled,
+  devToolsEnabledFor,
+} from "@/server/dev-tools";
 import { requestSignInOtp, verifySignInOtp } from "@/server/otp";
 import { clientIp } from "@/server/rate-limit";
 import { grantDevLoyaltyPoints } from "@/server/rewards-network";
@@ -202,6 +206,62 @@ describe("dev-only tooling gate", () => {
     // been billed for, and "preview" used to read as not-production.
     await expect(
       grantDevLoyaltyPoints({ phone: PHONE, amount: "500" }),
+    ).rejects.toMatchObject({ code: "E-DEV-ONLY" });
+  });
+});
+
+// One customer number carries the self-scoped hunt tools into production, where
+// the deployment-wide gate above can never open. Everything that moves money
+// stays shut for it.
+describe("production developer account", () => {
+  const DEV_PHONE = "+639614073159";
+
+  beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ENABLE_DEV_TOOLS", undefined);
+    vi.stubEnv("DEV_ACCOUNT_PHONE", "09614073159");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("opens the hunt tools for its own number in production", () => {
+    expect(devToolsEnabled()).toBe(false);
+    expect(devToolsEnabledFor(DEV_PHONE)).toBe(true);
+    expect(() => assertDevToolsEnabledFor(DEV_PHONE, "Hunt reset")).not.toThrow();
+  });
+
+  it("matches the configured number in any accepted format", () => {
+    for (const spelling of ["09614073159", "+639614073159", "639614073159", "0961 407 3159"]) {
+      expect(devToolsEnabledFor(spelling)).toBe(true);
+    }
+  });
+
+  it("leaves every other customer where they were", () => {
+    expect(devToolsEnabledFor(PHONE)).toBe(false);
+    expect(devToolsEnabledFor(null)).toBe(false);
+    expect(devToolsEnabledFor("")).toBe(false);
+    // A near-miss must not pass: this is the whole authorisation check.
+    expect(devToolsEnabledFor("+639614073158")).toBe(false);
+    expect(() => assertDevToolsEnabledFor(PHONE, "Hunt reset")).toThrow();
+  });
+
+  it("is inert when the number is unset or unparseable", () => {
+    vi.stubEnv("DEV_ACCOUNT_PHONE", undefined);
+    expect(devToolsEnabledFor(DEV_PHONE)).toBe(false);
+    // Not a PH mobile number: a typo in the env var must fail closed rather
+    // than match whatever else happens to normalise to null.
+    vi.stubEnv("DEV_ACCOUNT_PHONE", "not-a-number");
+    expect(devToolsEnabledFor(DEV_PHONE)).toBe(false);
+    expect(devToolsEnabledFor("not-a-number")).toBe(false);
+  });
+
+  it("still refuses to mint Loyalty Points for the developer account", async () => {
+    // The line between the two tiers: resetting a hunt returns stock this
+    // number is holding, while LP is spendable balance a partner is billed for.
+    await expect(
+      grantDevLoyaltyPoints({ phone: DEV_PHONE, amount: "500" }),
     ).rejects.toMatchObject({ code: "E-DEV-ONLY" });
   });
 });

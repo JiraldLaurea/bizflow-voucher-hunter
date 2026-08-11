@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { CustomerBottomNav } from "../_components/CustomerBottomNav";
 import { toDisplayPhone } from "@/lib/phone-display";
 import { getSignedInCustomerPhone } from "@/server/customer-auth";
+import { devToolsEnabledFor } from "@/server/dev-tools";
 import { listActiveCampaigns } from "@/server/voucher-engine";
 import { MoreScreen } from "./MoreScreen";
 
@@ -20,7 +21,16 @@ export default async function MorePage() {
   const campaigns = await listActiveCampaigns();
   const anchor = campaigns[0];
   if (anchor) {
-    return <MoreScreen campaignSlug={anchor.slug} initialPhone={phone} />;
+    // Resolved here rather than in the client component: the panel's old
+    // `NODE_ENV` check was inlined at build time, so a production bundle could
+    // never show it to the developer account however the server answered.
+    return (
+      <MoreScreen
+        campaignSlug={anchor.slug}
+        devToolsEnabled={devToolsEnabledFor(phone)}
+        initialPhone={phone}
+      />
+    );
   }
 
   // No active campaign to anchor to — show a minimal signed-in shell.

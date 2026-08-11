@@ -320,10 +320,20 @@ export function drawAttempt(
   });
 }
 
+export type CustomerSession = {
+  phone: string;
+  /**
+   * Whether this number may use the dev tools. True on a dev backend for
+   * everyone, and in production only for the configured developer account —
+   * `__DEV__` alone cannot know the latter, and a release build has it false.
+   */
+  devTools?: boolean;
+};
+
 export function validateCustomerSession(
   token: string,
-): Promise<{ phone: string }> {
-  return apiRequest<{ phone: string }>("/api/public/signin/session", {
+): Promise<CustomerSession> {
+  return apiRequest<CustomerSession>("/api/public/signin/session", {
     token,
   });
 }

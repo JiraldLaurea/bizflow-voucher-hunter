@@ -53,8 +53,6 @@ type ReferralLinkIdentity = {
   visitPath: string;
 };
 
-const devToolsEnabled = process.env.NODE_ENV !== "production";
-
 const qrOptions = {
   width: 288,
   margin: 2,
@@ -115,9 +113,16 @@ function useQrDataUrl(token: string | undefined) {
  */
 export function MoreScreen({
   campaignSlug,
+  devToolsEnabled,
   initialPhone,
 }: {
   campaignSlug: string;
+  /**
+   * Whether to show the dev panel, decided by the server: a dev environment, or
+   * the production developer account. Advisory only — every tool behind it is
+   * gated again server-side, so a patched client gets 403s rather than tools.
+   */
+  devToolsEnabled: boolean;
   initialPhone: string;
 }) {
   // The phone comes from the signed-in server session (initialPhone). There is
@@ -192,7 +197,7 @@ export function MoreScreen({
     return () => {
       active = false;
     };
-  }, [campaignSlug]);
+  }, [campaignSlug, devToolsEnabled]);
 
   useEffect(() => {
     if (!notice) return;
@@ -554,7 +559,7 @@ export function MoreScreen({
               <aside className="dev-voucher-picker">
                 <div className="dev-voucher-picker-heading">
                   <span>Development tools</span>
-                  <small>Local only</small>
+                  <small>Your account only</small>
                 </div>
                 <label className="field">
                   <span>Choose the next voucher</span>

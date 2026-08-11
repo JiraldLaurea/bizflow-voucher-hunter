@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { Client, Transaction } from "@libsql/client";
 import { generateQrToken, generateVoucherCode } from "@/server/codes";
-import { assertDevToolsEnabled, devToolsEnabled } from "@/server/dev-tools";
+import { assertDevToolsEnabledFor, devToolsEnabledFor } from "@/server/dev-tools";
 import { AppError } from "@/server/errors";
 import {
   all,
@@ -387,7 +387,11 @@ export async function listCampaignSlots(slug: string) {
   return publicSlots(campaign.id);
 }
 
-export async function listPublicVoucherPools(slug: string) {
+/**
+ * The prize tiers shown on the roulette reel. Public — every visitor sees the
+ * labels and odds — but `viewerPhone` decides whether the ids come with them.
+ */
+export async function listPublicVoucherPools(slug: string, viewerPhone?: string | null) {
   const db = await getDb();
   const campaign = await getCampaignOrThrow(db, slug);
   return (
@@ -403,8 +407,9 @@ export async function listPublicVoucherPools(slug: string) {
     .map((pool) => ({
       // The pool id is only useful to the dev tool that forces a draw to a
       // chosen tier, and publishing it alongside the weights hands an attacker
-      // both halves of that override. Same gate as the override itself.
-      ...(devToolsEnabled() ? { poolId: pool.id } : {}),
+      // both halves of that override. Same gate as the override itself, so the
+      // developer account gets ids in production and nobody else does.
+      ...(devToolsEnabledFor(viewerPhone) ? { poolId: pool.id } : {}),
       benefitType: pool.benefitType,
       benefitValue: pool.benefitValue,
       displayLabel: pool.displayLabel,
@@ -689,7 +694,7 @@ export function generateCandidate(input: {
     ).map(mapPool);
     if (pools.length === 0) throw new AppError("E-POOL-EMPTY", "No voucher benefits remain for this campaign", 409);
 
-    if (input.devPoolId && !devToolsEnabled()) {
+    if (input.devPoolId && !devToolsEnabledFor(input.phone)) {
       throw new AppError("E-DEV-OVERRIDE", "Voucher selection override is unavailable", 400);
     }
     const pool = input.devPoolId
@@ -1282,10 +1287,12 @@ async function resetCampaignHunt(tx: Transaction | Client, user: EndUser) {
  * All of it runs in a single transaction: a reset that cleared two campaigns
  * and failed on the third would leave inventory in a state no page reflects.
  *
- * Never exposed in production; the calling route refuses there too.
+ * Refused in production except for the developer account, which may only ever
+ * reset itself: the phone is the session's, and every row touched below is
+ * keyed by it. The calling route checks the same gate.
  */
 export async function resetHuntForPhone(input: { phone: string }) {
-  assertDevToolsEnabled("Hunt reset");
+  assertDevToolsEnabledFor(input.phone, "Hunt reset");
   return withTx(async (tx) => {
     const normalized = normalizePhone(input.phone);
     const userRows = normalized
@@ -1654,7 +1661,8 @@ export async function importRedemptions(input: { campaignId: string; csv: string
 }
 
 /**
- * Development-only: makes this phone's issued vouchers usable again.
+ * Makes this phone's issued vouchers usable again. Dev tools only, plus the
+ * developer account in production — and only ever for its own vouchers.
  *
  * Deliberately *not* a relaxation of the expiry rule. Expiry is what stops a
  * 90%-off voucher being an open-ended liability for the partner, and the
@@ -1663,7 +1671,7 @@ export async function importRedemptions(input: { campaignId: string; csv: string
  * voucher to match. The result is a voucher that is valid for real reasons.
  */
 export async function devRefreshIssuedVouchers(input: { phone: string }) {
-  assertDevToolsEnabled("Refreshing vouchers");
+  assertDevToolsEnabledFor(input.phone, "Refreshing vouchers");
   const normalized = normalizePhone(input.phone);
   if (!normalized) throw new AppError("E-USER-PHONE", "A valid Philippine mobile number is required", 400);
 

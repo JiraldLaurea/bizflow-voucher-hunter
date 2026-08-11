@@ -8,7 +8,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { Button, Field, InlineError, Select } from "@/components/FormControls";
 import {
   clearDevPoolIds,
-  devToolsEnabled,
+  devBuild,
   getDevPoolId,
   grantLoyaltyPoints,
   listDevPools,
@@ -29,10 +29,14 @@ import { colors, fonts, radius, spacing } from "@/theme";
  * `/campaign/[slug]/more`. The app's More tab is global, so this adds a campaign
  * selector first and then applies both tools to whichever campaign is picked.
  *
- * Renders nothing outside development.
+ * Renders nothing unless this is a dev build or the session says the signed-in
+ * number is the production developer account. The money-moving tools show only
+ * on a dev build — see `@/dev/devTools`.
  */
 export function DevToolsPanel() {
-  const { token } = useAuth();
+  const { devTools, token } = useAuth();
+  const visible = devBuild || devTools;
+  const rewardToolsVisible = devBuild;
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<CampaignCard[]>([]);
   const [slug, setSlug] = useState("");
@@ -54,7 +58,7 @@ export function DevToolsPanel() {
   const [refreshBusy, setRefreshBusy] = useState(false);
 
   useEffect(() => {
-    if (!devToolsEnabled || !token) return;
+    if (!visible || !token) return;
     let active = true;
     void listCampaigns(token)
       .then((cards) => {
@@ -71,10 +75,10 @@ export function DevToolsPanel() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [token, visible]);
 
   useEffect(() => {
-    if (!devToolsEnabled || !token || !slug) return;
+    if (!visible || !token || !slug) return;
     let active = true;
     void listDevPools(slug, token)
       .then((options) => {
@@ -89,7 +93,7 @@ export function DevToolsPanel() {
     return () => {
       active = false;
     };
-  }, [slug, token]);
+  }, [slug, token, visible]);
 
   // Campaign cards already carry their partner; deriving the list here avoids a
   // second request just to name three businesses.
@@ -234,13 +238,15 @@ export function DevToolsPanel() {
     }
   }
 
-  if (!devToolsEnabled) return null;
+  if (!visible) return null;
 
   return (
     <View style={styles.panel}>
       <View style={styles.heading}>
         <Text style={styles.headingText}>Development tools</Text>
-        <Text style={styles.headingBadge}>Local only</Text>
+        <Text style={styles.headingBadge}>
+          {devBuild ? "Local only" : "Your account only"}
+        </Text>
       </View>
 
       <Select
@@ -273,65 +279,6 @@ export function DevToolsPanel() {
 
       <View style={styles.divider} />
 
-      <Text style={styles.label}>Add Loyalty Points</Text>
-      <Field
-        inputMode="decimal"
-        keyboardType="decimal-pad"
-        label="Amount (LP)"
-        onChangeText={setLpAmount}
-        placeholder="1500"
-        value={lpAmount}
-      />
-      <Button
-        disabled={!lpAmount.trim()}
-        loading={lpBusy}
-        loadingLabel="Granting…"
-        variant="secondary"
-        onPress={grantLp}
-      >
-        Add to my wallet
-      </Button>
-      <Text style={styles.copy}>
-        Credits this number&apos;s wallet with no purchase behind it, so no
-        partner is billed for it. Use it to test the LP shop and checkout.
-      </Text>
-
-      <View style={styles.divider} />
-
-      <Text style={styles.label}>Simulate a purchase at a partner</Text>
-      <Select
-        disabled={businessOptions.length === 0}
-        label="Partner"
-        onChange={setTillBusinessId}
-        options={businessOptions}
-        placeholder="No partners available"
-        value={tillBusinessId}
-      />
-      <Field
-        inputMode="decimal"
-        keyboardType="decimal-pad"
-        label="Amount paid (₱)"
-        onChangeText={setTillAmount}
-        placeholder="1000"
-        value={tillAmount}
-      />
-      <Button
-        disabled={!tillBusinessId || !tillAmount.trim()}
-        loading={tillBusy}
-        loadingLabel="Scanning…"
-        variant="secondary"
-        onPress={runSimulatedPurchase}
-      >
-        Earn 5% as LP
-      </Button>
-      <Text style={styles.copy}>
-        Stands in for staff scanning your wallet at the till. Unlike the grant
-        above, the partner is billed for this LP, so it shows up on their
-        monthly statement.
-      </Text>
-
-      <View style={styles.divider} />
-
       <Text style={styles.label}>Make my vouchers valid again</Text>
       <Button
         loading={refreshBusy}
@@ -345,30 +292,6 @@ export function DevToolsPanel() {
         Demo bookings age out. This moves any past booking to the next slot with
         room and re-dates the voucher — expiry still applies, so the expired
         path keeps working as it does in production.
-      </Text>
-
-      <View style={styles.divider} />
-
-      <Text style={styles.label}>Collect an item as staff</Text>
-      <Field
-        autoCapitalize="characters"
-        label="Voucher code"
-        onChangeText={setCollectCode}
-        placeholder="RWD-975A4F"
-        value={collectCode}
-      />
-      <Button
-        disabled={!collectCode.trim()}
-        loading={collectBusy}
-        loadingLabel="Collecting…"
-        variant="secondary"
-        onPress={runSimulatedCollection}
-      >
-        Mark as handed over
-      </Button>
-      <Text style={styles.copy}>
-        Redeems one of your own item vouchers, the step that puts the amount on
-        the partner&apos;s statement. Find codes under LP Shop → My items.
       </Text>
 
       <View style={styles.divider} />
@@ -388,6 +311,97 @@ export function DevToolsPanel() {
         campaign it has hunted and returns the stock, so you can hunt again from the
         start.
       </Text>
+
+      {/* Everything below moves Loyalty Points, and LP is money a partner is
+          billed for. The server refuses these in production for every account,
+          so they are a dev build only — showing them to the production
+          developer account would only offer buttons that always fail. */}
+      {rewardToolsVisible ? (
+        <>
+          <View style={styles.divider} />
+
+          <Text style={styles.label}>Add Loyalty Points</Text>
+          <Field
+            inputMode="decimal"
+            keyboardType="decimal-pad"
+            label="Amount (LP)"
+            onChangeText={setLpAmount}
+            placeholder="1500"
+            value={lpAmount}
+          />
+          <Button
+            disabled={!lpAmount.trim()}
+            loading={lpBusy}
+            loadingLabel="Granting…"
+            variant="secondary"
+            onPress={grantLp}
+          >
+            Add to my wallet
+          </Button>
+          <Text style={styles.copy}>
+            Credits this number&apos;s wallet with no purchase behind it, so no
+            partner is billed for it. Use it to test the LP shop and checkout.
+          </Text>
+
+          <View style={styles.divider} />
+
+          <Text style={styles.label}>Simulate a purchase at a partner</Text>
+          <Select
+            disabled={businessOptions.length === 0}
+            label="Partner"
+            onChange={setTillBusinessId}
+            options={businessOptions}
+            placeholder="No partners available"
+            value={tillBusinessId}
+          />
+          <Field
+            inputMode="decimal"
+            keyboardType="decimal-pad"
+            label="Amount paid (₱)"
+            onChangeText={setTillAmount}
+            placeholder="1000"
+            value={tillAmount}
+          />
+          <Button
+            disabled={!tillBusinessId || !tillAmount.trim()}
+            loading={tillBusy}
+            loadingLabel="Scanning…"
+            variant="secondary"
+            onPress={runSimulatedPurchase}
+          >
+            Earn 5% as LP
+          </Button>
+          <Text style={styles.copy}>
+            Stands in for staff scanning your wallet at the till. Unlike the
+            grant above, the partner is billed for this LP, so it shows up on
+            their monthly statement.
+          </Text>
+
+          <View style={styles.divider} />
+
+          <Text style={styles.label}>Collect an item as staff</Text>
+          <Field
+            autoCapitalize="characters"
+            label="Voucher code"
+            onChangeText={setCollectCode}
+            placeholder="RWD-975A4F"
+            value={collectCode}
+          />
+          <Button
+            disabled={!collectCode.trim()}
+            loading={collectBusy}
+            loadingLabel="Collecting…"
+            variant="secondary"
+            onPress={runSimulatedCollection}
+          >
+            Mark as handed over
+          </Button>
+          <Text style={styles.copy}>
+            Redeems one of your own item vouchers, the step that puts the amount
+            on the partner&apos;s statement. Find codes under LP Shop → My items.
+          </Text>
+        </>
+      ) : null}
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
       {error ? <InlineError message={error} /> : null}

@@ -140,6 +140,16 @@ type Props = {
   slots: PublicSlot[];
   /** Remembered phone from the cookie, so the server can render signed-in copy. */
   initialPhone?: string;
+  /**
+   * Whether this visitor may force the next draw to a chosen tier. Only the
+   * roulette step passes it — that is where the attempt is drawn — and only the
+   * server can answer it, since the production developer account is invisible to
+   * a `NODE_ENV` check that was inlined at build time.
+   *
+   * When false the stored choice is dropped rather than sent, so a stale one
+   * cannot turn an ordinary customer's spin into an E-DEV-OVERRIDE.
+   */
+  devToolsEnabled?: boolean;
 };
 
 type VoucherCardProps = {
@@ -213,7 +223,6 @@ const steps: Array<{ id: PublicStep; label: string; href: string }> = [
 const vouchersRoute = "/vouchers";
 
 const visitorSessionCookie = "bizflow_visitor_session";
-const devVoucherChoiceEnabled = process.env.NODE_ENV !== "production";
 
 const rouletteCardWidth = 304;
 const rouletteGap = 12;
@@ -447,6 +456,7 @@ export function PublicStepClient({
   businessName,
   slots,
   initialPhone,
+  devToolsEnabled: devVoucherChoiceEnabled = false,
 }: Props) {
   const storageKey = flowStorageKey(campaign.slug);
   const [state, setState] = useState<FlowState>(() => {
