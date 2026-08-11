@@ -3,20 +3,12 @@ import { FiEdit2 } from "react-icons/fi";
 import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
 import { FlashNotice } from "../_components/FlashNotice";
 import { redirect } from "next/navigation";
+import { campaignCategoryLabel } from "@/lib/campaign-category";
 import {
   cachedBusinesses,
-  cachedCampaigns,
+  cachedCampaignsWithIndustry,
   currentSession,
 } from "@/server/dashboard-data";
-
-const MODE_LABELS: Record<string, string> = {
-  restaurant: "Restaurant",
-  online_shop: "Online Shop",
-  beauty: "Beauty",
-  pet: "Pet",
-  retail: "Retail",
-  other: "Other",
-};
 
 function statusVariant(status: string) {
   if (status === "active") return "";
@@ -34,9 +26,12 @@ function formatDate(value: string) {
 export default async function CampaignsPage() {
   const session = await currentSession();
   if (session?.role === "staff") redirect("/dashboard");
+  // Campaigns carry their owning business's industry: that is the category
+  // customers see in the directory, and it is not the campaign's `mode` — a
+  // clinic can run an appointment campaign in restaurant mode.
   const [businesses, campaigns] = await Promise.all([
     cachedBusinesses(),
-    cachedCampaigns(),
+    cachedCampaignsWithIndustry(),
   ]);
 
   return (
@@ -92,7 +87,7 @@ export default async function CampaignsPage() {
                   </td>
                   <td>{businesses.find((b) => b.id === campaign.businessId)?.name ?? "-"}</td>
                   <td>
-                    <span className="chip">{MODE_LABELS[campaign.mode] ?? campaign.mode}</span>
+                    <span className="chip">{campaignCategoryLabel(campaign.industry)}</span>
                   </td>
                   <td>
                     <span className={`badge ${statusVariant(campaign.status)}`}>{campaign.status}</span>
