@@ -197,7 +197,7 @@ export function SidebarAccountMenu({
               <FiExternalLink aria-hidden="true" />
             </a>
             <button
-              className="sidebar-account-item is-signout"
+              className="sidebar-account-item"
               onClick={logout}
               ref={(node) => {
                 itemRefs.current[1] = node;

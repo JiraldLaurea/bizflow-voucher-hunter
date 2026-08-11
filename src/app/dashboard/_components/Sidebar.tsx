@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,9 +17,24 @@ import {
   FiUserPlus,
   FiUsers,
 } from "react-icons/fi";
+import { useRouteNavigation } from "./DashboardShell";
+import { RouteSkeleton } from "./RouteSkeleton";
 import { SidebarAccountMenu } from "./SidebarAccountMenu";
 
-const navSections = [
+type NavItem = {
+  label: string;
+  href: string;
+  icon: ReactNode;
+  /**
+   * The placeholder shape to draw while this route loads. It has to match what
+   * the segment's own `loading.tsx` passes: the two are the same picture
+   * arriving by different routes, and a mismatch reads as the skeleton
+   * changing its mind mid-load. Left off where the page has no metric row.
+   */
+  metricCards?: number;
+};
+
+const navSections: { title: string; items: NavItem[] }[] = [
   {
     title: "Overview",
     items: [
@@ -26,6 +42,7 @@ const navSections = [
         label: "Dashboard",
         href: "/dashboard",
         icon: <FiGrid aria-hidden="true" />,
+        metricCards: 4,
       },
     ],
   },
@@ -66,11 +83,13 @@ const navSections = [
         label: "Loyalty Points",
         href: "/dashboard/rewards",
         icon: <FiRepeat aria-hidden="true" />,
+        metricCards: 4,
       },
       {
         label: "LP Billing",
         href: "/dashboard/billing",
         icon: <FiCreditCard aria-hidden="true" />,
+        metricCards: 4,
       },
     ],
   },
@@ -150,12 +169,46 @@ export function Sidebar({
   staffBusinessName?: string;
 }) {
   const pathname = usePathname();
+  const { navigate, pendingHref } = useRouteNavigation();
+
+  // While a click is in flight the router still reports the old path, so the
+  // row the cursor just left would keep the highlight and the page would look
+  // like it had ignored the click. The destination wears it from the moment it
+  // is asked for.
+  const activePath = pendingHref ?? pathname;
+
+  function onNavClick(
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+    metricCards: number,
+  ) {
+    // A modified click means open elsewhere — that is the browser's to handle,
+    // and swapping this tab to a skeleton for it would be wrong twice over.
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    // Already here: nothing is going to load, so nothing should blank out.
+    if (isNavActive(pathname, href)) return;
+    event.preventDefault();
+    navigate(href, <RouteSkeleton metricCards={metricCards} />);
+  }
 
   return (
     <aside className="sidebar">
       {/* The mark is the way home, as it is on every other console: clicking a
           product logo is a habit people arrive with. */}
-      <Link className="sidebar-brand" href="/dashboard">
+      <Link
+        className="sidebar-brand"
+        href="/dashboard"
+        onClick={(event) => onNavClick(event, "/dashboard", 4)}
+      >
         <Image
           alt=""
           className="logo-tile small"
@@ -172,10 +225,13 @@ export function Sidebar({
             <h2 className="sidebar-nav-section-title">{section.title}</h2>
             {section.items.map((item) => (
               <Link
-                aria-current={isNavActive(pathname, item.href) ? "page" : undefined}
-                className={`nav-item ${isNavActive(pathname, item.href) ? "active" : ""}`}
+                aria-current={isNavActive(activePath, item.href) ? "page" : undefined}
+                className={`nav-item ${isNavActive(activePath, item.href) ? "active" : ""}`}
                 href={item.href}
                 key={item.label}
+                onClick={(event) =>
+                  onNavClick(event, item.href, item.metricCards ?? 0)
+                }
               >
                 <span className="nav-item-icon">{item.icon}</span>
                 <span className="nav-item-label">{item.label}</span>

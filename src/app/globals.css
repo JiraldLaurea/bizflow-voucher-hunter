@@ -2204,6 +2204,11 @@ img.logo-tile {
     --line: #e2e8f0;
     --soft-line: #f1f5f9;
     --canvas: #f8fafc;
+    /* The sidebar is white, so `--canvas` — the page background one step off
+       white — disappears against it on hover. This is its own step: darker
+       than the hairline so the row is unmistakably lit, still neutral so it
+       never competes with the purple active row. */
+    --sidebar-hover: #eaeff5;
 }
 
 /*
@@ -2272,7 +2277,7 @@ img.logo-tile {
 }
 
 .admin-shell .nav-item:hover {
-    background: var(--canvas);
+    background: var(--sidebar-hover);
     color: var(--navy);
 }
 
@@ -2292,7 +2297,7 @@ img.logo-tile {
 .admin-shell .sidebar-account-trigger:hover,
 .admin-shell .sidebar-account-trigger.is-open {
     border-color: var(--line);
-    background: var(--canvas);
+    background: var(--sidebar-hover);
     color: var(--navy);
 }
 
@@ -3027,9 +3032,8 @@ a.sidebar-brand:focus-visible {
     color: #dbe6ff;
     font-size: 0.84rem;
     font-weight: 500;
-    transition:
-        background 160ms ease,
-        color 160ms ease;
+    /* No transition: a nav row is a pointer target, and the hover needs to land
+       the moment the cursor arrives rather than fade in behind it. */
 }
 
 .nav-item-label {
@@ -3263,14 +3267,15 @@ a.sidebar-brand:focus-visible {
     text-align: left;
     text-decoration: none;
     cursor: pointer;
-    transition:
-        background 160ms ease,
-        color 160ms ease;
+    /* Instant, like the nav rows above it: the whole sidebar answers the cursor
+       at the same speed. */
 }
 
+/* The panel is a white surface, so the same fill the nav uses — a step the eye
+   actually catches, rather than the page canvas one shade off white. */
 .sidebar-account-item:hover,
 .sidebar-account-item:focus-visible {
-    background: var(--canvas);
+    background: var(--sidebar-hover, var(--canvas));
     outline: none;
 }
 
@@ -3279,18 +3284,6 @@ a.sidebar-brand:focus-visible {
     width: 15px;
     height: 15px;
     color: var(--muted);
-}
-
-/* Signing out is the destructive one, so it warms to red rather than reading
-   the same as the link above it. */
-.sidebar-account-item.is-signout:hover,
-.sidebar-account-item.is-signout:focus-visible {
-    color: var(--red);
-}
-
-.sidebar-account-item.is-signout:hover svg,
-.sidebar-account-item.is-signout:focus-visible svg {
-    color: var(--red);
 }
 
 .admin-login-page {
@@ -7918,10 +7911,8 @@ th {
  */
 @media (prefers-reduced-motion: reduce) {
     :is(.admin-shell, .admin-login-page) .button,
-    .nav-item,
     .sidebar-account-trigger,
     .sidebar-account-more,
-    .sidebar-account-item,
     .marketing-button,
     .marketing-button-ghost,
     .marketing-nav-links a,

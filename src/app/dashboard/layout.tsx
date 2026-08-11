@@ -19,15 +19,20 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         )?.name
       : undefined;
 
+  // The shell renders `admin-main` itself: it is the region that swaps to a
+  // placeholder while a sidebar click is in flight, so it has to own it.
   return (
-    <DashboardShell>
-      <Sidebar
-        adminEmail={session.email}
-        adminName={session.name}
-        role={session.role}
-        staffBusinessName={staffBusinessName}
-      />
-      <section className="admin-main">{children}</section>
+    <DashboardShell
+      sidebar={
+        <Sidebar
+          adminEmail={session.email}
+          adminName={session.name}
+          role={session.role}
+          staffBusinessName={staffBusinessName}
+        />
+      }
+    >
+      {children}
     </DashboardShell>
   );
 }
