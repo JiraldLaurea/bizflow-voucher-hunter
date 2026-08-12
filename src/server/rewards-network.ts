@@ -32,6 +32,24 @@ const DAILY_REFERRAL_POINTS_CENTAVOS = 10_00; // 10 LP
 const MAX_PURCHASE_CENTAVOS = 1_000_000_00; // PHP 1,000,000 per scan
 const MAX_REDEMPTION_CENTAVOS = 250_000_00; // 250,000 LP per voucher payment
 const MIN_CONVERSION_CENTAVOS = 50_00; // 50 LP minimum voucher conversion
+/**
+ * Moving points out of a partner's pocket into the spend-anywhere one costs the
+ * holder 10%. The fee is burned rather than collected: it is deducted from what
+ * the global balance receives and belongs to nobody afterwards, which retires
+ * the liability instead of moving it. The transfer writes a ledger entry on each
+ * side, and both carry the fee in their metadata, so the gap between what left
+ * one pot and what reached the other is explained rather than unaccounted.
+ */
+const LP_TRANSFER_FEE_BPS = 1_000; // 10.00%
+/**
+ * The smallest transfer worth processing. Below 0.1 LP the 10% fee floors to
+ * nothing and the move is free, so a floor is needed regardless; 10 LP is set
+ * well clear of that rounding edge rather than right against it.
+ */
+const MIN_TRANSFER_CENTAVOS = 10_00; // 10 LP
+/** The one denomination global LP converts to, and the bill it needs to apply to. */
+const FIXED_VOUCHER_CENTAVOS = 100_00; // ₱100 off
+const FIXED_VOUCHER_MIN_SPEND_CENTAVOS = 500_00; // on a bill of ₱500 or more
 
 const isoNow = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
@@ -179,6 +197,9 @@ function mapRewardVoucher(row: Row): RewardVoucher {
     qrToken: row.qr_token,
     amountCentavos: row.amount_centavos,
     remainingCentavos: row.remaining_centavos,
+    // Null on vouchers minted before fixed denominations existed; those stay
+    // spendable on any bill.
+    minimumSpendCentavos: row.minimum_spend_centavos ?? undefined,
     status: row.status,
     issuedAt: row.issued_at,
     expiresAt: row.expires_at ?? undefined,
@@ -522,14 +543,35 @@ export async function rewardWalletSnapshot(input: {
 }) {
   const db = await getDb();
   const wallet = await walletByPhoneAndSecret(db, requireWalletPhone(input.phone), input.walletSecret);
-  const [ledger, vouchers] = await Promise.all([
+  const [ledger, vouchers, buckets] = await Promise.all([
     all(db, "SELECT * FROM reward_ledger_entries WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 12", [wallet.id]),
     all(db, "SELECT * FROM reward_vouchers WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 20", [wallet.id]),
+    // Joined to businesses so the holder sees "Mesa Manila: 250 LP" rather than
+    // an id. Empty buckets are dropped: a partner they earned at once and spent
+    // out is noise in a wallet, not a balance.
+    all(
+      db,
+      `SELECT b.id AS business_id, b.name AS business_name, rbb.balance_centavos AS balance_centavos
+       FROM reward_business_balances rbb
+       JOIN businesses b ON b.id = rbb.business_id
+       WHERE rbb.wallet_id = ? AND rbb.balance_centavos > 0
+       ORDER BY rbb.balance_centavos DESC`,
+      [wallet.id],
+    ),
   ]);
+  const businessBalances = buckets.map((row: Row) => ({
+    businessId: String(row.business_id),
+    businessName: String(row.business_name),
+    balance: centavosToLoyaltyPoints(Number(row.balance_centavos)),
+    balanceCentavos: Number(row.balance_centavos),
+  }));
   return {
     wallet,
     walletSecret: input.walletSecret,
+    /** The global pot: spend-anywhere, and the only one convertible to a voucher. */
     balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
+    /** Per-partner pots, spendable at that partner or transferable for a fee. */
+    businessBalances,
     ledger: ledger.map(mapLedger),
     vouchers: vouchers.map(mapRewardVoucher),
     dailyStatus: await loyaltyDailyStatus(db, wallet.id),
@@ -565,7 +607,12 @@ export async function creditRewardFromPurchase(input: {
         wallet,
         purchase: existing,
         rewardAmount: centavosToLoyaltyPoints(existing.rewardAmountCentavos),
-        balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
+        // The pot the scan credited, which is this partner's bucket — the till
+        // is reporting what the customer just earned here, not their global pot.
+        balance: centavosToLoyaltyPoints(
+          await businessBalanceCentavos(tx, existing.walletId, input.businessId),
+        ),
+        globalBalance: centavosToLoyaltyPoints(wallet.balanceCentavos),
         fraudFlag: existing.fraudFlag,
         heldForReview: existing.status === "Held",
         idempotentReplay: true,
@@ -629,8 +676,11 @@ export async function creditRewardFromPurchase(input: {
     );
 
     let updated = wallet;
+    // A held scan credits nothing yet, so the bucket reads whatever it already
+    // held; review is what releases the points.
+    let businessBalance = await businessBalanceCentavos(tx, wallet.id, input.businessId);
     if (!flag) {
-      updated = await applyRewardCredit(tx, {
+      const credited = await applyRewardCredit(tx, {
         walletId: wallet.id,
         businessId: input.businessId,
         purchaseId,
@@ -639,6 +689,8 @@ export async function creditRewardFromPurchase(input: {
         staffName,
         metadata: { fraudFlag: null, idempotencyKey },
       });
+      updated = credited.wallet;
+      businessBalance = credited.businessBalance;
     }
     await audit(tx, {
       actorType: "staff",
@@ -653,7 +705,8 @@ export async function creditRewardFromPurchase(input: {
       wallet: updated,
       purchase: mapPurchase(await one(tx, "SELECT * FROM reward_purchases WHERE id = ?", [purchaseId])),
       rewardAmount: centavosToLoyaltyPoints(rewardCentavos),
-      balance: centavosToLoyaltyPoints(updated.balanceCentavos),
+      balance: centavosToLoyaltyPoints(businessBalance),
+      globalBalance: centavosToLoyaltyPoints(updated.balanceCentavos),
       fraudFlag: flag,
       heldForReview: Boolean(flag),
       idempotentReplay: false,
@@ -661,6 +714,48 @@ export async function creditRewardFromPurchase(input: {
   });
 }
 
+/**
+ * The wallet's bucket for one partner, created empty on first touch.
+ *
+ * `INSERT OR IGNORE` against the (wallet_id, business_id) unique index rather
+ * than a read-then-insert: two tills scanning the same customer at the same
+ * partner would both find nothing and both insert.
+ */
+async function ensureBusinessBalance(tx: Exec, walletId: string, businessId: string) {
+  const now = isoNow();
+  await run(
+    tx,
+    `INSERT OR IGNORE INTO reward_business_balances
+     (id, wallet_id, business_id, balance_centavos, lifetime_earned_centavos, lifetime_transferred_centavos, created_at, updated_at)
+     VALUES (?, ?, ?, 0, 0, 0, ?, ?)`,
+    [id("rbb"), walletId, businessId, now, now],
+  );
+  return businessBalanceCentavos(tx, walletId, businessId);
+}
+
+async function businessBalanceCentavos(tx: Exec, walletId: string, businessId: string) {
+  const row = await one(
+    tx,
+    "SELECT balance_centavos FROM reward_business_balances WHERE wallet_id = ? AND business_id = ?",
+    [walletId, businessId],
+  );
+  return Number(row?.balance_centavos ?? 0);
+}
+
+/**
+ * Credits points earned at a partner into that partner's bucket.
+ *
+ * The wallet's own `balance_centavos` is deliberately untouched: earning no
+ * longer feeds the global pot directly, so the only ways in are a transfer
+ * (which pays a fee) and the global-only sources, referrals and daily rewards.
+ * `lifetime_earned_centavos` still counts everything, since it is a total across
+ * partners rather than a spendable figure.
+ *
+ * `balance_after_centavos` on the ledger row is the balance of whichever pot
+ * moved — here the partner bucket. Entries carry `business_id` when they refer
+ * to a bucket and leave it null for the global pot, so the two stay tellable
+ * apart when the ledger is read back.
+ */
 async function applyRewardCredit(
   tx: Exec,
   input: {
@@ -674,15 +769,25 @@ async function applyRewardCredit(
   },
 ) {
   const now = isoNow();
+  await ensureBusinessBalance(tx, input.walletId, input.businessId);
   await run(
     tx,
-    `UPDATE reward_wallets
+    `UPDATE reward_business_balances
      SET balance_centavos = balance_centavos + ?,
          lifetime_earned_centavos = lifetime_earned_centavos + ?,
          updated_at = ?
-     WHERE id = ?`,
-    [input.rewardCentavos, input.rewardCentavos, now, input.walletId],
+     WHERE wallet_id = ? AND business_id = ?`,
+    [input.rewardCentavos, input.rewardCentavos, now, input.walletId, input.businessId],
   );
+  await run(
+    tx,
+    `UPDATE reward_wallets
+     SET lifetime_earned_centavos = lifetime_earned_centavos + ?,
+         updated_at = ?
+     WHERE id = ?`,
+    [input.rewardCentavos, now, input.walletId],
+  );
+  const businessBalance = await businessBalanceCentavos(tx, input.walletId, input.businessId);
   const updated = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [input.walletId]));
   await run(
     tx,
@@ -693,7 +798,7 @@ async function applyRewardCredit(
       id("rled"),
       input.walletId,
       input.rewardCentavos,
-      updated.balanceCentavos,
+      businessBalance,
       input.purchaseId,
       input.businessId,
       input.staffName,
@@ -701,27 +806,133 @@ async function applyRewardCredit(
       now,
     ],
   );
-  return updated;
+  return { wallet: updated, businessBalance };
 }
 
-export async function convertRewardCreditToVoucher(input: {
+/**
+ * Moves points out of one partner's bucket into the global pot, less the fee.
+ *
+ * The fee comes out of what arrives rather than being added on top: 1,000 LP
+ * leaves the bucket and 900 lands. Charging it on top would leave the last
+ * points in a bucket permanently untransferable, since there would be nothing
+ * left to pay the fee with.
+ */
+export async function transferBusinessLpToGlobal(input: {
   phone: string;
   walletSecret: string;
+  businessId: string;
   amount: string | number;
 }) {
   return withTx(async (tx) => {
     const wallet = await walletByPhoneAndSecret(tx, requireWalletPhone(input.phone), input.walletSecret);
-    const amountCentavos = loyaltyPointsToCentavos(
-      input.amount,
-      "LP voucher amount",
-    );
-    if (amountCentavos < MIN_CONVERSION_CENTAVOS) {
+    const business = await getBusinessOrThrow(tx, input.businessId);
+    const amountCentavos = loyaltyPointsToCentavos(input.amount, "transfer amount");
+
+    // Dust transfers are refused outright: repeated below the rounding edge they
+    // are a free route out of a bucket, and the fee is the whole point.
+    if (amountCentavos < MIN_TRANSFER_CENTAVOS) {
       throw new AppError(
-        "E-REWARD-MIN-CONVERT",
-        `Minimum conversion is ${centavosToLoyaltyPoints(MIN_CONVERSION_CENTAVOS)}`,
+        "E-LP-TRANSFER-TOO-SMALL",
+        `Transfer at least ${centavosToLoyaltyPoints(MIN_TRANSFER_CENTAVOS)} so the ${LP_TRANSFER_FEE_BPS / 100}% fee applies`,
         400,
       );
     }
+    const feeCentavos = Math.floor((amountCentavos * LP_TRANSFER_FEE_BPS) / 10_000);
+    const creditedCentavos = amountCentavos - feeCentavos;
+
+    const now = isoNow();
+    // Guarded UPDATE rather than a read-then-write: two transfers racing on the
+    // same bucket would both read a sufficient balance and both proceed.
+    const debited = await run(
+      tx,
+      `UPDATE reward_business_balances
+       SET balance_centavos = balance_centavos - ?,
+           lifetime_transferred_centavos = lifetime_transferred_centavos + ?,
+           updated_at = ?
+       WHERE wallet_id = ? AND business_id = ? AND balance_centavos >= ?`,
+      [amountCentavos, amountCentavos, now, wallet.id, input.businessId, amountCentavos],
+    );
+    if (debited !== 1) {
+      throw new AppError(
+        "E-LP-BUSINESS-BALANCE",
+        `Not enough Loyalty Points at ${business.name}`,
+        409,
+      );
+    }
+
+    const credited = await run(
+      tx,
+      `UPDATE reward_wallets
+       SET balance_centavos = balance_centavos + ?, updated_at = ?
+       WHERE id = ? AND status = 'Active'`,
+      [creditedCentavos, now, wallet.id],
+    );
+    // A suspended wallet must not silently swallow the debit above. Throwing
+    // rolls the whole transaction back rather than burning the points.
+    if (credited !== 1) {
+      throw new AppError("E-REWARD-WALLET-INACTIVE", "This wallet is not active", 409);
+    }
+
+    const bucketBalance = await businessBalanceCentavos(tx, wallet.id, input.businessId);
+    const updated = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]));
+    const feeMetadata = {
+      feeCentavos,
+      grossCentavos: amountCentavos,
+      creditedCentavos,
+      feeBps: LP_TRANSFER_FEE_BPS,
+    };
+    await run(
+      tx,
+      `INSERT INTO reward_ledger_entries
+       (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, business_id, metadata, created_at)
+       VALUES (?, ?, 'transfer_out', ?, ?, 'customer_transfer', ?, ?, ?, ?)`,
+      [id("rled"), wallet.id, -amountCentavos, bucketBalance, wallet.id, input.businessId, JSON.stringify(feeMetadata), now],
+    );
+    await run(
+      tx,
+      `INSERT INTO reward_ledger_entries
+       (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, metadata, created_at)
+       VALUES (?, ?, 'transfer_in', ?, ?, 'customer_transfer', ?, ?, ?)`,
+      [id("rled"), wallet.id, creditedCentavos, updated.balanceCentavos, wallet.id, JSON.stringify(feeMetadata), now],
+    );
+    await audit(tx, {
+      actorType: "customer",
+      actorId: wallet.id,
+      action: "loyalty_points_transferred",
+      entityType: "reward_wallet",
+      entityId: wallet.id,
+      metadata: { businessId: input.businessId, ...feeMetadata },
+    });
+
+    return {
+      wallet: updated,
+      businessId: input.businessId,
+      businessName: business.name,
+      transferred: centavosToLoyaltyPoints(amountCentavos),
+      fee: centavosToLoyaltyPoints(feeCentavos),
+      credited: centavosToLoyaltyPoints(creditedCentavos),
+      businessBalance: centavosToLoyaltyPoints(bucketBalance),
+      balance: centavosToLoyaltyPoints(updated.balanceCentavos),
+    };
+  });
+}
+
+/**
+ * Spends global LP on one fixed-denomination voucher.
+ *
+ * Unlike the open-amount vouchers this used to mint, the result is a flat ₱100
+ * off a bill of at least ₱500 — spendable at any partner, since global LP is not
+ * tied to where it was earned. The denomination is fixed rather than chosen so
+ * the voucher reads as a coupon at the till instead of a balance to draw down,
+ * and so the minimum spend means the same thing on every one issued.
+ */
+export async function convertRewardCreditToVoucher(input: {
+  phone: string;
+  walletSecret: string;
+}) {
+  return withTx(async (tx) => {
+    const wallet = await walletByPhoneAndSecret(tx, requireWalletPhone(input.phone), input.walletSecret);
+    const amountCentavos = FIXED_VOUCHER_CENTAVOS;
 
     const now = isoNow();
     const affected = await run(
@@ -736,7 +947,7 @@ export async function convertRewardCreditToVoucher(input: {
     if (affected !== 1) {
       throw new AppError(
         "E-REWARD-BALANCE",
-        "Insufficient Loyalty Points",
+        `You need ${centavosToLoyaltyPoints(FIXED_VOUCHER_CENTAVOS)} in global Loyalty Points for this voucher`,
         409,
       );
     }
@@ -751,9 +962,9 @@ export async function convertRewardCreditToVoucher(input: {
     await run(
       tx,
       `INSERT INTO reward_vouchers
-       (id, wallet_id, voucher_code, qr_token, amount_centavos, remaining_centavos, status, issued_at, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?)`,
-      [voucherId, wallet.id, voucherCode, qrToken, amountCentavos, amountCentavos, now, expires.toISOString(), now],
+       (id, wallet_id, voucher_code, qr_token, amount_centavos, remaining_centavos, minimum_spend_centavos, status, issued_at, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?)`,
+      [voucherId, wallet.id, voucherCode, qrToken, amountCentavos, amountCentavos, FIXED_VOUCHER_MIN_SPEND_CENTAVOS, now, expires.toISOString(), now],
     );
     await run(
       tx,
@@ -824,6 +1035,12 @@ export async function redeemRewardVoucher(input: {
   businessId: string;
   amount: string | number;
   staffName: string;
+  /**
+   * The bill being paid, needed only by vouchers carrying a minimum spend.
+   * Distinct from `amount`, which is how much of the voucher is being spent:
+   * a ₱100 voucher against a ₱600 tab has `amount` 100 and this 600.
+   */
+  purchaseAmount?: string | number;
 }) {
   return withTx(async (tx) => {
     await getBusinessOrThrow(tx, input.businessId);
@@ -872,6 +1089,35 @@ export async function redeemRewardVoucher(input: {
         throw new AppError(
           "E-REWARD-VOUCHER-PARTIAL",
           "An item voucher must be redeemed in full",
+          409,
+        );
+      }
+    }
+
+    // A fixed-denomination voucher is a coupon, not a balance: it is worth ₱100
+    // off a qualifying bill or it is worth nothing. Both halves matter — without
+    // the full-amount rule a customer could split one across several small bills
+    // and dodge the floor entirely.
+    if (voucher.minimumSpendCentavos) {
+      if (input.purchaseAmount === undefined || input.purchaseAmount === "") {
+        throw new AppError(
+          "E-REWARD-VOUCHER-SPEND-REQUIRED",
+          `Enter the purchase amount: this voucher applies to bills of ${centavosToMoney(voucher.minimumSpendCentavos)} or more`,
+          400,
+        );
+      }
+      const purchaseCentavos = moneyToCentavos(input.purchaseAmount, "purchase amount");
+      if (purchaseCentavos < voucher.minimumSpendCentavos) {
+        throw new AppError(
+          "E-REWARD-VOUCHER-MIN-SPEND",
+          `This voucher needs a purchase of at least ${centavosToMoney(voucher.minimumSpendCentavos)}. The amount entered was ${centavosToMoney(purchaseCentavos)}.`,
+          409,
+        );
+      }
+      if (amountCentavos !== voucher.remainingCentavos) {
+        throw new AppError(
+          "E-REWARD-VOUCHER-PARTIAL",
+          `This is a ${centavosToMoney(voucher.amountCentavos)} voucher and must be redeemed in full`,
           409,
         );
       }
@@ -961,7 +1207,7 @@ export async function reviewHeldRewardPurchase(input: {
 
     let wallet = mapWallet(await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [purchase.walletId]));
     if (input.decision === "approve") {
-      wallet = await applyRewardCredit(tx, {
+      ({ wallet } = await applyRewardCredit(tx, {
         walletId: purchase.walletId,
         businessId: purchase.businessId,
         purchaseId: purchase.id,
@@ -969,7 +1215,7 @@ export async function reviewHeldRewardPurchase(input: {
         rewardCentavos: purchase.rewardAmountCentavos,
         staffName: purchase.staffName,
         metadata: { fraudFlag: purchase.fraudFlag ?? null, reviewedBy: reviewer },
-      });
+      }));
       await run(
         tx,
         "UPDATE reward_purchases SET status = 'Accepted', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
@@ -1960,22 +2206,35 @@ export async function purchaseRewardProduct(input: {
 
     const now = isoNow();
     const amountCentavos = product.priceCentavos;
+    // A storefront item is bought with the points earned at the partner selling
+    // it, not from the global pot. That is what makes a partner's bucket worth
+    // holding: spending it here is face value, while moving it to the global pot
+    // costs the transfer fee.
+    const business = await getBusinessOrThrow(tx, product.businessId);
+    await ensureBusinessBalance(tx, wallet.id, product.businessId);
     const affected = await run(
       tx,
-      `UPDATE reward_wallets
-       SET balance_centavos = balance_centavos - ?,
-           lifetime_converted_centavos = lifetime_converted_centavos + ?,
-           updated_at = ?
-       WHERE id = ? AND balance_centavos >= ? AND status = 'Active'`,
-      [amountCentavos, amountCentavos, now, wallet.id, amountCentavos],
+      `UPDATE reward_business_balances
+       SET balance_centavos = balance_centavos - ?, updated_at = ?
+       WHERE wallet_id = ? AND business_id = ? AND balance_centavos >= ?`,
+      [amountCentavos, now, wallet.id, product.businessId, amountCentavos],
     );
     if (affected !== 1) {
       throw new AppError(
         "E-REWARD-BALANCE",
-        "Not enough Loyalty Points for this item",
+        `Not enough ${business.name} Loyalty Points for this item`,
         409,
       );
     }
+    // The wallet's lifetime figures still span every pot, so a purchase from a
+    // bucket counts as converted even though the global balance did not move.
+    await run(
+      tx,
+      `UPDATE reward_wallets
+       SET lifetime_converted_centavos = lifetime_converted_centavos + ?, updated_at = ?
+       WHERE id = ? AND status = 'Active'`,
+      [amountCentavos, now, wallet.id],
+    );
 
     const updated = mapWallet(
       await one(tx, "SELECT * FROM reward_wallets WHERE id = ?", [wallet.id]),
@@ -2014,7 +2273,7 @@ export async function purchaseRewardProduct(input: {
         id("rled"),
         wallet.id,
         -amountCentavos,
-        updated.balanceCentavos,
+        await businessBalanceCentavos(tx, wallet.id, product.businessId),
         voucherId,
         product.businessId,
         JSON.stringify({ voucherCode, productId: product.id, productName: product.name }),
@@ -2040,7 +2299,12 @@ export async function purchaseRewardProduct(input: {
       voucher: mapRewardVoucher(
         await one(tx, "SELECT * FROM reward_vouchers WHERE id = ?", [voucherId]),
       ),
-      balance: centavosToLoyaltyPoints(updated.balanceCentavos),
+      // The pot that paid, so the storefront can show what is left to spend at
+      // this partner rather than an unchanged global figure.
+      balance: centavosToLoyaltyPoints(
+        await businessBalanceCentavos(tx, wallet.id, product.businessId),
+      ),
+      globalBalance: centavosToLoyaltyPoints(updated.balanceCentavos),
     };
   });
 }

@@ -15,6 +15,7 @@ import {
   recordStatementPayment,
   redeemRewardVoucher,
   rewardWalletSnapshot,
+  transferBusinessLpToGlobal,
 } from "@/server/rewards-network";
 import { recordReferralOpen, startHunt } from "@/server/voucher-engine";
 
@@ -106,8 +107,11 @@ describe("Loyalty Points", () => {
     expect(first.rewardAmount).toBe("25 LP");
     expect(replay.idempotentReplay).toBe(true);
     expect(second.rewardAmount).toBe("25 LP");
-    // Includes the once-daily 10 LP app-use award.
-    expect(second.balance).toBe("60 LP");
+    // The two scans land in this partner's bucket. The once-daily 10 LP app-use
+    // award is a global-pot credit, so the two no longer sum into one figure —
+    // which is the whole point of splitting them.
+    expect(second.balance).toBe("50 LP");
+    expect(second.globalBalance).toBe("10 LP");
   });
 
   // The partner's two sides are netted once, at month end. Charging the 10%
@@ -123,24 +127,36 @@ describe("Loyalty Points", () => {
       staffName: "staff@bizflow.local",
       idempotencyKey: "purchase-for-500-lp-voucher",
     });
-    const converted = await convertRewardCreditToVoucher({
-      phone,
-      walletSecret: wallet.walletSecret,
-      amount: "500",
-    });
-    const redeemed = await redeemRewardVoucher({
-      codeOrToken: converted.voucher.voucherCode,
-      businessId,
-      amount: "500",
-      staffName: "staff@bizflow.local",
-    });
-
-    // No fee at the till any more: the redemption carries its full value.
-    expect(redeemed.amount).toBe("500 LP");
-    expect(redeemed.serviceFee).toBe("0 LP");
-    expect(redeemed.settlementAmount).toBe("500 LP");
-
     const db = await getDb();
+    // Earning lands in the partner's bucket now rather than the global pot, so
+    // the spendable side is funded directly: what is under test here is
+    // month-end netting, not how the customer came by convertible LP.
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 50000");
+
+    // Conversion mints fixed ₱100 coupons, so 500 LP of redemption is five of
+    // them rather than one voucher for the whole amount.
+    const redemptions = [];
+    for (let index = 0; index < 5; index += 1) {
+      const converted = await convertRewardCreditToVoucher({
+        phone,
+        walletSecret: wallet.walletSecret,
+      });
+      redemptions.push(
+        await redeemRewardVoucher({
+          codeOrToken: converted.voucher.voucherCode,
+          businessId,
+          amount: "100",
+          purchaseAmount: "600",
+          staffName: "staff@bizflow.local",
+        }),
+      );
+    }
+
+    // No fee at the till any more: each redemption carries its full value.
+    const redeemed = redemptions[redemptions.length - 1];
+    expect(redeemed.amount).toBe("100 LP");
+    expect(redeemed.serviceFee).toBe("0 LP");
+    expect(redeemed.settlementAmount).toBe("100 LP");
     // Move both sides into June so July 1-7 can close them.
     await run(db, "UPDATE reward_purchases SET created_at = ?", [
       "2026-06-15T12:00:00.000Z",
@@ -161,21 +177,26 @@ describe("Loyalty Points", () => {
     // A second redemption, funded by LP earned at another partner, tips the
     // month in the partner's favour: PHP 1,000 net, fee PHP 100, payout PHP 900.
     await run(db, "UPDATE reward_wallets SET balance_centavos = 200000");
-    const second = await convertRewardCreditToVoucher({
-      phone,
-      walletSecret: wallet.walletSecret,
-      amount: "1000",
-    });
-    const secondRedemption = await redeemRewardVoucher({
-      codeOrToken: second.voucher.voucherCode,
-      businessId,
-      amount: "1000",
-      staffName: "staff@bizflow.local",
-    });
-    await run(db, "UPDATE reward_voucher_redemptions SET created_at = ? WHERE id = ?", [
-      "2026-06-30T13:00:00.000Z",
-      secondRedemption.redemption.id,
-    ]);
+    for (let index = 0; index < 10; index += 1) {
+      const second = await convertRewardCreditToVoucher({
+        phone,
+        walletSecret: wallet.walletSecret,
+      });
+      await redeemRewardVoucher({
+        codeOrToken: second.voucher.voucherCode,
+        businessId,
+        amount: "100",
+        purchaseAmount: "600",
+        staffName: "staff@bizflow.local",
+      });
+    }
+    // The first five were stamped 12:00 above; everything still carrying a live
+    // timestamp is this second batch.
+    await run(
+      db,
+      "UPDATE reward_voucher_redemptions SET created_at = ? WHERE created_at <> ?",
+      ["2026-06-30T13:00:00.000Z", "2026-06-30T12:00:00.000Z"],
+    );
 
     await expect(
       closeBusinessStatement({
@@ -323,7 +344,16 @@ describe("Loyalty Points", () => {
   it("buys a storefront item with LP and bills it to the partner", async () => {
     const wallet = await getOrCreateRewardWallet({ phone });
     const db = await getDb();
-    await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
+    // A storefront item is bought with points earned at the partner selling it,
+    // so the bucket is funded the way a customer would fill it: ₱20,000 spent
+    // there earns the 1,000 LP this test spends down.
+    await creditRewardFromPurchase({
+      walletToken: wallet.wallet.walletToken,
+      businessId,
+      purchaseAmount: "20,000",
+      staffName: "staff@bizflow.local",
+      idempotencyKey: "purchase-funding-storefront-item",
+    });
 
     const products = await listRewardProducts({ businessId });
     const bowl = products.find((item) => item.id === "rprod_demo_rice_bowl");
@@ -359,7 +389,14 @@ describe("Loyalty Points", () => {
   it("keeps a bought item and marks it collected once staff scan it", async () => {
     const wallet = await getOrCreateRewardWallet({ phone });
     const db = await getDb();
-    await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
+    // Funds this partner's bucket, which is what a storefront purchase spends.
+    await creditRewardFromPurchase({
+      walletToken: wallet.wallet.walletToken,
+      businessId,
+      purchaseAmount: "20,000",
+      staffName: "staff@bizflow.local",
+      idempotencyKey: "purchase-funding-collected-item",
+    });
 
     const bought = await purchaseRewardProduct({
       phone,
@@ -387,5 +424,156 @@ describe("Loyalty Points", () => {
     const [collected] = await listWalletPurchases({ phone });
     expect(collected).toMatchObject({ status: "Redeemed", collectable: false });
     expect(collected.redeemedAt).not.toBe("");
+  });
+});
+
+// Points are held per partner and reach the spend-anywhere pot only by paying
+// to move them, so these cover the two prices a holder can pay: the transfer
+// fee, or spending at face value where the points were earned.
+describe("business Loyalty Points", () => {
+  beforeEach(async () => {
+    await resetDb();
+  });
+
+  async function earn(amount: string, key: string) {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    await creditRewardFromPurchase({
+      walletToken: wallet.wallet.walletToken,
+      businessId,
+      purchaseAmount: amount,
+      staffName: "staff@bizflow.local",
+      idempotencyKey: key,
+    });
+    return wallet;
+  }
+
+  it("earns 5% into the partner's bucket and leaves the global pot alone", async () => {
+    await earn("1,000", "business-lp-earn-basic");
+    const db = await getDb();
+
+    const bucket = await one(
+      db,
+      "SELECT balance_centavos FROM reward_business_balances WHERE business_id = ?",
+      [businessId],
+    );
+    expect(Number(bucket?.balance_centavos)).toBe(50_00);
+
+    // The daily app-use award is a global credit, so the pot is not zero — but
+    // none of the 50 LP earned at the till is in it.
+    const global = await one(db, "SELECT balance_centavos FROM reward_wallets WHERE phone = ?", [phone]);
+    expect(Number(global?.balance_centavos)).toBe(10_00);
+  });
+
+  it("charges 10% to move points to the global pot", async () => {
+    // ₱20,000 spent earns 1,000 LP, the figure the fee is easiest to read on.
+    const wallet = await earn("20,000", "business-lp-transfer-funding");
+    const before = await one(
+      await getDb(),
+      "SELECT balance_centavos FROM reward_wallets WHERE phone = ?",
+      [phone],
+    );
+
+    const moved = await transferBusinessLpToGlobal({
+      phone,
+      walletSecret: wallet.walletSecret,
+      businessId,
+      amount: "1000",
+    });
+
+    expect(moved.transferred).toBe("1,000 LP");
+    expect(moved.fee).toBe("100 LP");
+    expect(moved.credited).toBe("900 LP");
+    // The bucket gives up the full 1,000 while the pot gains 900: the missing
+    // 100 is burned, not parked somewhere.
+    expect(moved.businessBalance).toBe("0 LP");
+    const globalAfter = Number(before?.balance_centavos) + 900_00;
+    expect(moved.wallet.balanceCentavos).toBe(globalAfter);
+  });
+
+  it("refuses a transfer larger than the bucket holds", async () => {
+    const wallet = await earn("1,000", "business-lp-overdraw");
+    await expect(
+      transferBusinessLpToGlobal({
+        phone,
+        walletSecret: wallet.walletSecret,
+        businessId,
+        amount: "500",
+      }),
+    ).rejects.toThrow(/Not enough/);
+  });
+
+  // Dust transfers are refused: below the rounding edge the fee floors to
+  // nothing, so repeating them would be a free route out of a bucket.
+  it("refuses a transfer too small to carry a fee", async () => {
+    const wallet = await earn("1,000", "business-lp-tiny");
+    await expect(
+      transferBusinessLpToGlobal({
+        phone,
+        walletSecret: wallet.walletSecret,
+        businessId,
+        amount: "5",
+      }),
+    ).rejects.toThrow(/fee applies/);
+  });
+
+  it("mints a fixed ₱100 voucher and holds it to a ₱500 bill", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    const db = await getDb();
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
+
+    const converted = await convertRewardCreditToVoucher({
+      phone,
+      walletSecret: wallet.walletSecret,
+    });
+    expect(converted.voucher.amountCentavos).toBe(100_00);
+    expect(converted.voucher.minimumSpendCentavos).toBe(500_00);
+
+    // Too small a bill, and the voucher does not apply.
+    await expect(
+      redeemRewardVoucher({
+        codeOrToken: converted.voucher.voucherCode,
+        businessId,
+        amount: "100",
+        purchaseAmount: "499",
+        staffName: "staff@bizflow.local",
+      }),
+    ).rejects.toThrow(/at least ₱500/);
+
+    // Nor can it be split across smaller bills to dodge that floor.
+    await expect(
+      redeemRewardVoucher({
+        codeOrToken: converted.voucher.voucherCode,
+        businessId,
+        amount: "40",
+        purchaseAmount: "600",
+        staffName: "staff@bizflow.local",
+      }),
+    ).rejects.toThrow(/in full/);
+
+    // A qualifying bill spends it whole.
+    const spent = await redeemRewardVoucher({
+      codeOrToken: converted.voucher.voucherCode,
+      businessId,
+      amount: "100",
+      purchaseAmount: "600",
+      staffName: "staff@bizflow.local",
+    });
+    expect(spent.voucher.remainingCentavos).toBe(0);
+  });
+
+  it("lists partner buckets in the wallet snapshot", async () => {
+    const wallet = await earn("1,000", "business-lp-snapshot");
+    const snapshot = await rewardWalletSnapshot({
+      phone,
+      walletSecret: wallet.walletSecret,
+    });
+
+    expect(snapshot.businessBalances).toEqual([
+      expect.objectContaining({
+        businessId,
+        businessName: "Mesa Manila Test Kitchen",
+        balance: "50 LP",
+      }),
+    ]);
   });
 });

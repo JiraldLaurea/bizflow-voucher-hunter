@@ -8,6 +8,10 @@ const schema = z.object({
   codeOrToken: z.string().min(3),
   businessId: z.string().min(3),
   amount: z.union([z.string().min(1), z.number().positive()]),
+  // The bill being paid, as opposed to `amount`, which is how much of the
+  // voucher is spent. Only fixed-denomination vouchers require it, so it stays
+  // optional here and the engine rejects the ones that need it and lack it.
+  purchaseAmount: z.union([z.string().min(1), z.number().positive()]).optional(),
 });
 
 export async function POST(request: Request) {

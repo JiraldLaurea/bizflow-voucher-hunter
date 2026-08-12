@@ -347,6 +347,23 @@ CREATE TABLE IF NOT EXISTS reward_wallets (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+-- Loyalty Points earned at one partner, held against that partner rather than
+-- the wallet's global balance. reward_wallets.balance_centavos remains the
+-- global pot: it is what referrals and daily rewards credit, and the only
+-- balance convertible to a spend-anywhere voucher. Points land here first and
+-- reach the global pot only by transfer, which charges a fee.
+CREATE TABLE IF NOT EXISTS reward_business_balances (
+  id TEXT PRIMARY KEY,
+  wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  balance_centavos INTEGER NOT NULL DEFAULT 0 CHECK (balance_centavos >= 0),
+  lifetime_earned_centavos INTEGER NOT NULL DEFAULT 0 CHECK (lifetime_earned_centavos >= 0),
+  lifetime_transferred_centavos INTEGER NOT NULL DEFAULT 0 CHECK (lifetime_transferred_centavos >= 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (wallet_id, business_id)
+);
+CREATE INDEX IF NOT EXISTS idx_reward_business_balances_wallet ON reward_business_balances (wallet_id);
 CREATE TABLE IF NOT EXISTS reward_purchases (
   id TEXT PRIMARY KEY,
   wallet_id TEXT NOT NULL REFERENCES reward_wallets(id),
@@ -524,6 +541,8 @@ const DATA_TABLES = [
   "loyalty_daily_rewards",
   "reward_ledger_entries",
   "reward_purchases",
+  // References both reward_wallets(id) and businesses(id), so it clears first.
+  "reward_business_balances",
   "reward_wallets",
   "rate_events",
   "push_logs",
@@ -669,6 +688,11 @@ async function ensureRewardsSchema(c: Client) {
     ["reward_vouchers", "product_id", "TEXT"],
     ["reward_audit_logs", "previous_hash", "TEXT"],
     ["reward_audit_logs", "event_hash", "TEXT"],
+    // A fixed-denomination voucher converted from global LP only applies to a
+    // bill of at least this much, so a ₱100 voucher cannot clear a ₱100 tab.
+    // Null on the open-amount vouchers minted before this existed, which stay
+    // spendable without a floor.
+    ["reward_vouchers", "minimum_spend_centavos", "INTEGER"],
   ];
 
   for (const [table, column, definition] of rewardColumnAdds) {

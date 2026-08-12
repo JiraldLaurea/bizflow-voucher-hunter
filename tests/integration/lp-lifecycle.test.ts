@@ -65,9 +65,14 @@ describe("LP lifecycle end to end", () => {
       direction: "Collection",
     });
 
-    // 3. Top the wallet up so an item is affordable, then buy one. Points
-    //    leave the wallet immediately; the partner is not paid yet.
-    await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
+    // 3. Top this partner's bucket up so an item is affordable, then buy one —
+    //    a storefront item is bought with points earned there, not global ones.
+    //    Points leave the bucket immediately; the partner is not paid yet.
+    await run(
+      db,
+      "UPDATE reward_business_balances SET balance_centavos = 100000 WHERE business_id = ?",
+      [businessId],
+    );
     const bought = await purchaseRewardProduct({
       phone,
       walletSecret: wallet.walletSecret,
@@ -241,20 +246,23 @@ describe("LP lifecycle end to end", () => {
     const db = await getDb();
     await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
 
-    // Converted credit is a balance, not an item: partial spends at whichever
-    // partner the customer chooses stay allowed.
+    // Converted credit is a fixed coupon, not an item and not a balance: spent
+    // in full, at whichever partner the customer chooses, on a qualifying bill.
     const converted = await convertRewardCreditToVoucher({
       phone,
       walletSecret: wallet.walletSecret,
-      amount: "500",
     });
-    const part = await redeemRewardVoucher({
+    expect(converted.voucher.amountCentavos).toBe(100_00);
+    expect(converted.voucher.minimumSpendCentavos).toBe(500_00);
+
+    const spent = await redeemRewardVoucher({
       codeOrToken: converted.voucher.voucherCode,
       businessId: "biz_demo_shop",
-      amount: "200",
+      amount: "100",
+      purchaseAmount: "600",
       staffName,
     });
-    expect(part.voucher.remainingCentavos).toBe(300_00);
+    expect(spent.voucher.remainingCentavos).toBe(0);
 
     // ...and it never shows up as a bought item.
     expect(await listWalletPurchases({ phone })).toHaveLength(0);
@@ -294,12 +302,24 @@ describe("LP lifecycle end to end", () => {
     // the balance is the sale's 5% and nothing else.
     const [wallet] = await listWalletPurchases({ phone });
     expect(wallet).toBeUndefined();
-    const balance = await one(
-      await getDb(),
+    // The 5% is held against the partner it was earned at, so it shows in that
+    // bucket and the global pot stays empty until the customer transfers it.
+    const db = await getDb();
+    const bucket = await one(
+      db,
+      `SELECT rbb.balance_centavos AS balance_centavos
+       FROM reward_business_balances rbb
+       JOIN reward_wallets w ON w.id = rbb.wallet_id
+       WHERE w.phone = ? AND rbb.business_id = ?`,
+      [phone, businessId],
+    );
+    expect(Number(bucket?.balance_centavos)).toBe(100_00);
+    const global = await one(
+      db,
       "SELECT balance_centavos FROM reward_wallets WHERE phone = ?",
       [phone],
     );
-    expect(Number(balance?.balance_centavos)).toBe(100_00);
+    expect(Number(global?.balance_centavos)).toBe(0);
   });
 
   // A voucher already served cannot be refused because the money side failed.

@@ -5931,6 +5931,45 @@ th {
     margin: 0;
 }
 
+/* Points held at one partner, listed under the global balance. */
+.rewards-business-balances {
+    display: grid;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.rewards-business-balance {
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.rewards-business-balance-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.rewards-business-balance-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* The field takes the spare width so the button keeps its natural size
+   rather than stretching across the row. */
+.rewards-business-balance-actions input {
+    flex: 1;
+    min-width: 0;
+}
+
+.rewards-business-balance-actions .button {
+    white-space: nowrap;
+}
+
 .reward-voucher-list {
     display: grid;
     gap: 8px;

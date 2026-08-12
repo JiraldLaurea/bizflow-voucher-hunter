@@ -45,6 +45,11 @@ type LpValidation = {
   voucher: {
     voucherCode: string;
     remainingCentavos: number;
+    /**
+     * Set on fixed-denomination vouchers converted from global LP. Its presence
+     * means the till must enter the bill and the voucher goes in one piece.
+     */
+    minimumSpendCentavos?: number;
     status: string;
     expiresAt?: string;
   };
@@ -90,6 +95,9 @@ export default function StaffPage() {
   const [result, setResult] = useState<Validation | null>(null);
   const [lpResult, setLpResult] = useState<LpValidation | null>(null);
   const [lpAmount, setLpAmount] = useState("");
+  // The bill a fixed-denomination voucher is being applied to, which is a
+  // different number from how much of the voucher is spent.
+  const [lpPurchaseAmount, setLpPurchaseAmount] = useState("");
   const [validationFailure, setValidationFailure] = useState<{
     message: string;
     title: string;
@@ -144,9 +152,14 @@ export default function StaffPage() {
           setResult(null);
           setValidationFailure(null);
           setLpResult(lp);
+          // Both an item voucher and a fixed-denomination one go in whole, so
+          // the amount is prefilled and locked rather than typed.
           setLpAmount(
-            lp.product ? (lp.voucher.remainingCentavos / 100).toString() : "",
+            lp.product || lp.voucher.minimumSpendCentavos
+              ? (lp.voucher.remainingCentavos / 100).toString()
+              : "",
           );
+          setLpPurchaseAmount("");
           return;
         } catch {
           // Not an LP voucher either — fall through to the original message.
@@ -356,6 +369,7 @@ export default function StaffPage() {
           codeOrToken: lpResult.voucher.voucherCode,
           businessId: lpResult.product?.businessId,
           amount: lpAmount,
+          purchaseAmount: lpPurchaseAmount || undefined,
         }),
       });
       setLpResult({ ...lpResult, voucher: redeemed.voucher });
@@ -566,6 +580,18 @@ export default function StaffPage() {
               >
                 {statusExplanation(result)}
               </p>
+              {/*
+                Only worth saying while the voucher can still be used: on an
+                already-redeemed or cancelled one the slot time is history, and
+                a second notice under the first would just crowd the result.
+              */}
+              {result.slotNotStarted && canRedeem && result.slot ? (
+                <p className="staff-result-explanation warning" role="status">
+                  Not redeemable yet — this voucher&apos;s slot starts on{" "}
+                  {result.slot.date} at {result.slot.startTime}. It is still
+                  valid, so you can serve an early arrival if you choose.
+                </p>
+              ) : null}
               <div className="summary-list staff-result-summary">
                 <div className="summary-row">
                   <span className="icon-box">
@@ -580,18 +606,6 @@ export default function StaffPage() {
                   <span className="icon-box">
                     <FiGift aria-hidden="true" />
                   </span>
-              {/*
-                Only worth saying while the voucher can still be used: on an
-                already-redeemed or cancelled one the slot time is history, and
-                a second notice under the first would just crowd the result.
-              */}
-              {result.slotNotStarted && canRedeem && result.slot ? (
-                <p className="staff-result-explanation warning" role="status">
-                  Not redeemable yet — this voucher&apos;s slot starts on{" "}
-                  {result.slot.date} at {result.slot.startTime}. It is still
-                  valid, so you can serve an early arrival if you choose.
-                </p>
-              ) : null}
                   <div>
                     <strong>Benefit</strong>
                     <p className="muted">{result.voucher.displayLabel}</p>
@@ -746,27 +760,72 @@ export default function StaffPage() {
                 </div>
               </div>
               {lpResult.voucher.status === "Active" ? (
-                <label className="field staff-amount-field">
-                  <span>
-                    {lpResult.product ? "Item price (fixed)" : "LP to accept"}
-                  </span>
-                  <input
-                    inputMode="decimal"
-                    onChange={(event) => setLpAmount(event.target.value)}
-                    placeholder="0.00"
-                    readOnly={Boolean(lpResult.product)}
-                    value={lpAmount}
-                  />
-                  <small className="muted">
-                    {lpResult.product
-                      ? "An item voucher is redeemed in full, at the partner that sold it."
-                      : "The partner is credited this amount on their monthly statement."}
-                  </small>
-                </label>
+                <>
+                  <label className="field staff-amount-field">
+                    <span>
+                      {lpResult.product
+                        ? "Item price (fixed)"
+                        : lpResult.voucher.minimumSpendCentavos
+                          ? "Voucher value (fixed)"
+                          : "LP to accept"}
+                    </span>
+                    <input
+                      inputMode="decimal"
+                      onChange={(event) => setLpAmount(event.target.value)}
+                      placeholder="0.00"
+                      readOnly={Boolean(
+                        lpResult.product || lpResult.voucher.minimumSpendCentavos,
+                      )}
+                      value={lpAmount}
+                    />
+                    <small className="muted">
+                      {lpResult.product
+                        ? "An item voucher is redeemed in full, at the partner that sold it."
+                        : lpResult.voucher.minimumSpendCentavos
+                          ? "A fixed voucher is applied whole — it is not spent down."
+                          : "The partner is credited this amount on their monthly statement."}
+                    </small>
+                  </label>
+                  {/*
+                    Only fixed vouchers carry a floor, and the server refuses
+                    them without a bill to check it against, so the field appears
+                    exactly when it is required rather than sitting empty on
+                    every scan.
+                  */}
+                  {lpResult.voucher.minimumSpendCentavos ? (
+                    <label className="field staff-amount-field">
+                      <span>Purchase amount</span>
+                      <input
+                        inputMode="decimal"
+                        onChange={(event) =>
+                          setLpPurchaseAmount(event.target.value)
+                        }
+                        placeholder="0.00"
+                        value={lpPurchaseAmount}
+                      />
+                      <small className="muted">
+                        This voucher applies to bills of ₱
+                        {(
+                          lpResult.voucher.minimumSpendCentavos / 100
+                        ).toLocaleString()}{" "}
+                        or more.
+                      </small>
+                    </label>
+                  ) : null}
+                </>
               ) : null}
               <button
                 className="button full staff-panel-action"
-                disabled={lpResult.voucher.status !== "Active" || !lpAmount.trim()}
+                disabled={
+                  lpResult.voucher.status !== "Active" ||
+                  !lpAmount.trim() ||
+                  // A fixed voucher cannot be submitted without the bill: the
+                  // server would only reject it a round trip later.
+                  Boolean(
+                    lpResult.voucher.minimumSpendCentavos &&
+                      !lpPurchaseAmount.trim(),
+                  )
+                }
                 onClick={redeemLpVoucher}
                 type="button"
               >

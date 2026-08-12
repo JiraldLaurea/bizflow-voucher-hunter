@@ -32,10 +32,20 @@ import type {
   RewardWallet,
 } from "@/types/voucher";
 
+type BusinessBalance = {
+  businessId: string;
+  businessName: string;
+  balance: string;
+  balanceCentavos: number;
+};
+
 type RewardWalletSnapshot = {
   wallet: RewardWallet;
   walletSecret: string;
+  /** The global pot: spendable anywhere, and the only one that converts. */
   balance: string;
+  /** Per-partner pots, spendable at that partner or transferable for a fee. */
+  businessBalances: BusinessBalance[];
   ledger: RewardLedgerEntry[];
   vouchers: RewardVoucher[];
   dailyStatus: LoyaltyDailyStatus;
@@ -133,7 +143,10 @@ export function MoreScreen({
   const [wallet, setWallet] = useState<RewardWalletSnapshot | null>(null);
   const [walletBusy, setWalletBusy] = useState(false);
   const [tokenVisible, setTokenVisible] = useState(false);
-  const [convertAmount, setConvertAmount] = useState("");
+  // Keyed by business id: each partner's bucket has its own transfer field.
+  const [transferAmounts, setTransferAmounts] = useState<Record<string, string>>(
+    {},
+  );
   const [expandedVoucherId, setExpandedVoucherId] = useState("");
 
   const [devOptions, setDevOptions] = useState<DevPoolOption[]>([]);
@@ -240,29 +253,63 @@ export function MoreScreen({
     }
   }
 
+  // No amount to choose: conversion mints one fixed ₱100 voucher.
   async function convertLoyaltyPoints() {
-    if (!convertAmount.trim()) {
-      setError("Enter an amount to convert.");
-      return;
-    }
     setWalletBusy(true);
     setError("");
     try {
       await api("/api/public/rewards/convert", {
         method: "POST",
-        body: JSON.stringify({
-          walletSecret: wallet?.walletSecret,
-          amount: convertAmount,
-        }),
+        body: JSON.stringify({ walletSecret: wallet?.walletSecret }),
       });
-      setConvertAmount("");
-      setNotice("Loyalty Points converted into an LP voucher.");
+      setNotice("Converted 100 LP into a ₱100 voucher.");
       await loadWallet();
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
           : "Unable to convert Loyalty Points.",
+      );
+    } finally {
+      setWalletBusy(false);
+    }
+  }
+
+  async function transferBusinessPoints(business: BusinessBalance) {
+    const amount = transferAmounts[business.businessId]?.trim();
+    if (!amount) {
+      setError(`Enter how much to move from ${business.businessName}.`);
+      return;
+    }
+    setWalletBusy(true);
+    setError("");
+    try {
+      const moved = await api<{ credited: string; fee: string }>(
+        "/api/public/rewards/transfer",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            walletSecret: wallet?.walletSecret,
+            businessId: business.businessId,
+            amount,
+          }),
+        },
+      );
+      setTransferAmounts((current) => ({
+        ...current,
+        [business.businessId]: "",
+      }));
+      // Names the fee rather than only the result: the holder should see why
+      // less arrived than left, not discover it by comparing two numbers.
+      setNotice(
+        `${moved.credited} added to your global points after a ${moved.fee} fee.`,
+      );
+      await loadWallet();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to transfer Loyalty Points.",
       );
     } finally {
       setWalletBusy(false);
@@ -447,27 +494,70 @@ export function MoreScreen({
                       </div>
                     )}
                   </div>
-                  <label className="field rewards-convert-field">
-                    <span>LP amount to convert</span>
-                    <input
-                      inputMode="decimal"
-                      onChange={(event) => setConvertAmount(event.target.value)}
-                      placeholder="50.00"
-                      value={convertAmount}
-                    />
-                  </label>
                   <button
                     className="button full"
-                    disabled={
-                      walletBusy ||
-                      !wallet.walletSecret ||
-                      !convertAmount.trim()
-                    }
+                    disabled={walletBusy || !wallet.walletSecret}
                     onClick={convertLoyaltyPoints}
                     type="button"
                   >
-                    Create LP Voucher
+                    Convert 100 LP → ₱100 voucher
                   </button>
+                  <small className="muted">
+                    Spendable at any partner, on a bill of ₱500 or more.
+                  </small>
+                  {/*
+                    Points earned at a partner sit in their own pot and are worth
+                    full value spent there, so the fee is stated up front rather
+                    than discovered after the transfer.
+                  */}
+                  {wallet.businessBalances.length > 0 ? (
+                    <div className="rewards-business-balances">
+                      <strong>Points by partner</strong>
+                      <small className="muted">
+                        Spend these at the partner that gave them, or move them
+                        to your global points for a 10% fee.
+                      </small>
+                      {wallet.businessBalances.map((business) => (
+                        <div
+                          className="rewards-business-balance"
+                          key={business.businessId}
+                        >
+                          <div className="rewards-business-balance-head">
+                            <span>{business.businessName}</span>
+                            <strong>{business.balance}</strong>
+                          </div>
+                          <div className="rewards-business-balance-actions">
+                            <input
+                              aria-label={`LP to move from ${business.businessName}`}
+                              inputMode="decimal"
+                              onChange={(event) =>
+                                setTransferAmounts((current) => ({
+                                  ...current,
+                                  [business.businessId]: event.target.value,
+                                }))
+                              }
+                              placeholder="100"
+                              value={transferAmounts[business.businessId] ?? ""}
+                            />
+                            <button
+                              className="button"
+                              disabled={
+                                walletBusy ||
+                                !wallet.walletSecret ||
+                                !(
+                                  transferAmounts[business.businessId] ?? ""
+                                ).trim()
+                              }
+                              onClick={() => transferBusinessPoints(business)}
+                              type="button"
+                            >
+                              Move to global
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   {wallet.vouchers.length > 0 ? (
                     <div className="reward-voucher-list">
                       <strong>Your LP vouchers</strong>

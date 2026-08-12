@@ -287,6 +287,12 @@ export type RewardVoucher = {
   qrToken: string;
   amountCentavos: number;
   remainingCentavos: number;
+  /**
+   * The smallest bill this voucher applies to. Set on fixed-denomination
+   * vouchers converted from global LP; absent on the open-amount vouchers
+   * minted before those existed, which carry no floor.
+   */
+  minimumSpendCentavos?: number;
   status: RewardVoucherStatus;
   issuedAt: string;
   expiresAt?: string;

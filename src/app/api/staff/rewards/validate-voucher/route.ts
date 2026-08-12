@@ -30,6 +30,9 @@ export async function POST(request: Request) {
       voucher: {
         voucherCode: result.voucher.voucherCode,
         remainingCentavos: result.voucher.remainingCentavos,
+        // Set on fixed-denomination vouchers; the till needs it to know a
+        // purchase amount is required and what the floor is.
+        minimumSpendCentavos: result.voucher.minimumSpendCentavos,
         status: result.voucher.status,
         expiresAt: result.voucher.expiresAt,
       },

@@ -372,10 +372,24 @@ export function selectVoucher(
 
 /* Customer wallet ---------------------------------------------------------- */
 
+export type BusinessBalance = {
+  businessId: string;
+  businessName: string;
+  balance: string;
+  balanceCentavos: number;
+};
+
 export type RewardWalletSnapshot = {
   wallet: RewardWallet;
   walletSecret: string;
+  /** The global pot: spendable anywhere, and the only one that converts. */
   balance: string;
+  /**
+   * Points held at individual partners, spendable on that partner's storefront
+   * items or transferable to the global pot for a fee. Absent on responses from
+   * a server older than this field.
+   */
+  businessBalances?: BusinessBalance[];
   ledger: RewardLedgerEntry[];
   vouchers: RewardVoucher[];
   dailyStatus: LoyaltyDailyStatus;
@@ -397,11 +411,36 @@ export function getOrCreateRewardWallet(
   });
 }
 
+/**
+ * Mints one fixed ₱100 voucher from global points. There is no amount to pass:
+ * the denomination is fixed server-side.
+ */
 export function convertRewardCredit(
-  input: { walletSecret: string; amount: string },
+  input: { walletSecret: string },
   token: string,
 ): Promise<unknown> {
   return apiRequest("/api/public/rewards/convert", {
+    method: "POST",
+    body: input,
+    token,
+  });
+}
+
+/**
+ * Moves points from one partner's pot into the global one, less a 10% fee that
+ * is taken out of what arrives.
+ */
+export function transferBusinessLp(
+  input: { walletSecret: string; businessId: string; amount: string },
+  token: string,
+): Promise<{
+  transferred: string;
+  fee: string;
+  credited: string;
+  businessBalance: string;
+  balance: string;
+}> {
+  return apiRequest("/api/public/rewards/transfer", {
     method: "POST",
     body: input,
     token,
