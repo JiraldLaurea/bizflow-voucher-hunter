@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { FiEdit2 } from "react-icons/fi";
@@ -6,6 +5,7 @@ import { cachedBusinesses, currentSession } from "@/server/dashboard-data";
 import { listAdminUsers } from "@/server/admin-users";
 import { listBusinesses } from "@/server/admin";
 import { FlashNotice } from "../_components/FlashNotice";
+import { FormLink } from "../_components/FormLink";
 import { TeamMemberActions } from "../_components/TeamMemberActions";
 
 export const dynamic = "force-dynamic";
@@ -58,9 +58,13 @@ export default async function TeamPage() {
       <FlashNotice />
 
       <section className="panel table-wrap">
-        <Link className="button admin-form-toggle" href="/dashboard/team/new">
+        <FormLink
+          className="button admin-form-toggle"
+          href="/dashboard/team/new"
+          skeleton="newTeamMember"
+        >
           New Team Member
-        </Link>
+        </FormLink>
 
         <table className="admin-table">
           <thead>
@@ -111,12 +115,13 @@ export default async function TeamPage() {
                     )}
                   </td>
                   <td className="business-actions">
-                    <Link
+                    <FormLink
                       className="campaign-edit-image-button"
                       href={`/dashboard/team/${member.id}/edit`}
+                      skeleton="editTeamMember"
                     >
                       <FiEdit2 aria-hidden="true" /> Edit
-                    </Link>
+                    </FormLink>
                     <TeamMemberActions
                       isSelf={member.email === session.email}
                       memberId={member.id}

@@ -2,9 +2,9 @@ import { listPools } from "@/server/admin";
 import { FiAlertTriangle } from "react-icons/fi";
 import { manilaDateString } from "@/server/db";
 import { dashboardMetrics } from "@/server/voucher-engine";
-import Link from "next/link";
 import { ChangeRequestActions } from "../_components/ChangeRequestActions";
 import { FlashNotice } from "../_components/FlashNotice";
+import { FormLink } from "../_components/FormLink";
 import { RedemptionImport } from "../_components/RedemptionImport";
 import { scopedHref, selectScope } from "../_components/selectCampaign";
 import { ScopeSelector } from "../_components/ScopeSelector";
@@ -143,12 +143,13 @@ export default async function VouchersPage({
       <section className="panel table-wrap">
         {selectedCampaign ? (
           <div className="admin-form-actions">
-            <Link
+            <FormLink
               className="button admin-form-toggle"
               href={`/dashboard/vouchers/new?${newPoolQuery}`}
+              skeleton="newPool"
             >
               {isBusinessScoped ? "Request Benefit Tier" : "Add Benefit Tier"}
-            </Link>
+            </FormLink>
             <RedemptionImport campaignId={selectedCampaign.id} />
           </div>
         ) : null}
@@ -362,12 +363,13 @@ export default async function VouchersPage({
                               ? ` · ${request.reviewedAt.replace("T", " ").slice(0, 16)}`
                               : ""}
                             </span>
-                            <Link
+                            <FormLink
                               className="button secondary compact-button"
                               href={`/dashboard/vouchers/new?${newPoolQuery}&revise=${request.id}`}
+                              skeleton="newPool"
                             >
                               Revise
-                            </Link>
+                            </FormLink>
                           </div>
                         )}
                       </td>

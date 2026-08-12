@@ -99,6 +99,18 @@ export function BusinessForm({ business }: { business?: Business }) {
     }
   }
 
+  const nameField = (
+    <label className="field">
+      <span>Business name</span>
+      <input
+        onChange={(event) => setName(event.target.value)}
+        placeholder="Glow Lab Skin Clinic"
+        required
+        value={name}
+      />
+    </label>
+  );
+
   return (
     <form className="form-page-form" onSubmit={submit}>
       {error ? <p className="alert form-page-alert">{error}</p> : null}
@@ -107,18 +119,14 @@ export function BusinessForm({ business }: { business?: Business }) {
         title="Identity"
         description="The name customers see on every campaign this business runs."
       >
-        <label className="field">
-          <span>Business name</span>
-          <input
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Glow Lab Skin Clinic"
-            required
-            value={name}
-          />
-        </label>
-
-        {editing ? null : (
+        {/* Name and category share a row. Editing drops the category, and the
+            name is then a direct child of the card body rather than a lone cell
+            in a two-column grid — the card's own spacing rules key off that. */}
+        {editing ? (
+          nameField
+        ) : (
           <div className="admin-form-grid">
+            {nameField}
             <SelectMenu
               label="Category"
               onChange={setIndustry}
@@ -133,13 +141,9 @@ export function BusinessForm({ business }: { business?: Business }) {
         title="Venue details"
         description="Shown to customers on every campaign this business runs. The map pin is what puts it on the directory map."
       >
-        <LocationPicker
-          address={address}
-          onAddressChange={setAddress}
-          onPinChange={setPin}
-          pin={pin}
-        />
-
+        {/* Above the address, not below it: the address field carries a map, a
+            search button and a hint, so a lone text input after all that reads
+            as an afterthought rather than part of the same card. */}
         <label className="field">
           <span>Contact number</span>
           <input
@@ -151,6 +155,13 @@ export function BusinessForm({ business }: { business?: Business }) {
             value={contactNumber}
           />
         </label>
+
+        <LocationPicker
+          address={address}
+          onAddressChange={setAddress}
+          onPinChange={setPin}
+          pin={pin}
+        />
       </FormCard>
 
       <div className="form-page-actions">

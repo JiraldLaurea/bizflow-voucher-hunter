@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { FiEdit2 } from "react-icons/fi";
 import { CampaignFlagToggles } from "../_components/CampaignFlagToggles";
 import { FlashNotice } from "../_components/FlashNotice";
+import { FormLink } from "../_components/FormLink";
 import { redirect } from "next/navigation";
 import { campaignCategoryLabel } from "@/lib/campaign-category";
 import {
@@ -46,9 +46,13 @@ export default async function CampaignsPage() {
       <FlashNotice />
 
       <section className="panel table-wrap">
-        <Link className="button admin-form-toggle" href="/dashboard/campaigns/new">
+        <FormLink
+          className="button admin-form-toggle"
+          href="/dashboard/campaigns/new"
+          skeleton="newCampaign"
+        >
           New Campaign
-        </Link>
+        </FormLink>
         <table className="admin-table">
           <thead>
             <tr>
@@ -73,13 +77,14 @@ export default async function CampaignsPage() {
                   <td>
                     <div className="campaign-table-title">
                       <div className="cell-title">{campaign.title}</div>
-                      <Link
+                      <FormLink
                         className="campaign-edit-image-button"
                         href={`/dashboard/campaigns/${campaign.id}/image`}
+                        skeleton="campaignImage"
                       >
                         <FiEdit2 aria-hidden="true" />
                         Edit image
-                      </Link>
+                      </FormLink>
                     </div>
                   </td>
                   <td>{businesses.find((b) => b.id === campaign.businessId)?.name ?? "-"}</td>

@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { dashboardMetrics } from "@/server/voucher-engine";
 import { ChangeRequestActions } from "../_components/ChangeRequestActions";
 import { FlashNotice } from "../_components/FlashNotice";
+import { FormLink } from "../_components/FormLink";
 import { scopedHref, selectScope } from "../_components/selectCampaign";
 import { ScopeSelector } from "../_components/ScopeSelector";
 import {
@@ -68,12 +68,13 @@ export default async function SlotsPage({
       <FlashNotice />
       <section className="panel table-wrap">
         {selectedCampaign ? (
-          <Link
+          <FormLink
             className="button admin-form-toggle"
             href={`/dashboard/slots/new?${newSlotQuery}`}
+            skeleton="newSlot"
           >
             {isBusinessScoped ? "Request Slot" : "New Slot"}
-          </Link>
+          </FormLink>
         ) : null}
         <table>
           <thead>
@@ -238,12 +239,13 @@ export default async function SlotsPage({
                               ? ` · ${request.reviewedAt.replace("T", " ").slice(0, 16)}`
                               : ""}
                             </span>
-                            <Link
+                            <FormLink
                               className="button secondary compact-button"
                               href={`/dashboard/slots/new?${newSlotQuery}&revise=${request.id}`}
+                              skeleton="newSlot"
                             >
                               Revise
-                            </Link>
+                            </FormLink>
                           </div>
                         )}
                       </td>

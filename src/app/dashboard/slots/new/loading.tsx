@@ -1,5 +1,6 @@
 import { FormSkeleton } from "../../_components/FormSkeleton";
+import { formSkeletons } from "../../_components/formSkeletons";
 
 export default function Loading() {
-  return <FormSkeleton cards={[{ fields: 5 }]} />;
+  return <FormSkeleton cards={formSkeletons.newSlot} />;
 }

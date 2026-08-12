@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { FiEdit2 } from "react-icons/fi";
 import type { Business, Campaign } from "@/types/voucher";
+import { FormLink } from "./FormLink";
 
 const INDUSTRIES = [
   ["restaurant", "Restaurant"],
@@ -23,12 +23,13 @@ export function BusinessManager({
         {/* Left-aligned at the top of the panel, matching the New Campaign
             trigger on the campaigns page rather than sitting in the top-right.
             The page heading lives outside the panel, as on every other page. */}
-        <Link
+        <FormLink
           className="button admin-form-toggle"
           href="/dashboard/businesses/new"
+          skeleton="newBusiness"
         >
           New Business
-        </Link>
+        </FormLink>
 
         <table className="admin-table">
           <thead>
@@ -79,12 +80,13 @@ export function BusinessManager({
                     </td>
                     <td>{count}</td>
                     <td className="business-actions">
-                      <Link
+                      <FormLink
                         className="campaign-edit-image-button"
                         href={`/dashboard/businesses/${business.id}/edit`}
+                        skeleton="editBusiness"
                       >
                         <FiEdit2 aria-hidden="true" /> Edit
-                      </Link>
+                      </FormLink>
                     </td>
                   </tr>
                 );

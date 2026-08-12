@@ -12,7 +12,22 @@ export type FormSkeletonCard = {
   fields?: number;
   /** A tall block above the fields, for a map picker or an image preview. */
   media?: boolean;
+  /** Field rows drawn above the media, where the card leads with plain inputs. */
+  leadFields?: number;
 };
+
+function SkeletonFields({ count }: { count: number }) {
+  return (
+    <div className="form-skeleton-fields">
+      {Array.from({ length: count }, (_, field) => (
+        <span className="form-skeleton-field" key={field}>
+          <span className="dashboard-loading-line form-skeleton-label" />
+          <span className="form-skeleton-control" />
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export function FormSkeleton({ cards }: { cards: FormSkeletonCard[] }) {
   return (
@@ -30,17 +45,9 @@ export function FormSkeleton({ cards }: { cards: FormSkeletonCard[] }) {
             <span className="dashboard-loading-line form-skeleton-card-note" />
           </header>
           <div className="form-card-body">
+            {card.leadFields ? <SkeletonFields count={card.leadFields} /> : null}
             {card.media ? <span className="form-skeleton-media" /> : null}
-            {card.fields ? (
-              <div className="form-skeleton-fields">
-                {Array.from({ length: card.fields }, (_, field) => (
-                  <span className="form-skeleton-field" key={field}>
-                    <span className="dashboard-loading-line form-skeleton-label" />
-                    <span className="form-skeleton-control" />
-                  </span>
-                ))}
-              </div>
-            ) : null}
+            {card.fields ? <SkeletonFields count={card.fields} /> : null}
           </div>
         </section>
       ))}

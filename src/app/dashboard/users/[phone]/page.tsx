@@ -81,32 +81,36 @@ export default async function CustomerDetailPage({
         </div>
       </header>
 
+      {/* The same stat card the dashboard overview uses — uppercase micro-label
+          over a large figure. The two contact tiles carry text rather than a
+          count, so they take the figure size down a step: an email set at
+          1.75rem wraps to three lines and stops reading as a card. */}
       <section className="customer-summary">
         <div className="customer-stats">
-          <div className="customer-stat">
+          <article className="card metric metric-text">
             <span className="muted">Mobile number</span>
             <strong>{toDisplayPhone(summary.phone)}</strong>
-          </div>
-          <div className="customer-stat">
+          </article>
+          <article className="card metric metric-text">
             <span className="muted">Email</span>
             <strong>{summary.email || "—"}</strong>
-          </div>
-          <div className="customer-stat">
+          </article>
+          <article className="card metric">
             <span className="muted">Campaigns joined</span>
             <strong>{summary.campaignCount}</strong>
-          </div>
-          <div className="customer-stat">
+          </article>
+          <article className="card metric">
             <span className="muted">Vouchers issued</span>
             <strong>{summary.voucherCount}</strong>
-          </div>
-          <div className="customer-stat">
+          </article>
+          <article className="card metric">
             <span className="muted">Redeemed</span>
             <strong>{summary.redeemedCount}</strong>
-          </div>
-          <div className="customer-stat">
+          </article>
+          <article className="card metric">
             <span className="muted">Loyalty Points</span>
             <strong>{loyalty ?? "No wallet"}</strong>
-          </div>
+          </article>
         </div>
       </section>
 
@@ -139,7 +143,6 @@ export default async function CustomerDetailPage({
                 <tr key={campaign.campaignId}>
                   <td>
                     <strong>{campaign.campaignTitle}</strong>
-                    <div className="muted customer-phone">/{campaign.campaignSlug}</div>
                   </td>
                   <td>{campaign.businessName}</td>
                   <td>{formatDate(campaign.joinedAt)}</td>

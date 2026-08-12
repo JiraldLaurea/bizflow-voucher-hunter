@@ -1,7 +1,6 @@
 import { FormSkeleton } from "../../_components/FormSkeleton";
+import { formSkeletons } from "../../_components/formSkeletons";
 
-// Identity, role and access, password. The role card starts at one control:
-// the business picker only appears once the role is set to staff.
 export default function Loading() {
-  return <FormSkeleton cards={[{ fields: 2 }, { fields: 1 }, { fields: 1 }]} />;
+  return <FormSkeleton cards={formSkeletons.newTeamMember} />;
 }

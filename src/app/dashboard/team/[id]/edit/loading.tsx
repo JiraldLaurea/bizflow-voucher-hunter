@@ -1,7 +1,6 @@
 import { FormSkeleton } from "../../../_components/FormSkeleton";
+import { formSkeletons } from "../../../_components/formSkeletons";
 
-// As the new-member form, plus the account status control that only an
-// existing member has.
 export default function Loading() {
-  return <FormSkeleton cards={[{ fields: 2 }, { fields: 2 }, { fields: 1 }]} />;
+  return <FormSkeleton cards={formSkeletons.editTeamMember} />;
 }

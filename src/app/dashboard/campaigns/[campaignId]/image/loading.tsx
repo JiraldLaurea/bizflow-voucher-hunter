@@ -1,6 +1,6 @@
 import { FormSkeleton } from "../../../_components/FormSkeleton";
+import { formSkeletons } from "../../../_components/formSkeletons";
 
-// One card: the current artwork above the file picker that replaces it.
 export default function Loading() {
-  return <FormSkeleton cards={[{ media: true, fields: 1 }]} />;
+  return <FormSkeleton cards={formSkeletons.campaignImage} />;
 }
