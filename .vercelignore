@@ -1,0 +1,32 @@
+# Vercel does not read .gitignore — without this file the CLI uploads the whole
+# working tree, which was 845MB and failed the deploy outright: the downloaded
+# EAS APKs in builds/ are ~110-114MB each and exceed Vercel's 100MB per-file
+# limit ("DeploymentError: File size limit exceeded (100 MB)").
+#
+# Mirrors the artifact rules in .gitignore. Nothing here is an input to the
+# Next build, which runs on Vercel's infra from source.
+
+# Downloaded EAS build artifacts — the files that broke the deploy.
+builds/
+
+# Local Next build output. Vercel builds its own.
+.next
+.next-dev
+dist
+tsconfig.tsbuildinfo
+
+# Native build output for the mobile app. 221MB of Gradle intermediates that
+# the web build never touches. The workspace itself is kept: package.json
+# declares `apps/*`, so npm still resolves it at install time.
+apps/mobile/android/
+apps/mobile/ios/
+
+# Test and coverage artifacts.
+coverage
+playwright-report
+test-results
+e2e
+
+*.log
+.DS_Store
+.idea/
