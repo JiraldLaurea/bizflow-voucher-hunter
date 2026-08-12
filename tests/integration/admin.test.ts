@@ -58,8 +58,6 @@ describe("admin CRUD", () => {
       displayLabel: "25% OFF",
       totalQuantity: 5,
       probabilityWeight: 10,
-      expiryType: "days",
-      expiryValue: 7,
       slotIds: [slot.id]
     });
     expect(pool.slotIds).toEqual([slot.id]);
@@ -98,8 +96,6 @@ describe("admin CRUD", () => {
         displayLabel: "10% OFF",
         totalQuantity: 5,
         probabilityWeight: 0,
-        expiryType: "days",
-        expiryValue: 7
       })
     ).rejects.toThrow(AppError);
   });

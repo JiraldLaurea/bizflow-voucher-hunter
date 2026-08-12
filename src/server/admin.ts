@@ -211,8 +211,8 @@ export type CreatePoolInput = {
   displayLabel: string;
   totalQuantity: number;
   probabilityWeight: number;
-  expiryType: VoucherPool["expiryType"];
-  expiryValue: number;
+  /** Vouchers are always slot-bound; accepted only for callers that still send it. */
+  expiryType?: VoucherPool["expiryType"];
   minimumSpend?: number;
   restriction?: string;
   status?: VoucherPool["status"];
@@ -394,7 +394,6 @@ export async function createPool(campaignIdOrSlug: string, input: CreatePoolInpu
   const campaign = await getCampaignFromDb(db, campaignIdOrSlug);
   if (input.totalQuantity < 1) throw new AppError("E-POOL-QUANTITY", "totalQuantity must be at least 1", 422);
   if (input.probabilityWeight < 1) throw new AppError("E-POOL-WEIGHT", "probabilityWeight must be at least 1", 422);
-  if (input.expiryValue < 0) throw new AppError("E-POOL-EXPIRY", "expiryValue cannot be negative", 422);
 
   const slotIds = input.slotIds ?? [];
   if (slotIds.length > 0) {
@@ -417,9 +416,8 @@ export async function createPool(campaignIdOrSlug: string, input: CreatePoolInpu
     totalQuantity: input.totalQuantity,
     remainingQuantity: input.totalQuantity,
     probabilityWeight: input.probabilityWeight,
-    expiryType: input.expiryType,
-    expiryValue:
-      input.expiryType === "selected_slot_only" ? 0 : input.expiryValue,
+    expiryType: "selected_slot_only",
+    expiryValue: 0,
     minimumSpend: input.minimumSpend,
     status: input.status ?? "active",
     restriction: input.restriction

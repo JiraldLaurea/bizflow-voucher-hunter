@@ -34,8 +34,8 @@ const poolRequestPayloadSchema = z.object({
   displayLabel: z.string().min(1),
   totalQuantity: z.number().int().min(1),
   probabilityWeight: z.number().int().min(1),
-  expiryType: z.enum(["hours", "days", "selected_slot_only", "custom"]),
-  expiryValue: z.number().int().min(0),
+  // Matches the pools route: slot-bound only, optional for stale callers.
+  expiryType: z.literal("selected_slot_only").optional(),
   minimumSpend: z.number().int().min(0).optional(),
   restriction: z.string().optional(),
   status: z.enum(["active", "paused", "depleted"]).optional(),

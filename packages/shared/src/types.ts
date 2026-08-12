@@ -92,7 +92,13 @@ export type VoucherPool = {
   totalQuantity: number;
   remainingQuantity: number;
   probabilityWeight: number;
-  expiryType: "hours" | "days" | "selected_slot_only" | "custom";
+  /**
+   * Always slot-bound. Issuance-relative windows (hours/days/custom) were
+   * removed: they let a customer book a slot beyond the window and receive a
+   * voucher that was already expired on arrival.
+   */
+  expiryType: "selected_slot_only";
+  /** Retained at 0 so historical pool rows and CSV exports keep their shape. */
   expiryValue: number;
   minimumSpend?: number;
   status: "active" | "paused" | "depleted";

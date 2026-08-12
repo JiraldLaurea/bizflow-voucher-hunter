@@ -75,15 +75,14 @@ async function addAnalytics(
   );
 }
 
-function expiryFor(pool: VoucherPool, slot: CampaignSlot) {
-  const base = now();
-  if (pool.expiryType === "selected_slot_only") {
-    return `${slot.date}T${slot.endTime}:00.000+08:00`;
-  }
-  if (pool.expiryType === "hours") base.setHours(base.getHours() + pool.expiryValue);
-  if (pool.expiryType === "days") base.setDate(base.getDate() + pool.expiryValue);
-  if (pool.expiryType === "custom") base.setDate(base.getDate() + Math.max(1, pool.expiryValue));
-  return base.toISOString();
+/**
+ * A voucher is redeemable until its booked slot ends — never on a clock that
+ * starts at issuance. An issuance-relative window (the retired hours/days/custom
+ * types) could elapse before the slot the customer booked ever arrived, handing
+ * them a voucher that was dead on arrival at the till.
+ */
+function expiryFor(slot: CampaignSlot) {
+  return `${slot.date}T${slot.endTime}:00.000+08:00`;
 }
 
 // ---- Read helpers ----
@@ -823,7 +822,6 @@ export function selectFinalVoucher(input: {
     if (!offered) {
       throw new AppError("E-SLOT-TIER", "This voucher is not available at the selected date and time", 409);
     }
-    const pool = mapPool(await one(tx, "SELECT * FROM pools WHERE id = ?", [attempt.poolId]));
 
     // Conditional capacity decrement guards the slot against over-booking.
     const cap = await run(
@@ -849,7 +847,7 @@ export function selectFinalVoucher(input: {
       displayLabel: attempt.displayLabel,
       status: "Issued" as const,
       issuedAt: isoNow(),
-      expiresAt: expiryFor(pool, slot),
+      expiresAt: expiryFor(slot),
       redeemedAt: null as string | null
     };
     try {
@@ -1580,17 +1578,8 @@ export function rescheduleReservation(input: { codeOrToken: string; newSlotId: s
     await run(tx, "UPDATE vouchers SET slot_id = ? WHERE id = ?", [newSlot.id, voucher.id]);
     await run(tx, "UPDATE reservations SET slot_id = ? WHERE id = ?", [newSlot.id, reservation.id]);
 
-    // Slot-bound vouchers must follow their new slot's validity window.
-    const attemptRow = await one(tx, "SELECT * FROM attempts WHERE id = ?", [voucher.selectedAttemptId]);
-    if (attemptRow) {
-      const poolRow = await one(tx, "SELECT * FROM pools WHERE id = ?", [mapAttempt(attemptRow).poolId]);
-      if (poolRow) {
-        const pool = mapPool(poolRow);
-        if (pool.expiryType === "selected_slot_only") {
-          await run(tx, "UPDATE vouchers SET expires_at = ? WHERE id = ?", [expiryFor(pool, newSlot), voucher.id]);
-        }
-      }
-    }
+    // Every voucher is slot-bound, so validity always follows the new slot.
+    await run(tx, "UPDATE vouchers SET expires_at = ? WHERE id = ?", [expiryFor(newSlot), voucher.id]);
 
     await addAnalytics(tx, campaign.id, "reservation_rescheduled", { from: voucher.slotId, to: newSlot.id }, voucher.userId, newSlot.id);
     const freshVoucher = mapVoucher(await one(tx, "SELECT * FROM vouchers WHERE id = ?", [voucher.id]));

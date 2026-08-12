@@ -28,8 +28,6 @@ async function setupCampaign(slug: string, slotCapacity: number, tiers: Array<{ 
       displayLabel: tier.label,
       totalQuantity: tier.qty,
       probabilityWeight: tier.weight,
-      expiryType: "days",
-      expiryValue: 7,
       slotIds: [slot.id]
     });
   }

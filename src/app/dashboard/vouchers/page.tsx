@@ -280,8 +280,6 @@ export default async function VouchersPage({
                     displayLabel: string;
                     totalQuantity: number;
                     probabilityWeight: number;
-                    expiryType: string;
-                    expiryValue: number;
                     minimumSpend?: number;
                     slotIds?: string[];
                   };
@@ -335,8 +333,6 @@ export default async function VouchersPage({
                     displayLabel: string;
                     totalQuantity: number;
                     probabilityWeight: number;
-                    expiryType: string;
-                    expiryValue: number;
                     minimumSpend?: number;
                     slotIds?: string[];
                   };

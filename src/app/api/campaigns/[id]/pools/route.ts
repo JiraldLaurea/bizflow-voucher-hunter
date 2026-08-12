@@ -12,8 +12,10 @@ const schema = z.object({
   displayLabel: z.string().min(1),
   totalQuantity: z.number().int().min(1),
   probabilityWeight: z.number().int().min(1),
-  expiryType: z.enum(["hours", "days", "selected_slot_only", "custom"]),
-  expiryValue: z.number().int().min(0),
+  // Slot-bound is the only expiry there is. Left optional so callers that still
+  // send it keep working, but a stale "days"/"hours" request fails loudly rather
+  // than silently getting a validity window it did not ask for.
+  expiryType: z.literal("selected_slot_only").optional(),
   minimumSpend: z.number().int().min(0).optional(),
   restriction: z.string().optional(),
   status: z.enum(["active", "paused", "depleted"]).optional(),

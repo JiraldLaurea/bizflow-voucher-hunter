@@ -16,8 +16,6 @@ const emptyPool = {
   displayLabel: "",
   totalQuantity: "10",
   probabilityWeight: "10",
-  expiryType: "days",
-  expiryValue: "7",
   minimumSpend: "",
 };
 
@@ -26,13 +24,6 @@ const BENEFIT_TYPES = [
   { label: "Fixed Amount", value: "fixed_amount" },
   { label: "Free Item", value: "free_item" },
   { label: "Free Shipping", value: "free_shipping" },
-];
-
-const EXPIRY_TYPES = [
-  { label: "Hours", value: "hours" },
-  { label: "Days", value: "days" },
-  { label: "Selected Slot Only", value: "selected_slot_only" },
-  { label: "Custom Days", value: "custom" },
 ];
 
 /**
@@ -58,8 +49,6 @@ export type PoolRequestDraft = {
   displayLabel: string;
   totalQuantity: number;
   probabilityWeight: number;
-  expiryType: string;
-  expiryValue: number;
   minimumSpend?: number;
   slotIds?: string[];
 };
@@ -72,8 +61,6 @@ function poolState(initialValues?: PoolRequestDraft) {
         displayLabel: initialValues.displayLabel,
         totalQuantity: String(initialValues.totalQuantity),
         probabilityWeight: String(initialValues.probabilityWeight),
-        expiryType: initialValues.expiryType,
-        expiryValue: String(initialValues.expiryValue),
         minimumSpend:
           initialValues.minimumSpend === undefined
             ? ""
@@ -150,8 +137,6 @@ export function PoolForm({
         displayLabel: pool.displayLabel,
         totalQuantity: Number(pool.totalQuantity),
         probabilityWeight: Number(pool.probabilityWeight),
-        expiryType: pool.expiryType,
-        expiryValue: Number(pool.expiryValue),
         minimumSpend: pool.minimumSpend ? Number(pool.minimumSpend) : undefined,
         slotIds,
       };
@@ -260,61 +245,8 @@ export function PoolForm({
       </FormCard>
 
       <FormCard
-        title="Expiry"
-        description="When a voucher from this tier stops being redeemable."
-      >
-        <div className="admin-form-grid">
-          <SelectMenu
-            hint="Hours and days start when the voucher is issued. Selected Slot Only ends with the booked slot."
-            label="Expiry Type"
-            onChange={(expiryType) =>
-              setPool({
-                ...pool,
-                expiryType,
-                expiryValue:
-                  expiryType === "selected_slot_only"
-                    ? "0"
-                    : pool.expiryValue === "0"
-                      ? "7"
-                      : pool.expiryValue,
-              })
-            }
-            options={EXPIRY_TYPES}
-            value={pool.expiryType}
-          />
-          {pool.expiryType === "selected_slot_only" ? (
-            <label className="field">
-              <FieldLabel
-                label="Voucher Expiry"
-                hint="This voucher expires automatically when the customer's selected slot ends."
-              />
-              <input disabled value="Ends when the selected slot ends" />
-            </label>
-          ) : (
-            <label className="field">
-              <FieldLabel
-                label={pool.expiryType === "custom" ? "Custom Days" : "Expiry Value"}
-                hint={
-                  pool.expiryType === "hours"
-                    ? "Set the number of hours after issuance."
-                    : "Set the number of calendar days after issuance."
-                }
-              />
-              <input
-                min={pool.expiryType === "custom" ? 1 : 0}
-                required
-                type="number"
-                value={pool.expiryValue}
-                onChange={(event) => setPool({ ...pool, expiryValue: event.target.value })}
-              />
-            </label>
-          )}
-        </div>
-      </FormCard>
-
-      <FormCard
         title="Availability"
-        description="Bookable at these date/time slots. Rarity is set by Probability Weight, not by how many slots you pick."
+        description="Bookable at these date/time slots, and redeemable until the booked slot ends. Rarity is set by Probability Weight, not by how many slots you pick."
       >
         {slots.length === 0 ? (
           <p className="muted">

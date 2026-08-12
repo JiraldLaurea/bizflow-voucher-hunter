@@ -578,6 +578,7 @@ async function init() {
   await ensureRewardsSchema(c);
   await ensureSmsSchema(c);
   await ensureAuthSchema(c);
+  await normalizeSlotBoundExpiry(c);
 
   if (migrating) {
     // Full reset so seed changes (e.g. campaign titles) reach already-seeded
@@ -618,6 +619,22 @@ async function dropStaffPinColumn(c: Client) {
   if (await hasColumn(c, "businesses", "staff_pin")) {
     await c.execute("ALTER TABLE businesses DROP COLUMN staff_pin");
   }
+}
+
+/**
+ * Retires the issuance-relative expiry types on pools seeded before vouchers
+ * became slot-bound.
+ *
+ * The engine no longer reads `expiry_type` when issuing, so a stale `days` row
+ * already behaves correctly — this only stops the column from contradicting the
+ * one value the type permits. Vouchers already issued keep the `expires_at`
+ * their confirmation SMS quoted; rewriting those would move a deadline the
+ * customer was told in writing.
+ */
+async function normalizeSlotBoundExpiry(c: Client) {
+  await c.execute(
+    "UPDATE pools SET expiry_type = 'selected_slot_only', expiry_value = 0 WHERE expiry_type <> 'selected_slot_only'"
+  );
 }
 
 async function hasColumn(c: Client, table: string, column: string) {
@@ -1032,25 +1049,25 @@ export const seedData: {
   ],
   pools: [
     // Restaurant: campaign-wide benefit tiers. Rarer tiers have less stock.
-    { id: "pool_dinner_90", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "hours", expiryValue: 48, minimumSpend: 1500, status: "active" },
-    { id: "pool_dinner_50", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, expiryType: "days", expiryValue: 7, minimumSpend: 1200, status: "active" },
-    { id: "pool_dinner_30", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 900, status: "active" },
-    { id: "pool_dinner_20", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 60, remainingQuantity: 60, probabilityWeight: 50, expiryType: "days", expiryValue: 30, minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_90", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_50", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_30", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_20", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 60, remainingQuantity: 60, probabilityWeight: 50, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 800, status: "active" },
     { id: "pool_dinner_dessert", campaignId: "camp_july_dinner", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
 
     // Online shop: campaign-wide benefit tiers.
-    { id: "pool_shop_90", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "hours", expiryValue: 2, minimumSpend: 2000, status: "active" },
-    { id: "pool_shop_50", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 9, remainingQuantity: 9, probabilityWeight: 5, expiryType: "hours", expiryValue: 24, minimumSpend: 1500, status: "active" },
-    { id: "pool_shop_20", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 85, remainingQuantity: 85, probabilityWeight: 50, expiryType: "days", expiryValue: 7, minimumSpend: 1000, status: "active" },
-    { id: "pool_shop_10", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "10", displayLabel: "10% OFF", totalQuantity: 24, remainingQuantity: 24, probabilityWeight: 15, expiryType: "days", expiryValue: 14, minimumSpend: 500, status: "active" },
-    { id: "pool_shop_ship", campaignId: "camp_8pm_drop", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 55, remainingQuantity: 55, probabilityWeight: 30, expiryType: "days", expiryValue: 7, status: "active" },
+    { id: "pool_shop_90", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 2000, status: "active" },
+    { id: "pool_shop_50", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 9, remainingQuantity: 9, probabilityWeight: 5, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1500, status: "active" },
+    { id: "pool_shop_20", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 85, remainingQuantity: 85, probabilityWeight: 50, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1000, status: "active" },
+    { id: "pool_shop_10", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "10", displayLabel: "10% OFF", totalQuantity: 24, remainingQuantity: 24, probabilityWeight: 15, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+    { id: "pool_shop_ship", campaignId: "camp_8pm_drop", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 55, remainingQuantity: 55, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, status: "active" },
 
     // Beauty clinic: campaign-wide skincare benefit tiers.
-    { id: "pool_glow_70", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "70", displayLabel: "70% OFF Facial", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "days", expiryValue: 30, minimumSpend: 1500, status: "active" },
-    { id: "pool_glow_50", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, expiryType: "days", expiryValue: 30, minimumSpend: 1200, status: "active" },
-    { id: "pool_glow_30", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, expiryType: "days", expiryValue: 45, minimumSpend: 800, status: "active" },
-    { id: "pool_glow_20", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 50, expiryType: "days", expiryValue: 60, minimumSpend: 600, status: "active" },
-    { id: "pool_glow_addon", campaignId: "camp_glow_facial", benefitType: "free_item", benefitValue: "add_on", displayLabel: "Free Add-on Treatment", totalQuantity: 25, remainingQuantity: 25, probabilityWeight: 30, expiryType: "days", expiryValue: 30, minimumSpend: 500, status: "active" }
+    { id: "pool_glow_70", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "70", displayLabel: "70% OFF Facial", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1500, status: "active" },
+    { id: "pool_glow_50", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1200, status: "active" },
+    { id: "pool_glow_30", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 800, status: "active" },
+    { id: "pool_glow_20", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 50, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 600, status: "active" },
+    { id: "pool_glow_addon", campaignId: "camp_glow_facial", benefitType: "free_item", benefitValue: "add_on", displayLabel: "Free Add-on Treatment", totalQuantity: 25, remainingQuantity: 25, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" }
   ],
   // Which slots each benefit tier is offered at. Rarer/higher tiers map to
   // fewer (off-peak) slots; common tiers are available everywhere.
