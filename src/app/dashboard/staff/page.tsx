@@ -30,6 +30,11 @@ type Validation = {
   business?: { name: string };
   /** Set only when the tier carries one; the server rejects a smaller sale. */
   minimumSpend?: number;
+  /**
+   * The slot has not opened yet, judged in the slot's own timezone. Advisory
+   * only — the voucher is valid and redemption is not blocked.
+   */
+  slotNotStarted?: boolean;
 };
 
 /**
@@ -575,6 +580,18 @@ export default function StaffPage() {
                   <span className="icon-box">
                     <FiGift aria-hidden="true" />
                   </span>
+              {/*
+                Only worth saying while the voucher can still be used: on an
+                already-redeemed or cancelled one the slot time is history, and
+                a second notice under the first would just crowd the result.
+              */}
+              {result.slotNotStarted && canRedeem && result.slot ? (
+                <p className="staff-result-explanation warning" role="status">
+                  Not redeemable yet — this voucher&apos;s slot starts on{" "}
+                  {result.slot.date} at {result.slot.startTime}. It is still
+                  valid, so you can serve an early arrival if you choose.
+                </p>
+              ) : null}
                   <div>
                     <strong>Benefit</strong>
                     <p className="muted">{result.voucher.displayLabel}</p>

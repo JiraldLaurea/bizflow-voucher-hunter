@@ -10,6 +10,7 @@ import {
   redeemVoucher,
   resetHuntForPhone,
   selectFinalVoucher,
+  slotNotStartedYet,
   startHunt,
   validateVoucher,
 } from "@/server/voucher-engine";
@@ -283,5 +284,32 @@ describe("public campaign directory", () => {
     const { availability } = await getPublicCampaign("july-dinner");
     expect(availability.bookable).toBe(false);
     expect(availability).toEqual((await cardFor("july-dinner"))?.availability);
+  });
+});
+
+describe("slot start comparison", () => {
+  // Manila is UTC+8, so the instants below are chosen to straddle the slot's
+  // wall-clock start rather than the UTC one — comparing against UTC is exactly
+  // the bug this guards.
+  const slot = { date: "2026-08-14", startTime: "19:00", timezone: "Asia/Manila" };
+
+  it("is true before the slot's wall-clock start in its own zone", () => {
+    expect(slotNotStartedYet(slot, new Date("2026-08-14T10:00:00Z"))).toBe(true);
+  });
+
+  it("is false once the slot has opened", () => {
+    expect(slotNotStartedYet(slot, new Date("2026-08-14T11:30:00Z"))).toBe(false);
+  });
+
+  it("is true on an earlier date even at a later time of day", () => {
+    expect(slotNotStartedYet(slot, new Date("2026-08-13T11:30:00Z"))).toBe(true);
+  });
+
+  // `hour12: false` reports midnight as hour 24 on some ICU builds, which sorts
+  // a midnight slot after every other time and inverts the comparison.
+  it("treats midnight as hour 00, not 24", () => {
+    const midnight = { date: "2026-08-14", startTime: "00:30", timezone: "Asia/Manila" };
+    expect(slotNotStartedYet(midnight, new Date("2026-08-13T16:05:00Z"))).toBe(true);
+    expect(slotNotStartedYet(midnight, new Date("2026-08-13T16:45:00Z"))).toBe(false);
   });
 });

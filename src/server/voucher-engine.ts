@@ -1089,6 +1089,38 @@ async function minimumSpendFor(db: Exec, voucher: { selectedAttemptId: string })
   return value === null || value === undefined ? undefined : Number(value);
 }
 
+/**
+ * Whether the slot has not opened yet, judged in the slot's own timezone.
+ *
+ * Slots store a plain date and wall-clock times with the zone beside them
+ * (`2026-08-14`, `19:00`, `Asia/Manila`), so this compares wall time rather than
+ * building an instant: formatting `now` into the slot's zone and comparing the
+ * strings needs no offset arithmetic and stays right across a DST boundary,
+ * which Manila does not observe but another zone a campaign uses might.
+ *
+ * `h23` rather than `hour12: false` because that pair reports midnight as `24`
+ * on some ICU builds, which would sort a midnight slot after every other time.
+ */
+export function slotNotStartedYet(
+  slot: { date: string; startTime: string; timezone: string },
+  now = new Date(),
+) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: slot.timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  const nowStamp = `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}`;
+  // Both sides are zero-padded to the same shape, so lexical order is chronological.
+  return nowStamp < `${slot.date}T${slot.startTime}`;
+}
+
 export function validateVoucher(input: { codeOrToken: string }) {
   return withTx(async (tx) => {
     const voucher = await loadVoucherContext(tx, input.codeOrToken);
@@ -1101,12 +1133,18 @@ export function validateVoucher(input: { codeOrToken: string }) {
     const campaignRow = await one(tx, "SELECT * FROM campaigns WHERE id = ?", [voucher.campaignId]);
     const campaign = campaignRow ? mapCampaign(campaignRow) : undefined;
     const businessRow = campaign ? await one(tx, "SELECT * FROM businesses WHERE id = ?", [campaign.businessId]) : undefined;
+    const slot = slotRow ? mapSlot(slotRow) : undefined;
     return {
       voucher,
       user: userRow ? mapUser(userRow) : undefined,
-      slot: slotRow ? mapSlot(slotRow) : undefined,
+      slot,
       campaign,
       business: businessRow ? mapBusiness(businessRow) : undefined,
+      // A voucher scanned before its slot opens is still perfectly valid, so
+      // this does not gate redemption — the till decides whether to serve an
+      // early arrival. It exists so staff are told, rather than reading an
+      // unremarkable "Valid & Confirmed" and only later noticing the date.
+      slotNotStarted: slot ? slotNotStartedYet(slot) : false,
       // Surfaced so the till sees the condition before serving, not after.
       minimumSpend: await minimumSpendFor(tx, voucher)
     };
