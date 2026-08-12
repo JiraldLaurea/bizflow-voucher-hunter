@@ -67,24 +67,28 @@ export function placeholderRouletteItems() {
       benefitType: "discount_percent",
       benefitValue: "20",
       displayLabel: "20% OFF",
+      rarity: "standard",
       probabilityWeight: 55,
     },
     {
       benefitType: "free_item",
       benefitValue: "dessert",
       displayLabel: "Free Dessert",
+      rarity: "rare",
       probabilityWeight: 25,
     },
     {
       benefitType: "discount_percent",
       benefitValue: "50",
       displayLabel: "50% OFF",
+      rarity: "epic",
       probabilityWeight: 15,
     },
     {
       benefitType: "discount_percent",
       benefitValue: "90",
       displayLabel: "90% OFF",
+      rarity: "legendary",
       probabilityWeight: 5,
     },
   ]);

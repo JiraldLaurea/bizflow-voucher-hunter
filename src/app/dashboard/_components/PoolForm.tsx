@@ -4,18 +4,32 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FiInfo } from "react-icons/fi";
+import {
+  labelValueMismatch,
+  rarityPresentation,
+  RARITY_ORDER,
+  RARITY_WEIGHTS,
+  type VoucherRarity,
+} from "@bizflow/shared";
 import { api } from "@/lib/api-client";
-import type { CampaignSlot } from "@/types/voucher";
+import { VoucherCard } from "@/app/_components/VoucherCard";
+import type { CampaignSlot, VoucherPool } from "@/types/voucher";
 import { FormCard } from "./FormPage";
 import { SelectMenu } from "./SelectMenu";
 import { appendDone } from "./SlotForm";
+
+/** Rarest first, each labelled with the odds it buys. */
+const RARITY_OPTIONS = RARITY_ORDER.map((rarity) => ({
+  label: `${rarityPresentation(rarity).label} — weight ${RARITY_WEIGHTS[rarity]}`,
+  value: rarity,
+}));
 
 const emptyPool = {
   benefitType: "discount_percent",
   benefitValue: "",
   displayLabel: "",
   totalQuantity: "10",
-  probabilityWeight: "10",
+  rarity: "standard" as VoucherRarity,
   minimumSpend: "",
 };
 
@@ -48,7 +62,7 @@ export type PoolRequestDraft = {
   benefitValue: string;
   displayLabel: string;
   totalQuantity: number;
-  probabilityWeight: number;
+  rarity: VoucherRarity;
   minimumSpend?: number;
   slotIds?: string[];
 };
@@ -60,13 +74,31 @@ function poolState(initialValues?: PoolRequestDraft) {
         benefitValue: initialValues.benefitValue,
         displayLabel: initialValues.displayLabel,
         totalQuantity: String(initialValues.totalQuantity),
-        probabilityWeight: String(initialValues.probabilityWeight),
+        rarity: initialValues.rarity,
         minimumSpend:
           initialValues.minimumSpend === undefined
             ? ""
             : String(initialValues.minimumSpend),
       }
     : emptyPool;
+}
+
+/**
+ * The ticket's sub-line, mirroring the campaign page's `voucherDetail` and
+ * adding the minimum spend, which is the one condition a customer most needs to
+ * see before picking a tier.
+ */
+function previewDetail(benefitType: string, minimumSpend: string) {
+  const base =
+    benefitType === "free_item"
+      ? "Any dessert"
+      : benefitType === "free_shipping"
+        ? "Free shipping reward"
+        : "On selected items";
+  const minimum = Number(minimumSpend);
+  return minimumSpend.trim() && Number.isFinite(minimum) && minimum > 0
+    ? `${base} · Min. spend ₱${minimum.toLocaleString()}`
+    : base;
 }
 
 /** A field label that carries the explanatory tooltip these settings need. */
@@ -113,6 +145,14 @@ export function PoolForm({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Advisory only. The label legitimately carries wording the value never does
+  // ("70% OFF Facial"), so this warns about a contradiction rather than blocking
+  // a save the admin may well have meant.
+  const mismatch = labelValueMismatch(
+    pool.benefitType as VoucherPool["benefitType"],
+    pool.benefitValue,
+    pool.displayLabel,
+  );
 
   function toggleSlot(slotId: string) {
     setSlotIds((current) =>
@@ -136,7 +176,7 @@ export function PoolForm({
         benefitValue: pool.benefitValue,
         displayLabel: pool.displayLabel,
         totalQuantity: Number(pool.totalQuantity),
-        probabilityWeight: Number(pool.probabilityWeight),
+        rarity: pool.rarity,
         minimumSpend: pool.minimumSpend ? Number(pool.minimumSpend) : undefined,
         slotIds,
       };
@@ -192,7 +232,7 @@ export function PoolForm({
           <label className="field">
             <FieldLabel
               label="Display Label"
-              hint="This short label is shown to customers on the voucher."
+              hint="This short label is shown to customers on the voucher, and is what staff read at the till when applying the discount."
             />
             <input
               placeholder="20% OFF"
@@ -200,6 +240,11 @@ export function PoolForm({
               value={pool.displayLabel}
               onChange={(event) => setPool({ ...pool, displayLabel: event.target.value })}
             />
+            {mismatch ? (
+              <small className="alert" role="alert">
+                {mismatch}
+              </small>
+            ) : null}
           </label>
           <label className="field">
             <FieldLabel
@@ -214,21 +259,15 @@ export function PoolForm({
               onChange={(event) => setPool({ ...pool, totalQuantity: event.target.value })}
             />
           </label>
-          <label className="field">
-            <FieldLabel
-              label="Probability Weight"
-              hint="How often this tier is won, relative to the campaign's other tiers. A tier with weight 50 alongside one with weight 10 is drawn five times as often."
-            />
-            <input
-              min={1}
-              required
-              type="number"
-              value={pool.probabilityWeight}
-              onChange={(event) =>
-                setPool({ ...pool, probabilityWeight: event.target.value })
-              }
-            />
-          </label>
+          <SelectMenu
+            hint={`How rare this tier is. Sets both the badge customers see and how often it is won: a Legendary tier comes up ${RARITY_WEIGHTS.standard / RARITY_WEIGHTS.legendary}x less often than a Standard one.`}
+            label="Rarity"
+            onChange={(rarity) =>
+              setPool({ ...pool, rarity: rarity as VoucherRarity })
+            }
+            options={RARITY_OPTIONS}
+            value={pool.rarity}
+          />
           <label className="field">
             <FieldLabel
               label="Minimum Spend (optional)"
@@ -244,9 +283,32 @@ export function PoolForm({
         </div>
       </FormCard>
 
+      {/* The real customer-facing ticket, not a mock-up of one: same component
+          and same `.card.candidate.voucher-*` wrapper the campaign page mounts
+          it in, so what an admin approves here is what actually ships. */}
+      <FormCard
+        title="Preview"
+        description="How this tier looks to a customer when they win it."
+      >
+        <div className="pool-preview">
+          <article className={`card candidate voucher-${pool.rarity}`}>
+            <VoucherCard
+              benefit={{
+                benefitType: pool.benefitType as VoucherPool["benefitType"],
+                benefitValue: pool.benefitValue,
+                displayLabel: pool.displayLabel || "Your benefit label",
+                rarity: pool.rarity,
+              }}
+              code="BIZ-XXXXXXXXXXXXXXXX"
+              detail={previewDetail(pool.benefitType, pool.minimumSpend)}
+            />
+          </article>
+        </div>
+      </FormCard>
+
       <FormCard
         title="Availability"
-        description="Bookable at these date/time slots, and redeemable until the booked slot ends. Rarity is set by Probability Weight, not by how many slots you pick."
+        description="Bookable at these date/time slots, and redeemable until the booked slot ends. How often the tier is won is set by Rarity, not by how many slots you pick."
       >
         {slots.length === 0 ? (
           <p className="muted">

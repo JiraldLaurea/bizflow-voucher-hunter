@@ -412,6 +412,9 @@ export async function listPublicVoucherPools(slug: string, viewerPhone?: string 
       benefitType: pool.benefitType,
       benefitValue: pool.benefitValue,
       displayLabel: pool.displayLabel,
+      // The reel renders these as tickets, so it needs the badge the tier will
+      // actually be won with, not one re-derived from the benefit value.
+      rarity: pool.rarity,
       probabilityWeight: pool.probabilityWeight,
       remainingQuantity: pool.remainingQuantity,
     }));
@@ -729,6 +732,7 @@ export function generateCandidate(input: {
       benefitType: pool.benefitType,
       benefitValue: pool.benefitValue,
       displayLabel: pool.displayLabel,
+      rarity: pool.rarity,
       poolId: pool.id,
       status: "Candidate",
       expiresAt: expires.toISOString(),
@@ -736,8 +740,8 @@ export function generateCandidate(input: {
     };
     await run(
       tx,
-      `INSERT INTO attempts (id, campaign_id, slot_id, user_id, attempt_number, source_type, benefit_type, benefit_value, display_label, pool_id, status, expires_at, created_at)
-       VALUES (@id, @campaignId, @slotId, @userId, @attemptNumber, @sourceType, @benefitType, @benefitValue, @displayLabel, @poolId, @status, @expiresAt, @createdAt)`,
+      `INSERT INTO attempts (id, campaign_id, slot_id, user_id, attempt_number, source_type, benefit_type, benefit_value, display_label, rarity, pool_id, status, expires_at, created_at)
+       VALUES (@id, @campaignId, @slotId, @userId, @attemptNumber, @sourceType, @benefitType, @benefitValue, @displayLabel, @rarity, @poolId, @status, @expiresAt, @createdAt)`,
       { ...attempt, slotId: null }
     );
     await addAnalytics(tx, campaign.id, "voucher_candidate_generated", { benefit: attempt.displayLabel }, user.id);
@@ -845,6 +849,7 @@ export function selectFinalVoucher(input: {
       benefitType: attempt.benefitType,
       benefitValue: attempt.benefitValue,
       displayLabel: attempt.displayLabel,
+      rarity: attempt.rarity,
       status: "Issued" as const,
       issuedAt: isoNow(),
       expiresAt: expiryFor(slot),
@@ -853,8 +858,8 @@ export function selectFinalVoucher(input: {
     try {
       await run(
         tx,
-        `INSERT INTO vouchers (id, campaign_id, slot_id, user_id, selected_attempt_id, voucher_code, qr_token, benefit_type, benefit_value, display_label, status, issued_at, expires_at, redeemed_at)
-         VALUES (@id, @campaignId, @slotId, @userId, @selectedAttemptId, @voucherCode, @qrToken, @benefitType, @benefitValue, @displayLabel, @status, @issuedAt, @expiresAt, @redeemedAt)`,
+        `INSERT INTO vouchers (id, campaign_id, slot_id, user_id, selected_attempt_id, voucher_code, qr_token, benefit_type, benefit_value, display_label, rarity, status, issued_at, expires_at, redeemed_at)
+         VALUES (@id, @campaignId, @slotId, @userId, @selectedAttemptId, @voucherCode, @qrToken, @benefitType, @benefitValue, @displayLabel, @rarity, @status, @issuedAt, @expiresAt, @redeemedAt)`,
         voucher
       );
     } catch (error) {
@@ -1065,6 +1070,25 @@ async function loadVoucherContext(db: Exec, codeOrToken: string) {
   return mapVoucher(row);
 }
 
+/**
+ * The minimum spend the tier this voucher came from carries, if any.
+ *
+ * Held on the pool rather than the voucher, so it is reached through the
+ * attempt that was selected. Returns undefined when the tier sets no minimum —
+ * which is not the same as a minimum of 0 and must not collapse into it.
+ */
+async function minimumSpendFor(db: Exec, voucher: { selectedAttemptId: string }) {
+  const row = await one(
+    db,
+    `SELECT p.minimum_spend AS minimum_spend
+     FROM attempts a JOIN pools p ON p.id = a.pool_id
+     WHERE a.id = ?`,
+    [voucher.selectedAttemptId]
+  );
+  const value = row?.minimum_spend;
+  return value === null || value === undefined ? undefined : Number(value);
+}
+
 export function validateVoucher(input: { codeOrToken: string }) {
   return withTx(async (tx) => {
     const voucher = await loadVoucherContext(tx, input.codeOrToken);
@@ -1082,7 +1106,9 @@ export function validateVoucher(input: { codeOrToken: string }) {
       user: userRow ? mapUser(userRow) : undefined,
       slot: slotRow ? mapSlot(slotRow) : undefined,
       campaign,
-      business: businessRow ? mapBusiness(businessRow) : undefined
+      business: businessRow ? mapBusiness(businessRow) : undefined,
+      // Surfaced so the till sees the condition before serving, not after.
+      minimumSpend: await minimumSpendFor(tx, voucher)
     };
   });
 }
@@ -1093,6 +1119,20 @@ export async function redeemVoucher(input: { codeOrToken: string; staffName: str
     const voucher = await loadVoucherContext(tx, input.codeOrToken);
     if (voucher.status === "Redeemed") throw new AppError("E-VOUCHER-REDEEMED", "Voucher is already redeemed", 409);
     if (new Date(voucher.expiresAt).getTime() < Date.now()) throw new AppError("E-VOUCHER-EXPIRED", "Voucher is expired", 409);
+
+    // A tier's minimum spend is the condition it was priced on — a 90%-off
+    // voucher only survives contact with a ₱1,500 bill. Checked only when the
+    // till actually entered an amount: with none supplied the server has nothing
+    // to judge, and refusing there would block every redemption that skips the
+    // optional field.
+    const minimumSpend = await minimumSpendFor(tx, voucher);
+    if (minimumSpend !== undefined && input.purchaseAmount !== undefined && input.purchaseAmount < minimumSpend) {
+      throw new AppError(
+        "E-VOUCHER-MIN-SPEND",
+        `This voucher needs a minimum spend of ${minimumSpend}. The amount entered was ${input.purchaseAmount}.`,
+        409
+      );
+    }
     // Conditional on the status we just read, so two tills scanning the same
     // code settle to one redemption rather than both passing the check above and
     // both writing. The read-then-write it replaces only held because SQLite

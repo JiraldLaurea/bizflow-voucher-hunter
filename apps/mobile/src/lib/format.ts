@@ -90,7 +90,10 @@ export function campaignInstruction(t: Translate, mode: string) {
   return t(INSTRUCTION_KEYS[mode] ?? "campaign.instruction.other");
 }
 
-type Benefit = Pick<VoucherPool, "benefitType" | "benefitValue" | "displayLabel">;
+type Benefit = Pick<
+  VoucherPool,
+  "benefitType" | "benefitValue" | "displayLabel" | "rarity"
+>;
 
 export function voucherDisplayLabel(t: Translate, benefit: Benefit) {
   if (benefit.benefitType === "discount_percent") {

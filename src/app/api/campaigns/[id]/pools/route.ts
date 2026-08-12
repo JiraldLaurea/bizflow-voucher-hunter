@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { benefitValueProblem } from "@bizflow/shared";
 import { assertBusinessAccess, requireAdmin } from "@/server/auth";
 import { createPool, getCampaign, listPools } from "@/server/admin";
 import { requestCampaignChange } from "@/server/change-requests";
@@ -11,15 +12,14 @@ const schema = z.object({
   benefitValue: z.string().min(1),
   displayLabel: z.string().min(1),
   totalQuantity: z.number().int().min(1),
-  probabilityWeight: z.number().int().min(1),
-  // Slot-bound is the only expiry there is. Left optional so callers that still
-  // send it keep working, but a stale "days"/"hours" request fails loudly rather
-  // than silently getting a validity window it did not ask for.
-  expiryType: z.literal("selected_slot_only").optional(),
+  rarity: z.enum(["standard", "rare", "epic", "legendary"]),
   minimumSpend: z.number().int().min(0).optional(),
   restriction: z.string().optional(),
   status: z.enum(["active", "paused", "depleted"]).optional(),
   slotIds: z.array(z.string()).optional()
+}).superRefine((input, ctx) => {
+  const problem = benefitValueProblem(input.benefitType, input.benefitValue);
+  if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem, path: ["benefitValue"] });
 });
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {

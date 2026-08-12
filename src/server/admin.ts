@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { InArgs } from "@libsql/client";
+import { benefitValueProblem, RARITY_WEIGHTS, type VoucherRarity } from "@bizflow/shared";
 import { AppError } from "@/server/errors";
 import { all, batchAll, getDb, mapBusiness, mapCampaign, mapPool, mapSlot, one, run, type Exec } from "@/server/db";
 import type { Business, Campaign, CampaignSlot, VoucherPool } from "@/types/voucher";
@@ -210,9 +211,8 @@ export type CreatePoolInput = {
   benefitValue: string;
   displayLabel: string;
   totalQuantity: number;
-  probabilityWeight: number;
-  /** Vouchers are always slot-bound; accepted only for callers that still send it. */
-  expiryType?: VoucherPool["expiryType"];
+  /** Sets both the tier's odds and the badge customers see. */
+  rarity: VoucherRarity;
   minimumSpend?: number;
   restriction?: string;
   status?: VoucherPool["status"];
@@ -393,7 +393,11 @@ export async function createPool(campaignIdOrSlug: string, input: CreatePoolInpu
   const db = executor ?? await getDb();
   const campaign = await getCampaignFromDb(db, campaignIdOrSlug);
   if (input.totalQuantity < 1) throw new AppError("E-POOL-QUANTITY", "totalQuantity must be at least 1", 422);
-  if (input.probabilityWeight < 1) throw new AppError("E-POOL-WEIGHT", "probabilityWeight must be at least 1", 422);
+  // Enforced here rather than only in the route schema: approving a staff change
+  // request casts its stored payload straight to CreatePoolInput, so a request
+  // filed before this rule existed would otherwise bypass it entirely.
+  const benefitProblem = benefitValueProblem(input.benefitType, input.benefitValue);
+  if (benefitProblem) throw new AppError("E-POOL-BENEFIT-VALUE", benefitProblem, 422);
 
   const slotIds = input.slotIds ?? [];
   if (slotIds.length > 0) {
@@ -415,17 +419,18 @@ export async function createPool(campaignIdOrSlug: string, input: CreatePoolInpu
     displayLabel: input.displayLabel,
     totalQuantity: input.totalQuantity,
     remainingQuantity: input.totalQuantity,
-    probabilityWeight: input.probabilityWeight,
-    expiryType: "selected_slot_only",
-    expiryValue: 0,
+    rarity: input.rarity,
+    // Never typed in: a hand-set weight is what let a tier's odds contradict the
+    // badge it showed. RARITY_WEIGHTS is the only thing that decides this.
+    probabilityWeight: RARITY_WEIGHTS[input.rarity],
     minimumSpend: input.minimumSpend,
     status: input.status ?? "active",
     restriction: input.restriction
   };
   await run(
     db,
-    `INSERT INTO pools (id, campaign_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
-     VALUES (@id, @campaignId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`,
+    `INSERT INTO pools (id, campaign_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, rarity, probability_weight, minimum_spend, status, restriction)
+     VALUES (@id, @campaignId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @rarity, @probabilityWeight, @minimumSpend, @status, @restriction)`,
     { ...pool, minimumSpend: pool.minimumSpend ?? null, restriction: pool.restriction ?? null }
   );
   for (const slotId of slotIds) {

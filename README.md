@@ -48,8 +48,12 @@ new customer-facing work goes to the app. Retiring it is a post-launch decision
 
 **The draw comes before the booking.** The prize is drawn campaign-wide first,
 and the slot picker then offers only the windows that prize's tier is bound to
-(`pool_slots`). Rarity is set by `probability_weight` alone, never by how many
-slots a tier is offered at.
+(`pool_slots`). A tier's odds come from its chosen `rarity` alone — which sets
+`probability_weight` via `RARITY_WEIGHTS` — never from how many slots it is
+offered at.
+
+**Vouchers are always slot-bound.** A voucher stays redeemable until the slot the
+customer booked ends. There is no issuance-relative expiry window.
 
 | Step | App screen (`apps/mobile/src/app`) | Web fallback route |
 |---|---|---|

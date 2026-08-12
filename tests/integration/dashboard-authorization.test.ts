@@ -140,7 +140,10 @@ describe("dashboard role and business authorization", () => {
       await requestFor("staff", ["biz_demo_restaurant"], "http://localhost/api/staff/vouchers/redeem", {
         codeOrToken: voucher.voucherCode,
         staffName: "Spoofed Employee",
-        purchaseAmount: 500,
+        // Clears the highest minimum spend among the seeded july-dinner tiers
+        // (₱1,500), so which tier the draw lands on cannot decide this test.
+        // Kept above zero so the Loyalty Points path still runs.
+        purchaseAmount: 2000,
       }),
     );
     expect(response.status).toBe(200);

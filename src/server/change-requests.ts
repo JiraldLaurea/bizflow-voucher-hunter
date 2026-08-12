@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { z } from "zod";
+import { benefitValueProblem } from "@bizflow/shared";
 import { createPool, createSlot, getCampaign, type CreatePoolInput, type CreateSlotInput } from "@/server/admin";
 import { AppError } from "@/server/errors";
 import { all, getDb, one, run, withTx } from "@/server/db";
@@ -33,13 +34,14 @@ const poolRequestPayloadSchema = z.object({
   benefitValue: z.string().min(1),
   displayLabel: z.string().min(1),
   totalQuantity: z.number().int().min(1),
-  probabilityWeight: z.number().int().min(1),
-  // Matches the pools route: slot-bound only, optional for stale callers.
-  expiryType: z.literal("selected_slot_only").optional(),
+  rarity: z.enum(["standard", "rare", "epic", "legendary"]),
   minimumSpend: z.number().int().min(0).optional(),
   restriction: z.string().optional(),
   status: z.enum(["active", "paused", "depleted"]).optional(),
   slotIds: z.array(z.string()).optional(),
+}).superRefine((input, ctx) => {
+  const problem = benefitValueProblem(input.benefitType, input.benefitValue);
+  if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem, path: ["benefitValue"] });
 });
 
 function map(row: Record<string, unknown>): ChangeRequest {

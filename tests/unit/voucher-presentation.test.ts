@@ -15,44 +15,36 @@ describe("isSelectableAttempt", () => {
     expect(isSelectableAttempt({ status: "Selected" })).toBe(false);
   });
 });
-import { getVoucherPresentation } from "@/lib/voucher-presentation";
+import {
+  getVoucherPresentation,
+  rarityPresentation,
+  RARITY_ORDER,
+} from "@/lib/voucher-presentation";
 
 describe("voucher presentation", () => {
-  it.each([
-    ["20", "standard"],
-    ["30", "rare"],
-    ["50", "epic"],
-    ["90", "legendary"],
-  ] as const)("classifies a %s%% discount as %s", (benefitValue, rarity) => {
-    expect(
-      getVoucherPresentation({
-        benefitType: "discount_percent",
-        benefitValue,
-      }).rarity,
-    ).toBe(rarity);
+  it.each(["standard", "rare", "epic", "legendary"] as const)(
+    "returns the badge for a %s tier",
+    (rarity) => {
+      expect(getVoucherPresentation({ rarity })).toEqual(
+        rarityPresentation(rarity),
+      );
+    },
+  );
+
+  it("reads the tier's rarity rather than inferring one from the benefit", () => {
+    // This is what storing rarity bought: the badge no longer follows from the
+    // benefit value, so a free dessert can be the top prize and a 90% discount
+    // can be an everyday one if that is what the tier was set to.
+    expect(getVoucherPresentation({ rarity: "legendary" }).label).toBe(
+      "Legendary",
+    );
+    expect(getVoucherPresentation({ rarity: "standard" }).label).toBe(
+      "Standard",
+    );
   });
 
-  it("treats free items as rare and free shipping as standard", () => {
-    expect(
-      getVoucherPresentation({
-        benefitType: "free_item",
-        benefitValue: "dessert",
-      }).rarity,
-    ).toBe("rare");
-    expect(
-      getVoucherPresentation({
-        benefitType: "free_shipping",
-        benefitValue: "free_shipping",
-      }).rarity,
-    ).toBe("standard");
-  });
-
-  it("parses formatted fixed amounts", () => {
-    expect(
-      getVoucherPresentation({
-        benefitType: "fixed_amount",
-        benefitValue: "PHP 1,000",
-      }).rarity,
-    ).toBe("legendary");
+  it("gives every rarity distinct badge copy", () => {
+    const labels = RARITY_ORDER.map((rarity) => rarityPresentation(rarity).label);
+    expect(new Set(labels).size).toBe(RARITY_ORDER.length);
   });
 });

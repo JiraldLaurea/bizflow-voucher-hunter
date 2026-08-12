@@ -28,6 +28,8 @@ type Validation = {
   slot?: CampaignSlot;
   campaign?: Campaign;
   business?: { name: string };
+  /** Set only when the tier carries one; the server rejects a smaller sale. */
+  minimumSpend?: number;
 };
 
 /**
@@ -422,6 +424,13 @@ export default function StaffPage() {
 
   const presentation = result ? statusPresentation[result.voucher.status] : undefined;
   const canRedeem = result?.voucher.status === "Issued" || result?.voucher.status === "Delivered";
+  // Mirrors the server's rule so the till learns before pressing the button
+  // rather than through a rejected request. A blank amount stays allowed: it
+  // records the visit without a sale to judge.
+  const belowMinimumSpend =
+    result?.minimumSpend !== undefined &&
+    purchaseAmount.trim() !== "" &&
+    Number(purchaseAmount) < result.minimumSpend;
   const isRestaurant = result?.campaign?.mode === "restaurant";
   const canManageReservation = canRedeem && isRestaurant;
 
@@ -571,6 +580,20 @@ export default function StaffPage() {
                     <p className="muted">{result.voucher.displayLabel}</p>
                   </div>
                 </div>
+                {result.minimumSpend !== undefined ? (
+                  <div className="summary-row">
+                    <span className="icon-box">
+                      <FiAlertTriangle aria-hidden="true" />
+                    </span>
+                    <div>
+                      <strong>Minimum Spend</strong>
+                      <p className="muted">
+                        ₱{result.minimumSpend.toLocaleString()} — this voucher
+                        cannot be used on a smaller bill.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="summary-row">
                   <span className="icon-box">
                     <FiClock aria-hidden="true" />
@@ -602,13 +625,20 @@ export default function StaffPage() {
                     placeholder="0.00"
                     type="number"
                   />
-                  <small className="muted">
-                    The customer earns 5% of this as Loyalty Points. Leave blank
-                    to record the visit without awarding points.
-                  </small>
+                  {belowMinimumSpend ? (
+                    <small className="alert" role="alert">
+                      Below the ₱{result.minimumSpend?.toLocaleString()} minimum
+                      spend for this voucher. It cannot be marked as used.
+                    </small>
+                  ) : (
+                    <small className="muted">
+                      The customer earns 5% of this as Loyalty Points. Leave blank
+                      to record the visit without awarding points.
+                    </small>
+                  )}
                 </label>
               ) : null}
-              <button className="button full staff-panel-action" disabled={!canRedeem} onClick={redeem}>Mark as Used</button>
+              <button className="button full staff-panel-action" disabled={!canRedeem || belowMinimumSpend} onClick={redeem}>Mark as Used</button>
               {canManageReservation ? (
                 <div className="staff-reservation-actions">
                   <button className="button secondary full" onClick={markNoShowAction} type="button">

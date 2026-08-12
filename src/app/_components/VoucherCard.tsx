@@ -3,7 +3,10 @@ import { getVoucherPresentation } from "@/lib/voucher-presentation";
 import type { VoucherAttempt } from "@/types/voucher";
 
 export type VoucherCardProps = {
-  benefit: Pick<VoucherAttempt, "benefitType" | "benefitValue" | "displayLabel">;
+  benefit: Pick<
+    VoucherAttempt,
+    "benefitType" | "benefitValue" | "displayLabel" | "rarity"
+  >;
   detail: string;
   selected?: boolean;
   selectionControl?: boolean;

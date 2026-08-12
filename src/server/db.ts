@@ -94,9 +94,8 @@ CREATE TABLE IF NOT EXISTS pools (
   display_label TEXT NOT NULL,
   total_quantity INTEGER NOT NULL,
   remaining_quantity INTEGER NOT NULL,
+  rarity TEXT NOT NULL,
   probability_weight INTEGER NOT NULL,
-  expiry_type TEXT NOT NULL,
-  expiry_value INTEGER NOT NULL,
   minimum_spend INTEGER,
   status TEXT NOT NULL,
   restriction TEXT
@@ -167,6 +166,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   benefit_type TEXT NOT NULL,
   benefit_value TEXT NOT NULL,
   display_label TEXT NOT NULL,
+  rarity TEXT NOT NULL,
   pool_id TEXT NOT NULL,
   status TEXT NOT NULL,
   expires_at TEXT NOT NULL,
@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
   benefit_type TEXT NOT NULL,
   benefit_value TEXT NOT NULL,
   display_label TEXT NOT NULL,
+  rarity TEXT NOT NULL,
   status TEXT NOT NULL,
   issued_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
@@ -550,7 +551,15 @@ const DATA_TABLES = [
 // Bump when the seed or table shapes change so deployed databases refresh.
 // v2 = campaign-level pools + pool_slots tier→slot mapping. v3 = campaign titles.
 // v4 = Loyalty Points wallet/settlement tables.
-const SCHEMA_VERSION = "5";
+// v5 = slot-bound voucher expiry.
+// v6 = per-tier rarity as a stored, required column on pools/attempts/vouchers.
+// v7 = dropped the retired expiry_type/expiry_value columns.
+//
+// Bumping this wipes every table in DATA_TABLES and reseeds — not only the
+// voucher tables, but Loyalty Points wallets, partner deposit ledgers and
+// settlements with them. That is the deliberate choice here (approved while the
+// app is pre-launch), which is why `rarity` can be NOT NULL with no backfill.
+const SCHEMA_VERSION = "7";
 
 async function init() {
   const c = rawClient();
@@ -578,7 +587,6 @@ async function init() {
   await ensureRewardsSchema(c);
   await ensureSmsSchema(c);
   await ensureAuthSchema(c);
-  await normalizeSlotBoundExpiry(c);
 
   if (migrating) {
     // Full reset so seed changes (e.g. campaign titles) reach already-seeded
@@ -619,22 +627,6 @@ async function dropStaffPinColumn(c: Client) {
   if (await hasColumn(c, "businesses", "staff_pin")) {
     await c.execute("ALTER TABLE businesses DROP COLUMN staff_pin");
   }
-}
-
-/**
- * Retires the issuance-relative expiry types on pools seeded before vouchers
- * became slot-bound.
- *
- * The engine no longer reads `expiry_type` when issuing, so a stale `days` row
- * already behaves correctly — this only stops the column from contradicting the
- * one value the type permits. Vouchers already issued keep the `expires_at`
- * their confirmation SMS quoted; rewriting those would move a deadline the
- * customer was told in writing.
- */
-async function normalizeSlotBoundExpiry(c: Client) {
-  await c.execute(
-    "UPDATE pools SET expiry_type = 'selected_slot_only', expiry_value = 0 WHERE expiry_type <> 'selected_slot_only'"
-  );
 }
 
 async function hasColumn(c: Client, table: string, column: string) {
@@ -1049,25 +1041,25 @@ export const seedData: {
   ],
   pools: [
     // Restaurant: campaign-wide benefit tiers. Rarer tiers have less stock.
-    { id: "pool_dinner_90", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1500, status: "active" },
-    { id: "pool_dinner_50", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1200, status: "active" },
-    { id: "pool_dinner_30", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 900, status: "active" },
-    { id: "pool_dinner_20", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 60, remainingQuantity: 60, probabilityWeight: 50, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 800, status: "active" },
-    { id: "pool_dinner_dessert", campaignId: "camp_july_dinner", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
+    { id: "pool_dinner_90", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, rarity: "legendary", minimumSpend: 1500, status: "active" },
+    { id: "pool_dinner_50", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, rarity: "epic", minimumSpend: 1200, status: "active" },
+    { id: "pool_dinner_30", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, rarity: "rare", minimumSpend: 900, status: "active" },
+    { id: "pool_dinner_20", campaignId: "camp_july_dinner", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 60, remainingQuantity: 60, probabilityWeight: 50, rarity: "standard", minimumSpend: 800, status: "active" },
+    { id: "pool_dinner_dessert", campaignId: "camp_july_dinner", benefitType: "free_item", benefitValue: "dessert", displayLabel: "Free Dessert", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 15, rarity: "rare", minimumSpend: 500, status: "active" },
 
     // Online shop: campaign-wide benefit tiers.
-    { id: "pool_shop_90", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 2000, status: "active" },
-    { id: "pool_shop_50", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 9, remainingQuantity: 9, probabilityWeight: 5, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1500, status: "active" },
-    { id: "pool_shop_20", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 85, remainingQuantity: 85, probabilityWeight: 50, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1000, status: "active" },
-    { id: "pool_shop_10", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "10", displayLabel: "10% OFF", totalQuantity: 24, remainingQuantity: 24, probabilityWeight: 15, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" },
-    { id: "pool_shop_ship", campaignId: "camp_8pm_drop", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 55, remainingQuantity: 55, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, status: "active" },
+    { id: "pool_shop_90", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "90", displayLabel: "90% OFF", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, rarity: "legendary", minimumSpend: 2000, status: "active" },
+    { id: "pool_shop_50", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 9, remainingQuantity: 9, probabilityWeight: 5, rarity: "epic", minimumSpend: 1500, status: "active" },
+    { id: "pool_shop_20", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 85, remainingQuantity: 85, probabilityWeight: 50, rarity: "standard", minimumSpend: 1000, status: "active" },
+    { id: "pool_shop_10", campaignId: "camp_8pm_drop", benefitType: "discount_percent", benefitValue: "10", displayLabel: "10% OFF", totalQuantity: 24, remainingQuantity: 24, probabilityWeight: 50, rarity: "standard", minimumSpend: 500, status: "active" },
+    { id: "pool_shop_ship", campaignId: "camp_8pm_drop", benefitType: "free_shipping", benefitValue: "free_shipping", displayLabel: "Free Shipping", totalQuantity: 55, remainingQuantity: 55, probabilityWeight: 50, rarity: "standard", status: "active" },
 
     // Beauty clinic: campaign-wide skincare benefit tiers.
-    { id: "pool_glow_70", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "70", displayLabel: "70% OFF Facial", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1500, status: "active" },
-    { id: "pool_glow_50", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 1200, status: "active" },
-    { id: "pool_glow_30", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 800, status: "active" },
-    { id: "pool_glow_20", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 50, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 600, status: "active" },
-    { id: "pool_glow_addon", campaignId: "camp_glow_facial", benefitType: "free_item", benefitValue: "add_on", displayLabel: "Free Add-on Treatment", totalQuantity: 25, remainingQuantity: 25, probabilityWeight: 30, expiryType: "selected_slot_only", expiryValue: 0, minimumSpend: 500, status: "active" }
+    { id: "pool_glow_70", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "70", displayLabel: "70% OFF Facial", totalQuantity: 2, remainingQuantity: 2, probabilityWeight: 1, rarity: "legendary", minimumSpend: 1500, status: "active" },
+    { id: "pool_glow_50", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "50", displayLabel: "50% OFF", totalQuantity: 6, remainingQuantity: 6, probabilityWeight: 5, rarity: "epic", minimumSpend: 1200, status: "active" },
+    { id: "pool_glow_30", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "30", displayLabel: "30% OFF", totalQuantity: 15, remainingQuantity: 15, probabilityWeight: 15, rarity: "rare", minimumSpend: 800, status: "active" },
+    { id: "pool_glow_20", campaignId: "camp_glow_facial", benefitType: "discount_percent", benefitValue: "20", displayLabel: "20% OFF", totalQuantity: 40, remainingQuantity: 40, probabilityWeight: 50, rarity: "standard", minimumSpend: 600, status: "active" },
+    { id: "pool_glow_addon", campaignId: "camp_glow_facial", benefitType: "free_item", benefitValue: "add_on", displayLabel: "Free Add-on Treatment", totalQuantity: 25, remainingQuantity: 25, probabilityWeight: 15, rarity: "rare", minimumSpend: 500, status: "active" }
   ],
   // Which slots each benefit tier is offered at. Rarer/higher tiers map to
   // fewer (off-peak) slots; common tiers are available everywhere.
@@ -1258,8 +1250,8 @@ const INSERT_CAMPAIGN = `INSERT OR IGNORE INTO campaigns (id, business_id, slug,
      VALUES (@id, @businessId, @slug, @title, @offerMessage, @heroImage, @mode, @location, @status, @startDate, @endDate, @baseAttempts, @referralDailyLimit, @candidateTimeoutMinutes, @terms, @shopUrl, @allowReschedule)`;
 const INSERT_SLOT = `INSERT OR IGNORE INTO slots (id, campaign_id, date, start_time, end_time, timezone, branch_id, total_capacity, remaining_capacity, status)
      VALUES (@id, @campaignId, @date, @startTime, @endTime, @timezone, @branchId, @totalCapacity, @remainingCapacity, @status)`;
-const INSERT_POOL = `INSERT OR IGNORE INTO pools (id, campaign_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, probability_weight, expiry_type, expiry_value, minimum_spend, status, restriction)
-     VALUES (@id, @campaignId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @probabilityWeight, @expiryType, @expiryValue, @minimumSpend, @status, @restriction)`;
+const INSERT_POOL = `INSERT OR IGNORE INTO pools (id, campaign_id, benefit_type, benefit_value, display_label, total_quantity, remaining_quantity, rarity, probability_weight, minimum_spend, status, restriction)
+     VALUES (@id, @campaignId, @benefitType, @benefitValue, @displayLabel, @totalQuantity, @remainingQuantity, @rarity, @probabilityWeight, @minimumSpend, @status, @restriction)`;
 const INSERT_POOL_SLOT = "INSERT OR IGNORE INTO pool_slots (pool_id, slot_id) VALUES (@poolId, @slotId)";
 const INSERT_USER = `INSERT OR IGNORE INTO users (id, campaign_id, name, phone, email, session_id, created_at)
      VALUES (@id, @campaignId, @name, @phone, @email, @sessionId, @createdAt)`;
@@ -1420,9 +1412,8 @@ async function seed(c: Client) {
         displayLabel: r.displayLabel,
         totalQuantity: r.totalQuantity,
         remainingQuantity: r.remainingQuantity,
+        rarity: r.rarity,
         probabilityWeight: r.probabilityWeight,
-        expiryType: r.expiryType,
-        expiryValue: r.expiryValue,
         minimumSpend: r.minimumSpend ?? null,
         status: r.status,
         restriction: r.restriction ?? null
@@ -1624,9 +1615,8 @@ export const mapPool = (r: Row): VoucherPool => ({
   displayLabel: r.display_label,
   totalQuantity: r.total_quantity,
   remainingQuantity: r.remaining_quantity,
+  rarity: r.rarity,
   probabilityWeight: r.probability_weight,
-  expiryType: r.expiry_type,
-  expiryValue: r.expiry_value,
   minimumSpend: r.minimum_spend ?? undefined,
   status: r.status,
   restriction: r.restriction ?? undefined
@@ -1652,6 +1642,7 @@ export const mapAttempt = (r: Row): VoucherAttempt => ({
   benefitType: r.benefit_type,
   benefitValue: r.benefit_value,
   displayLabel: r.display_label,
+  rarity: r.rarity,
   poolId: r.pool_id,
   status: r.status,
   expiresAt: r.expires_at,
@@ -1669,6 +1660,7 @@ export const mapVoucher = (r: Row): Voucher => ({
   benefitType: r.benefit_type,
   benefitValue: r.benefit_value,
   displayLabel: r.display_label,
+  rarity: r.rarity,
   status: r.status,
   issuedAt: r.issued_at,
   expiresAt: r.expires_at,

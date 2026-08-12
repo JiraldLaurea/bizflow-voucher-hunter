@@ -4357,6 +4357,25 @@ a.sidebar-brand:focus-visible {
     justify-content: space-between;
 }
 
+/* --- Benefit tier preview ---
+ *
+ * Renders the customer's voucher ticket inside the admin form. The ticket's own
+ * `.card.candidate.voucher-*` rules do all the styling; this only bounds the
+ * width, since the admin form is far wider than the phone the ticket is drawn
+ * for and a full-bleed ticket reads as a page banner rather than a preview.
+ */
+.pool-preview {
+    display: flex;
+    justify-content: center;
+    padding: 4px 0;
+}
+.pool-preview .card.candidate {
+    width: 100%;
+    max-width: 380px;
+    margin: 0;
+    cursor: default;
+}
+
 /* --- Checkbox rows ---
  *
  * A bare `input[type=checkbox]` is drawn by the OS: it ignores the palette, and
@@ -6374,13 +6393,13 @@ th {
     background: var(--orange);
 }
 
-.pool-weight {
+.pool-rarity {
     display: grid;
     gap: 1px;
     justify-items: end;
 }
 
-.pool-weight small {
+.pool-rarity small {
     color: var(--muted);
     font-size: 0.7rem;
 }

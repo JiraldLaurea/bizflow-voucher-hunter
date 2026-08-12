@@ -57,7 +57,7 @@ describe("admin CRUD", () => {
       benefitValue: "25",
       displayLabel: "25% OFF",
       totalQuantity: 5,
-      probabilityWeight: 10,
+      rarity: "rare",
       slotIds: [slot.id]
     });
     expect(pool.slotIds).toEqual([slot.id]);
@@ -89,13 +89,15 @@ describe("admin CRUD", () => {
       createSlot(campaign.id, { date: "2026-08-05", startTime: "22:00", endTime: "20:00", totalCapacity: 5 })
     ).rejects.toThrow(AppError);
     await createSlot(campaign.id, { date: "2026-08-05", startTime: "20:00", endTime: "22:00", totalCapacity: 5 });
+    // Was a probabilityWeight of 0. Weight is no longer an input — it comes from
+    // rarity — so the remaining quantity invariant stands in for it here.
     await expect(
       createPool(campaign.id, {
         benefitType: "discount_percent",
         benefitValue: "10",
         displayLabel: "10% OFF",
-        totalQuantity: 5,
-        probabilityWeight: 0,
+        totalQuantity: 0,
+        rarity: "standard",
       })
     ).rejects.toThrow(AppError);
   });

@@ -252,7 +252,7 @@ export type IssuedVoucher = {
 /** Pool previews that fill the reel. Public, so no token is needed. */
 export type RoulettePreview = Pick<
   VoucherPool,
-  "benefitType" | "benefitValue" | "displayLabel"
+  "benefitType" | "benefitValue" | "displayLabel" | "rarity"
 > & {
   poolId?: string;
   probabilityWeight?: number;

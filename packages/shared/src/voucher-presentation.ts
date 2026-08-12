@@ -1,6 +1,6 @@
-import type { AttemptStatus, VoucherPool } from "./types";
+import type { AttemptStatus, VoucherPool, VoucherRarity } from "./types";
 
-export type VoucherRarity = "standard" | "rare" | "epic" | "legendary";
+export type { VoucherRarity };
 
 /**
  * Whether an attempt is still a voucher option the customer can act on.
@@ -18,7 +18,7 @@ export function isSelectableAttempt(attempt: { status: AttemptStatus }) {
   return attempt.status === "Candidate" || attempt.status === "Held";
 }
 
-type VoucherBenefit = Pick<VoucherPool, "benefitType" | "benefitValue">;
+type VoucherBenefit = Pick<VoucherPool, "rarity">;
 
 export type VoucherPresentation = {
   rarity: VoucherRarity;
@@ -26,68 +26,52 @@ export type VoucherPresentation = {
   description: string;
 };
 
-function numericValue(value: string) {
-  const parsed = Number.parseFloat(value.replace(/[^\d.]/g, ""));
-  return Number.isFinite(parsed) ? parsed : 0;
+/**
+ * How often each rarity comes up in the draw, relative to the others.
+ *
+ * These are the weights `weightedPool` divides between tiers, so they are ratios
+ * rather than percentages: a Legendary tier is drawn one fiftieth as often as a
+ * Standard one. The numbers reproduce the odds the campaigns were seeded with
+ * when weight was typed in by hand, so making rarity the control did not quietly
+ * re-price any existing campaign.
+ */
+export const RARITY_WEIGHTS: Record<VoucherRarity, number> = {
+  legendary: 1,
+  epic: 5,
+  rare: 15,
+  standard: 50,
+};
+
+/** Rarities in the order an admin should see them: rarest prize first. */
+export const RARITY_ORDER: VoucherRarity[] = [
+  "legendary",
+  "epic",
+  "rare",
+  "standard",
+];
+
+const RARITY_COPY: Record<VoucherRarity, { label: string; description: string }> = {
+  legendary: { label: "Legendary", description: "Top prize" },
+  epic: { label: "Epic", description: "Big reward" },
+  rare: { label: "Rare", description: "Lucky find" },
+  standard: { label: "Standard", description: "Everyday reward" },
+};
+
+/** The badge copy for a rarity, without needing a whole benefit to ask about. */
+export function rarityPresentation(rarity: VoucherRarity): VoucherPresentation {
+  return { rarity, ...RARITY_COPY[rarity] };
 }
 
 /**
- * Converts benefit value into a customer-facing rarity tier. The thresholds
- * mirror the seeded pool weighting: high-value discounts are deliberately the
- * least likely rewards, while utility rewards remain more understated.
+ * The rarity badge a customer sees.
+ *
+ * A thin read of the tier's stored rarity. It used to be inferred from benefit
+ * value, which meant a free item could never be a top prize and a big discount
+ * could never be an everyday one; rarity is chosen per tier now, and this is the
+ * only thing that decides the badge.
  */
 export function getVoucherPresentation(
   benefit: VoucherBenefit,
 ): VoucherPresentation {
-  const value = numericValue(benefit.benefitValue);
-
-  if (benefit.benefitType === "discount_percent") {
-    if (value >= 75) {
-      return {
-        rarity: "legendary",
-        label: "Legendary",
-        description: "Top prize",
-      };
-    }
-    if (value >= 50) {
-      return {
-        rarity: "epic",
-        label: "Epic",
-        description: "Big reward",
-      };
-    }
-    if (value >= 30) {
-      return {
-        rarity: "rare",
-        label: "Rare",
-        description: "Lucky find",
-      };
-    }
-  }
-
-  if (benefit.benefitType === "fixed_amount") {
-    if (value >= 1000) {
-      return {
-        rarity: "legendary",
-        label: "Legendary",
-        description: "Top prize",
-      };
-    }
-    if (value >= 500) {
-      return { rarity: "epic", label: "Epic", description: "Big reward" };
-    }
-    if (value >= 250) {
-      return { rarity: "rare", label: "Rare", description: "Lucky find" };
-    }
-  }
-
-  if (benefit.benefitType === "free_item") {
-    return { rarity: "rare", label: "Rare", description: "Bonus treat" };
-  }
-
-  return {
-    rarity: "standard",
-    label: "Standard",
-    description: "Everyday reward",
-  };
+  return rarityPresentation(benefit.rarity);
 }

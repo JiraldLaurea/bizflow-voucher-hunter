@@ -15,7 +15,10 @@ import {
 import { colors, fonts, radius, spacing } from "@/theme";
 import { rarityStyles } from "@/theme";
 
-type Benefit = Pick<VoucherPool, "benefitType" | "benefitValue" | "displayLabel">;
+type Benefit = Pick<
+  VoucherPool,
+  "benefitType" | "benefitValue" | "displayLabel" | "rarity"
+>;
 
 type VoucherTicketProps = {
   benefit: Benefit;

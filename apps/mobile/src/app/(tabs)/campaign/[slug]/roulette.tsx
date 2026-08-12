@@ -175,6 +175,7 @@ export default function RouletteScreen() {
           benefitType: attempt.benefitType,
           benefitValue: attempt.benefitValue,
           displayLabel: attempt.displayLabel,
+          rarity: attempt.rarity,
           poolId: attempt.poolId,
         };
         const sequence = rouletteSequence(previews, drawWinner);

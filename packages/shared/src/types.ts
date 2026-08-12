@@ -83,6 +83,12 @@ export type CampaignCard = {
   availability: CampaignAvailability;
 };
 
+/**
+ * How rare a benefit tier is. Set per tier by the admin, and the single source
+ * of both the customer-facing badge and the tier's odds in the draw.
+ */
+export type VoucherRarity = "standard" | "rare" | "epic" | "legendary";
+
 export type VoucherPool = {
   id: string;
   campaignId: string;
@@ -91,15 +97,13 @@ export type VoucherPool = {
   displayLabel: string;
   totalQuantity: number;
   remainingQuantity: number;
-  probabilityWeight: number;
   /**
-   * Always slot-bound. Issuance-relative windows (hours/days/custom) were
-   * removed: they let a customer book a slot beyond the window and receive a
-   * voucher that was already expired on arrival.
+   * How often this tier comes up, and the badge customers see. Chosen per tier;
+   * `probabilityWeight` is derived from it via RARITY_WEIGHTS rather than typed
+   * in, so the odds and the badge can never disagree.
    */
-  expiryType: "selected_slot_only";
-  /** Retained at 0 so historical pool rows and CSV exports keep their shape. */
-  expiryValue: number;
+  rarity: VoucherRarity;
+  probabilityWeight: number;
   minimumSpend?: number;
   status: "active" | "paused" | "depleted";
   restriction?: string;
@@ -126,6 +130,8 @@ export type VoucherAttempt = {
   benefitType: VoucherPool["benefitType"];
   benefitValue: string;
   displayLabel: string;
+  /** Copied from the pool at draw time, like the benefit fields beside it. */
+  rarity: VoucherRarity;
   poolId: string;
   status: AttemptStatus;
   expiresAt: string;
@@ -143,6 +149,8 @@ export type Voucher = {
   benefitType: VoucherPool["benefitType"];
   benefitValue: string;
   displayLabel: string;
+  /** Copied at issue, so a wallet ticket keeps the badge it was won with. */
+  rarity: VoucherRarity;
   status: VoucherStatus;
   issuedAt: string;
   expiresAt: string;

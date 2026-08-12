@@ -19,6 +19,7 @@ function attempt(
     benefitType: "discount_percent",
     benefitValue: "30",
     displayLabel: "30% OFF",
+    rarity: "rare",
     poolId: "pool-1",
     status,
     expiresAt: "2099-01-01T00:00:00.000Z",

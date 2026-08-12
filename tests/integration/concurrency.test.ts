@@ -1,11 +1,21 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { VoucherRarity } from "@bizflow/shared";
 import { getDb, one, resetDb } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { createCampaign, createPool, createSlot } from "@/server/admin";
 import { generateCandidate, selectFinalVoucher, startHunt } from "@/server/voucher-engine";
 import { huntAndSelect } from "../helpers";
 
-async function setupCampaign(slug: string, slotCapacity: number, tiers: Array<{ label: string; qty: number; weight: number }>) {
+// `value` is the benefit value; it defaults to a valid percent because these
+// tests care about weighting and stock, not about pricing. It has to be a real
+// percent either way — createPool rejects a discount_percent tier whose value
+// is not a number between 1 and 100. `rarity` stands in for the old explicit
+// weight: it is what sets a tier's odds now, via RARITY_WEIGHTS.
+async function setupCampaign(
+  slug: string,
+  slotCapacity: number,
+  tiers: Array<{ label: string; value?: string; qty: number; rarity: VoucherRarity }>
+) {
   const campaign = await createCampaign({
     businessId: "biz_demo_shop",
     slug,
@@ -24,10 +34,10 @@ async function setupCampaign(slug: string, slotCapacity: number, tiers: Array<{ 
   for (const tier of tiers) {
     await createPool(campaign.id, {
       benefitType: "discount_percent",
-      benefitValue: tier.label,
+      benefitValue: tier.value ?? "20",
       displayLabel: tier.label,
       totalQuantity: tier.qty,
-      probabilityWeight: tier.weight,
+      rarity: tier.rarity,
       slotIds: [slot.id]
     });
   }
@@ -40,9 +50,13 @@ describe("concurrency / stock control", () => {
   });
 
   it("never draws a single-quantity tier more than its campaign-wide stock", async () => {
+    // The scarce tier is deliberately the *most* likely one to be drawn, so
+    // only its stock of 1 can be what caps it. If weight were the cap, a
+    // Standard tier at weight 50 against a Legendary at weight 1 would come up
+    // constantly.
     const { slug } = await setupCampaign("conc-rare", 100, [
-      { label: "RARE", qty: 1, weight: 100 },
-      { label: "COMMON", qty: 100, weight: 1 }
+      { label: "RARE", value: "90", qty: 1, rarity: "standard" },
+      { label: "COMMON", value: "10", qty: 100, rarity: "legendary" }
     ]);
     let rare = 0;
     for (let i = 0; i < 8; i += 1) {
@@ -54,7 +68,7 @@ describe("concurrency / stock control", () => {
   });
 
   it("issues at most one final voucher per phone even across many select attempts", async () => {
-    const { slug, slotId } = await setupCampaign("conc-one", 100, [{ label: "20% OFF", qty: 10, weight: 10 }]);
+    const { slug, slotId } = await setupCampaign("conc-one", 100, [{ label: "20% OFF", qty: 10, rarity: "standard" }]);
     const phone = "+639170000001";
     const base = { campaignSlug: slug, phone, sessionId: "race" };
     await startHunt({ ...base, name: "Race User" });
@@ -72,7 +86,7 @@ describe("concurrency / stock control", () => {
   });
 
   it("does not over-issue final vouchers beyond slot capacity", async () => {
-    const { slug, slotId } = await setupCampaign("conc-cap", 2, [{ label: "20% OFF", qty: 100, weight: 10 }]);
+    const { slug, slotId } = await setupCampaign("conc-cap", 2, [{ label: "20% OFF", qty: 100, rarity: "standard" }]);
     let issued = 0;
     for (let i = 0; i < 5; i += 1) {
       try {

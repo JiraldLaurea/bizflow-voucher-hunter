@@ -1,5 +1,10 @@
 import { listPools } from "@/server/admin";
 import { FiAlertTriangle } from "react-icons/fi";
+import {
+  getVoucherPresentation,
+  rarityPresentation,
+  type VoucherRarity,
+} from "@bizflow/shared";
 import { manilaDateString } from "@/server/db";
 import { dashboardMetrics } from "@/server/voucher-engine";
 import { ChangeRequestActions } from "../_components/ChangeRequestActions";
@@ -159,7 +164,7 @@ export default async function VouchersPage({
               <th>Benefit</th>
               <th>Qty</th>
               <th>Remaining</th>
-              <th>Weight</th>
+              <th>Rarity</th>
               <th>Available at</th>
               <th>Status</th>
             </tr>
@@ -213,8 +218,8 @@ export default async function VouchersPage({
                       </div>
                     </td>
                     <td className="cell-numeric">
-                      <div className="pool-weight">
-                        <span>{pool.probabilityWeight}</span>
+                      <div className="pool-rarity">
+                        <span>{getVoucherPresentation(pool).label}</span>
                         <small>{share}%</small>
                       </div>
                     </td>
@@ -263,7 +268,7 @@ export default async function VouchersPage({
                 <th>Requested</th>
                 <th>Benefit</th>
                 <th>Qty</th>
-                <th>Weight</th>
+                <th>Rarity</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -279,7 +284,7 @@ export default async function VouchersPage({
                     benefitValue: string;
                     displayLabel: string;
                     totalQuantity: number;
-                    probabilityWeight: number;
+                    rarity: VoucherRarity;
                     minimumSpend?: number;
                     slotIds?: string[];
                   };
@@ -288,7 +293,7 @@ export default async function VouchersPage({
                       <td>{request.createdAt.replace("T", " ").slice(0, 16)}</td>
                       <td>{pool.displayLabel}</td>
                       <td>{pool.totalQuantity}</td>
-                      <td>{pool.probabilityWeight}</td>
+                      <td>{rarityPresentation(pool.rarity).label}</td>
                       <td><span className={`badge ${request.status === "Rejected" ? "danger" : request.status === "Pending" ? "warning" : ""}`}>{request.status}</span></td>
                     </tr>
                   );
@@ -315,7 +320,7 @@ export default async function VouchersPage({
                 <th>Staff</th>
                 <th>Benefit</th>
                 <th>Qty</th>
-                <th>Weight</th>
+                <th>Rarity</th>
                 <th>Status</th>
                 <th>Review / Action</th>
               </tr>
@@ -332,7 +337,7 @@ export default async function VouchersPage({
                     benefitValue: string;
                     displayLabel: string;
                     totalQuantity: number;
-                    probabilityWeight: number;
+                    rarity: VoucherRarity;
                     minimumSpend?: number;
                     slotIds?: string[];
                   };
@@ -342,7 +347,7 @@ export default async function VouchersPage({
                       <td>{request.requestedBy}</td>
                       <td>{pool.displayLabel}</td>
                       <td>{pool.totalQuantity}</td>
-                      <td>{pool.probabilityWeight}</td>
+                      <td>{rarityPresentation(pool.rarity).label}</td>
                       <td>
                         <span className={`badge ${request.status === "Rejected" ? "danger" : request.status === "Pending" ? "warning" : ""}`}>
                           {request.status}

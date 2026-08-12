@@ -5,6 +5,7 @@
 // reached over the API.
 
 export * from "./types";
+export * from "./benefit-rules";
 export * from "./campaign-image";
 export * from "./maps";
 export * from "./phone";
