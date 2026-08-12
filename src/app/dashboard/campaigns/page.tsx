@@ -72,10 +72,7 @@ export default async function CampaignsPage() {
                 <tr key={campaign.id}>
                   <td>
                     <div className="campaign-table-title">
-                      <div>
-                        <div className="cell-title">{campaign.title}</div>
-                        <div className="cell-sub">/{campaign.slug}</div>
-                      </div>
+                      <div className="cell-title">{campaign.title}</div>
                       <Link
                         className="campaign-edit-image-button"
                         href={`/dashboard/campaigns/${campaign.id}/image`}

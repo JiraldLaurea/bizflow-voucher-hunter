@@ -57,9 +57,6 @@ export function BusinessManager({
                   <tr key={business.id}>
                     <td>
                       <strong>{business.name}</strong>
-                      <div className="muted business-logo-text">
-                        {business.logoText}
-                      </div>
                     </td>
                     <td>
                       {INDUSTRIES.find(

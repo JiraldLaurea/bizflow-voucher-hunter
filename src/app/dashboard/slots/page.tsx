@@ -97,21 +97,31 @@ export default async function SlotsPage({
                   </td>
               </tr>
             ) : (
-              slotRows.map((row) => (
-                <tr key={row.slot.id}>
-                  <td>{row.slot.date}</td>
-                  <td>{row.slot.startTime}</td>
-                  <td>{row.slot.endTime}</td>
-                  <td>{row.slot.totalCapacity}</td>
-                  <td>{row.slot.remainingCapacity}</td>
-                  <td>{row.issued}</td>
-                  <td>
-                    <span className={`badge ${row.slot.remainingCapacity === 0 ? "danger" : row.slot.remainingCapacity < 5 ? "warning" : ""}`}>
-                      {row.slot.remainingCapacity === 0 ? "Sold Out" : row.slot.remainingCapacity < 5 ? "Low Stock" : "Active"}
-                    </span>
-                  </td>
-                </tr>
-              ))
+              slotRows.map((row) => {
+                // Low stock is the last quarter of the slot's own capacity: a
+                // flat threshold called a full 4-seat slot "low" the moment it
+                // opened. Rounded up so small slots still warn before selling
+                // out — a quarter of 3 seats is less than one seat.
+                const soldOut = row.slot.remainingCapacity === 0;
+                const lowStock =
+                  !soldOut &&
+                  row.slot.remainingCapacity <= Math.ceil(row.slot.totalCapacity * 0.25);
+                return (
+                  <tr key={row.slot.id}>
+                    <td>{row.slot.date}</td>
+                    <td>{row.slot.startTime}</td>
+                    <td>{row.slot.endTime}</td>
+                    <td>{row.slot.totalCapacity}</td>
+                    <td>{row.slot.remainingCapacity}</td>
+                    <td>{row.issued}</td>
+                    <td>
+                      <span className={`badge ${soldOut ? "danger" : lowStock ? "warning" : ""}`}>
+                        {soldOut ? "Sold Out" : lowStock ? "Low Stock" : "Active"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

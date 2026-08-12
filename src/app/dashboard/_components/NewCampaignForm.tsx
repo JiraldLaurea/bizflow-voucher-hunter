@@ -225,22 +225,11 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
                     <label className="field">
                       <span>Campaign Title</span>
                       <input
-                        aria-describedby="campaign-slug-help"
+                        placeholder="Glow Facial Week"
                         required
                         value={campaign.title}
                         onChange={(event) => setCampaign({ ...campaign, title: event.target.value })}
                       />
-                      {/* Derived, never typed. As a read-only input it looked
-                          like a field an operator had failed to fill in. */}
-                      <small className="muted field-derived" id="campaign-slug-help">
-                        {slug ? (
-                          <>
-                            URL: <code>/{slug}</code>
-                          </>
-                        ) : (
-                          "The campaign URL is built from this title."
-                        )}
-                      </small>
                     </label>
                     <SelectMenu
                       label="Mode"
@@ -390,6 +379,7 @@ export function NewCampaignForm({ businesses }: { businesses: Business[] }) {
                   <label className="field">
                     <span>Offer Message</span>
                     <input
+                      placeholder="Get 20% off your facial treatment"
                       required
                       value={campaign.offerMessage}
                       onChange={(event) => setCampaign({ ...campaign, offerMessage: event.target.value })}

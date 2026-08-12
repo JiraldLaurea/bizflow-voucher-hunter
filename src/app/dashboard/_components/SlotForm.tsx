@@ -6,14 +6,13 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api-client";
 import { FormCard } from "./FormPage";
 
-const emptySlot = { date: "", startTime: "", endTime: "", totalCapacity: "20", branchId: "" };
+const emptySlot = { date: "", startTime: "", endTime: "", totalCapacity: "20" };
 
 export type SlotRequestDraft = {
   date: string;
   startTime: string;
   endTime: string;
   totalCapacity: number;
-  branchId?: string;
 };
 
 function slotState(initialValues?: SlotRequestDraft) {
@@ -23,7 +22,6 @@ function slotState(initialValues?: SlotRequestDraft) {
         startTime: initialValues.startTime,
         endTime: initialValues.endTime,
         totalCapacity: String(initialValues.totalCapacity),
-        branchId: initialValues.branchId ?? "",
       }
     : emptySlot;
 }
@@ -63,7 +61,6 @@ export function SlotForm({
         startTime: slot.startTime,
         endTime: slot.endTime,
         totalCapacity: Number(slot.totalCapacity),
-        branchId: slot.branchId || undefined,
       };
       await api(
         revisionRequestId
@@ -128,13 +125,6 @@ export function SlotForm({
               type="time"
               value={slot.endTime}
               onChange={(event) => setSlot({ ...slot, endTime: event.target.value })}
-            />
-          </label>
-          <label className="field">
-            <span>Branch (optional)</span>
-            <input
-              value={slot.branchId}
-              onChange={(event) => setSlot({ ...slot, branchId: event.target.value })}
             />
           </label>
         </div>

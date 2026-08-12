@@ -43,7 +43,6 @@ export function BusinessForm({ business }: { business?: Business }) {
   const editing = business !== undefined;
 
   const [name, setName] = useState(business?.name ?? "");
-  const [logoText, setLogoText] = useState(business?.logoText ?? "");
   const [industry, setIndustry] = useState<string>(
     business?.industry ?? "restaurant",
   );
@@ -80,7 +79,6 @@ export function BusinessForm({ business }: { business?: Business }) {
           method: "POST",
           body: JSON.stringify({
             name,
-            logoText,
             industry,
             address,
             contactNumber,
@@ -107,28 +105,20 @@ export function BusinessForm({ business }: { business?: Business }) {
 
       <FormCard
         title="Identity"
-        description={
-          editing
-            ? "The name customers see on every campaign this business runs."
-            : "The name customers see, and the short mark used where a full name will not fit."
-        }
+        description="The name customers see on every campaign this business runs."
       >
         <label className="field">
           <span>Business name</span>
-          <input onChange={(event) => setName(event.target.value)} required value={name} />
+          <input
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Glow Lab Skin Clinic"
+            required
+            value={name}
+          />
         </label>
 
         {editing ? null : (
           <div className="admin-form-grid">
-            <label className="field">
-              <span>Logo text (max 4)</span>
-              <input
-                maxLength={4}
-                onChange={(event) => setLogoText(event.target.value)}
-                required
-                value={logoText}
-              />
-            </label>
             <SelectMenu
               label="Category"
               onChange={setIndustry}

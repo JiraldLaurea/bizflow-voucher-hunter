@@ -8,7 +8,8 @@ const id = (prefix: string) => `${prefix}_${crypto.randomBytes(6).toString("hex"
 
 export type CreateBusinessInput = {
   name: string;
-  logoText: string;
+  /** Left out by the console; derived from the name. See `deriveLogoText`. */
+  logoText?: string;
   industry: Business["industry"];
   address: string;
   contactNumber: string;
@@ -31,6 +32,25 @@ export async function listBusinesses(): Promise<Business[]> {
   return (await all(db, "SELECT * FROM businesses ORDER BY name")).map(mapBusiness);
 }
 
+/**
+ * The short mark shown where a full business name will not fit.
+ *
+ * Operators no longer type this, so it comes from the name: initials of the
+ * first four words, falling back to the leading characters for a single-word
+ * name. `logo_text` is NOT NULL, so this always returns something.
+ */
+export function deriveLogoText(name: string): string {
+  const words = name.trim().split(/\s+/).filter((word) => /[a-z0-9]/i.test(word));
+  const initials = words
+    .map((word) => word.replace(/[^a-z0-9]/gi, "").charAt(0))
+    .join("")
+    .slice(0, 4)
+    .toUpperCase();
+  if (initials.length > 1) return initials;
+  const letters = name.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase();
+  return letters || "BIZ";
+}
+
 export async function createBusiness(input: CreateBusinessInput): Promise<Business> {
   const db = await getDb();
   const address = input.address.trim();
@@ -48,7 +68,7 @@ export async function createBusiness(input: CreateBusinessInput): Promise<Busine
   const business: Business = {
     id: id("biz"),
     name: input.name,
-    logoText: input.logoText,
+    logoText: input.logoText?.trim() || deriveLogoText(input.name),
     industry: input.industry,
     address,
     contactNumber,

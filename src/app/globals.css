@@ -2669,22 +2669,6 @@ img.logo-tile {
     font-size: 0.8125rem;
 }
 
-/* A value the form works out for itself, shown under the field it derives from
-   rather than in a box of its own. */
-.admin-shell .field-derived {
-    color: var(--muted);
-    font-size: 0.75rem;
-    line-height: 1.4;
-}
-
-.admin-shell .field-derived code {
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: var(--canvas);
-    color: var(--navy);
-    font-size: 0.75rem;
-}
-
 /* Field label above its control, at the console's label size. */
 .admin-shell .field {
     display: grid;
@@ -6247,12 +6231,6 @@ th {
     font-weight: 750;
     color: var(--navy);
 }
-.cell-sub {
-    margin-top: 2px;
-    color: var(--muted);
-    font-size: 0.72rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
 .cell-nowrap {
     white-space: nowrap;
 }
@@ -6368,7 +6346,7 @@ th {
 .campaign-table-title {
     min-width: 210px;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
 }
@@ -6941,12 +6919,6 @@ th {
    Edit and Remove would render them flush against each other. */
 .business-actions > * + * {
     margin-left: 6px;
-}
-
-.business-logo-text {
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
 }
 
 .live-sms-toggle {

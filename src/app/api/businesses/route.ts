@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   name: z.string().min(1),
-  logoText: z.string().min(1).max(4),
+  /** Optional: derived from the name when the caller does not supply one. */
+  logoText: z.string().min(1).max(4).optional(),
   industry: z.enum(["restaurant", "online_shop", "beauty", "pet", "retail", "other"]),
   address: z.string().trim().min(1, "Address is required").max(300),
   contactNumber: z.string().trim().min(1, "Contact number is required").max(40),
