@@ -2686,11 +2686,6 @@ img.logo-tile {
     gap: 20px;
 }
 
-/* The user summary tiles sit on white, like every other card here. */
-.admin-shell .customer-stat {
-    background: var(--surface);
-}
-
 /* Supporting copy under a heading: quiet, and short enough to scan. */
 .admin-shell .admin-topbar .muted,
 .admin-shell .panel > .muted {
@@ -2821,6 +2816,14 @@ img.logo-tile {
     }
 }
 
+/*
+ * The whole column used to be the scroll container, which on a short viewport
+ * left it a few pixels overflowing — enough that a wheel tick over the sidebar,
+ * or the tail of a page scroll chaining into it, nudged every row up and back
+ * down. The nav is the only part that can afford to scroll, so it takes the
+ * overflow: the brand and the account block are pinned, and the column itself
+ * is exactly the viewport tall with nothing to slide.
+ */
 .sidebar {
     position: sticky;
     top: 0;
@@ -2829,7 +2832,6 @@ img.logo-tile {
     flex-direction: column;
     height: 100vh;
     min-height: 100vh;
-    overflow-y: auto;
     padding: 16px 16px;
     background: var(--sidebar);
     color: #fff;
@@ -2881,6 +2883,21 @@ a.sidebar-brand:focus-visible {
 .sidebar-nav {
     display: grid;
     gap: 16px;
+    /* `min-height: 0` is what lets this shrink below its content inside the
+       flex column; without it the nav keeps its full height and pushes the
+       account block off the bottom instead of scrolling. */
+    flex: 1;
+    min-height: 0;
+    /* The nav now takes the column's spare height, and a grid handed more room
+       than it needs passes it to its rows — without this the sections stretched
+       and every nav row grew with the window. */
+    align-content: start;
+    overflow-y: auto;
+    /* A nav that has run out of scroll must not hand the wheel to the page
+       behind it — that hand-off is what made the rows twitch at the extremes. */
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
 .sidebar-nav-section {
@@ -3035,6 +3052,39 @@ a.sidebar-brand:focus-visible {
     font-weight: 500;
 }
 
+/*
+ * Below roughly a 13" laptop, a super-admin's fifteen rows do not fit a
+ * viewport-tall column, and the nav becomes a scroll container: a wheel tick
+ * anywhere over the sidebar slid every row up a few pixels while the page
+ * behind it moved, which reads as the chrome coming loose. Tightening the
+ * rhythm buys back about 100px, which is enough that the column fits and holds
+ * still; the rows stay comfortably above the size a pointer target wants.
+ *
+ * It sits after the rules it tightens rather than beside them — same
+ * specificity, so source order is what decides it.
+ */
+@media (max-height: 780px) {
+    .sidebar {
+        padding: 12px;
+    }
+
+    .sidebar-brand {
+        margin-bottom: 12px;
+    }
+
+    .sidebar-nav {
+        gap: 10px;
+    }
+
+    .sidebar-nav-section-title {
+        margin-bottom: 2px;
+    }
+
+    .nav-item {
+        padding: 7px 10px;
+    }
+}
+
 /* Pinned to the foot of the sidebar: identity first, then sign out on its own
    row so the destructive action is never a mis-tap away from the nav. */
 /* Anchors the menu, which is positioned against this box rather than the
@@ -3121,11 +3171,11 @@ a.sidebar-brand:focus-visible {
 /*
  * Fixed, not absolute, and positioned from JS.
  *
- * The sidebar scrolls, and CSS cannot clip one axis while leaving the other
- * visible — so an absolute panel was cut off at the sidebar's edge and grew it
- * a horizontal scrollbar. Fixed takes it out of that scroll container. `left`
- * and `bottom` come from the trigger's measured rect; only the sizing and skin
- * live here.
+ * The panel is wider than the 240px column and spills right over the page. An
+ * absolute one was governed by the sidebar's own box — it was cut off at the
+ * column's edge and grew it a horizontal scrollbar. Fixed takes it out of that
+ * flow entirely. `left` and `bottom` come from the trigger's measured rect;
+ * only the sizing and skin live here.
  */
 .sidebar-account-menu {
     position: fixed;
@@ -4406,7 +4456,10 @@ a.sidebar-brand:focus-visible {
     gap: 12px;
 }
 
+/* The grid's own `gap` does the spacing; a cell keeping its stacked-form
+   bottom margin leaves one column of a row taller than the other. */
 .admin-form-grid .field,
+.admin-form-grid .select-menu-field,
 .admin-inline-form > .field {
     align-self: start;
     margin-bottom: 0;
@@ -6013,6 +6066,13 @@ th {
         min-height: auto;
     }
 
+    /* Stacked above the page rather than beside it, so there is no viewport-tall
+       column to scroll within: the nav runs at its full height. */
+    .sidebar-nav {
+        flex: none;
+        overflow: visible;
+    }
+
     /* Without a viewport-tall column there is no slack for margin-top: auto, so
      restore an explicit gap above the account block. */
     .sidebar-account {
@@ -6604,27 +6664,21 @@ th {
     margin-bottom: 22px;
 }
 
+/* The tiles are `.card.metric`, as on the dashboard overview; only the track is
+   this page's — six tiles rather than the overview's four, and `auto-fit` so a
+   narrower window wraps them instead of squeezing them. `14px` is the gap
+   `.admin-grid` uses, so a user page and the overview line up. */
 .customer-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 14px;
 }
 
-.customer-stat {
-    display: grid;
-    gap: 3px;
-    padding: 12px 14px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--canvas);
-}
-.customer-stat span {
-    font-size: 0.72rem;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-}
-.customer-stat strong {
-    font-size: 0.96rem;
+/* A tile whose value is a string, not a count. */
+.admin-shell .metric-text strong {
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.4;
     word-break: break-word;
 }
 
