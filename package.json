@@ -20,7 +20,8 @@
     "mobile:android": "npm run android --workspace @voucher-hunt/mobile",
     "mobile:typecheck": "npm run typecheck --workspace @voucher-hunt/mobile",
     "sms:logs": "node --env-file=.env scripts/sms-logs.mjs",
-    "start:smpp-worker": "node server/smpp-worker.cjs"
+    "start:smpp-worker": "node server/smpp-worker.cjs",
+    "start:smpp-worker:local": "node --env-file=.env --env-file=.env.worker.local server/smpp-worker.cjs"
   },
   "dependencies": {
     "@bizflow/shared": "*",
