@@ -21,7 +21,7 @@
     "mobile:typecheck": "npm run typecheck --workspace @voucher-hunt/mobile",
     "sms:logs": "node --env-file=.env scripts/sms-logs.mjs",
     "start:smpp-worker": "node server/smpp-worker.cjs",
-    "worker": "node --env-file=.env --env-file=.env.worker.local server/smpp-worker.cjs"
+    "worker": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --env-file-if-exists=.env.worker.local server/smpp-worker.cjs"
   },
   "dependencies": {
     "@bizflow/shared": "*",
