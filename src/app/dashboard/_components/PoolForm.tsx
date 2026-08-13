@@ -41,6 +41,53 @@ const BENEFIT_TYPES = [
 ];
 
 /**
+ * What the Benefit Value field is asking for, per benefit type.
+ *
+ * The column is polymorphic — "20" for a percent, "500" for an amount,
+ * "dessert" for an item — so the one generic "Benefit Value / 20 or Free
+ * Dessert" pairing left the admin to guess which of the four this row wanted,
+ * and a percent typed into a fixed amount only surfaces as a rejected save.
+ */
+type BenefitValueField = {
+  label: string;
+  hint: string;
+  placeholder: string;
+  /** Percent and peso amounts want the numeric keypad on a phone. */
+  numeric?: boolean;
+};
+
+const BENEFIT_VALUE_FIELD: Record<string, BenefitValueField> = {
+  discount_percent: {
+    label: "Discount Percent",
+    hint: "How much comes off, as a number between 1 and 100. Enter 20 for 20% off.",
+    placeholder: "20",
+    numeric: true,
+  },
+  fixed_amount: {
+    label: "Discount Amount (₱)",
+    hint: "How much comes off the bill, in pesos. Enter the number only, for example 500.",
+    placeholder: "500",
+    numeric: true,
+  },
+  free_item: {
+    label: "Free Item",
+    hint: "The item the customer receives, for example dessert or an add-on treatment.",
+    placeholder: "Dessert",
+  },
+  free_shipping: {
+    label: "Shipping Covered",
+    hint: "What the free shipping covers, for example standard nationwide delivery.",
+    placeholder: "Standard delivery",
+  },
+};
+
+const GENERIC_BENEFIT_VALUE_FIELD: BenefitValueField = {
+  label: "Benefit Value",
+  hint: "Enter the discount amount or the item included in the reward.",
+  placeholder: "20 or Free Dessert",
+};
+
+/**
  * A slot's calendar date, spelled out.
  *
  * The weekday and month name are what let the eye tell one option from another:
@@ -153,6 +200,8 @@ export function PoolForm({
     pool.benefitValue,
     pool.displayLabel,
   );
+  const valueField =
+    BENEFIT_VALUE_FIELD[pool.benefitType] ?? GENERIC_BENEFIT_VALUE_FIELD;
 
   function toggleSlot(slotId: string) {
     setSlotIds((current) =>
@@ -218,12 +267,15 @@ export function PoolForm({
             value={pool.benefitType}
           />
           <label className="field">
-            <FieldLabel
-              label="Benefit Value"
-              hint="Enter the discount amount or the item included in the reward."
-            />
+            <FieldLabel label={valueField.label} hint={valueField.hint} />
             <input
-              placeholder="20 or Free Dessert"
+              // Deliberately a text input even for the numeric types: the state
+              // is one string across all four, and a `type="number"` field
+              // blanks a value it cannot parse, so switching type after typing
+              // "dessert" would silently drop it. `inputMode` still brings up
+              // the numeric keypad where one exists.
+              inputMode={valueField.numeric ? "decimal" : undefined}
+              placeholder={valueField.placeholder}
               required
               value={pool.benefitValue}
               onChange={(event) => setPool({ ...pool, benefitValue: event.target.value })}
