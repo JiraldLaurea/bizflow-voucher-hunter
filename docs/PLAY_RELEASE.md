@@ -46,6 +46,7 @@ confirming.
 | Build profiles (development / preview / production) | `apps/mobile/eas.json` |
 | `eas-cli` | devDependency of `apps/mobile` |
 | Version strategy | `version` in `app.config.js`; EAS owns `versionCode` |
+| Release notes | `apps/mobile/store-assets/google-play/release-notes/<versionCode>-<version>.txt` |
 | App Links verification file | `GET /.well-known/assetlinks.json` |
 | Privacy policy | `/privacy` (statically rendered, no auth) |
 | No SMS permissions | `blockedPermissions` in `app.config.js` |
@@ -57,6 +58,18 @@ production profile, so **EAS owns `versionCode`** and bumps it per build. That i
 why `android.versionCode` is deliberately absent from `app.config.js` — setting
 it there would conflict. Bump the user-visible `version` ("1.0.0") by hand for
 meaningful releases.
+
+### Release notes
+
+One file per release in
+`apps/mobile/store-assets/google-play/release-notes/`, named
+`<versionCode>-<version>.txt` so it can be matched to a build from either
+number. The contents are wrapped in the `<en-US>` tags Play accepts, so the file
+pastes into the console (or feeds `eas submit`) unedited.
+
+**Play allows 500 characters per language**, counted without the tags. Write for
+a customer reading the store listing — what changed for them, not what changed
+in the repo.
 
 ### Build commands
 

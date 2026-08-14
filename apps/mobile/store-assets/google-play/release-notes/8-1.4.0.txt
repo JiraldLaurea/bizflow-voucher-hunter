@@ -1,0 +1,10 @@
+<en-US>
+Loyalty Points are now fully spendable from the app.
+
+• Points you earn at a store now show in the app, held with that partner
+• New Global LP rewards: 500 LP gets you a ₱100 voucher (₱500 minimum spend)
+• Move points from a partner over to Global LP whenever you want
+• Vouchers you redeem are kept in My items with the code staff scan
+• Each partner's shop now shows what you can actually spend there
+• Clearer labels and smoother screens throughout
+</en-US>
