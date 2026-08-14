@@ -2689,9 +2689,25 @@ img.logo-tile {
 /* Supporting copy under a heading: quiet, and short enough to scan. */
 .admin-shell .admin-topbar .muted,
 .admin-shell .panel > .muted {
-    max-width: 68ch;
     font-size: 0.8125rem;
     line-height: 1.55;
+}
+
+/* Body copy inside a panel can run to several sentences, so it keeps a reading
+   measure rather than the full width of the card. */
+.admin-shell .panel > .muted {
+    max-width: 68ch;
+}
+
+/*
+ * A page description is one sentence taken in at a glance, and the header band
+ * is far wider than a paragraph measure. At 68ch it wrapped to a second line
+ * with a third of the row still empty, which reads as a two-line heading rather
+ * than a subtitle. Wide enough for any of them on one line, still capped so it
+ * cannot stretch the width of an ultrawide display.
+ */
+.admin-shell .admin-topbar .muted {
+    max-width: 120ch;
 }
 
 /*
@@ -4291,6 +4307,17 @@ a.sidebar-brand:focus-visible {
 .settings-danger-zone {
     border-color: #f3c6c6;
     background: var(--red-soft);
+}
+
+.settings-danger-action + .settings-danger-action {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid #f3c6c6;
+}
+
+.settings-danger-action h3 {
+    margin: 0 0 4px;
+    font-size: 0.92rem;
 }
 
 .campaign-switcher {
@@ -6723,13 +6750,26 @@ th {
 }
 
 /* The tiles are `.card.metric`, as on the dashboard overview; only the track is
-   this page's — six tiles rather than the overview's four, and `auto-fit` so a
-   narrower window wraps them instead of squeezing them. `14px` is the gap
+   this page's — six tiles laid out as two rows of three rather than the
+   overview's four. A fixed three-column track keeps the pairing even; `auto-fit`
+   used to fit five across and orphan the sixth on its own row. `14px` is the gap
    `.admin-grid` uses, so a user page and the overview line up. */
 .customer-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
+}
+
+@media (max-width: 760px) {
+    .customer-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 520px) {
+    .customer-stats {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* A tile whose value is a string, not a count. */

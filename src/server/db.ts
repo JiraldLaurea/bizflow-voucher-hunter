@@ -585,6 +585,7 @@ async function init() {
   await c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   const versionRow = (await c.execute("SELECT value FROM meta WHERE key = 'schema_version'")).rows[0] as Row | undefined;
   const migrating = (versionRow?.value as string | undefined) !== SCHEMA_VERSION;
+  const suppressed = await seedSuppressed(c);
 
   if (migrating) {
     // The pools/attempts model changed fundamentally; drop the affected tables
@@ -611,11 +612,16 @@ async function init() {
     // Full reset so seed changes (e.g. campaign titles) reach already-seeded
     // databases; INSERT OR IGNORE alone would keep stale rows.
     await c.batch(DATA_TABLES.map((table) => `DELETE FROM ${table}`), "write");
-    await seed(c);
-    await ensureDemoCampaignAvailability(c);
+    if (!suppressed) {
+      await seed(c);
+      await ensureDemoCampaignAvailability(c);
+    }
     await c.execute({ sql: "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", args: [SCHEMA_VERSION] });
     return;
   }
+
+  // An operator emptied the database on purpose — leave it empty.
+  if (suppressed) return;
 
   // Same version: self-heal an empty or partially-seeded database.
   if (!(await hasCompleteSeed(c))) await seed(c);
@@ -1542,6 +1548,21 @@ async function ensureDemoCampaignAvailability(c: Client) {
   }
 }
 
+// ---- Demo seed suppression ------------------------------------------------
+// `wipeDb()` empties the database and deliberately does not reseed. Nothing else
+// knows that: the cold-start self-heal in `init()` treats a missing seed as
+// damage and puts the fixtures straight back, and a SCHEMA_VERSION bump reseeds
+// unconditionally. This flag in `meta` records "empty on purpose"; `resetDb()`
+// clears it again, so the two reset actions can be run in any order.
+const SEED_SUPPRESSED_KEY = "seed_suppressed";
+
+async function seedSuppressed(c: Client) {
+  const row = await one(c, "SELECT value FROM meta WHERE key = ?", [
+    SEED_SUPPRESSED_KEY
+  ]);
+  return String(row?.value ?? "") === "1";
+}
+
 /** Wipe every table and re-seed. Used by tests and the admin reset action. */
 export async function resetDb() {
   await ensureReady();
@@ -1552,8 +1573,38 @@ export async function resetDb() {
   );
   await seed(c);
   await ensureDemoCampaignAvailability(c);
+  await c.execute({ sql: "DELETE FROM meta WHERE key = ?", args: [SEED_SUPPRESSED_KEY] });
   // Invalidate every customer sign-in: the reseed wipes the users their cookies
   // point at, so bump the epoch to force a fresh sign-in on any device.
+  await bumpCustomerAuthEpoch(c);
+}
+
+/**
+ * Wipe every table and leave the database empty — no demo seed.
+ *
+ * The counterpart to `resetDb()` for handing over a clean install: same
+ * destruction, none of the fixtures. Console logins are the one exception.
+ * Staff and admin accounts are scoped to businesses that no longer exist, so
+ * they go with the data, but super admins are kept — they are the only accounts
+ * that can create the rest, and dropping them would lock everyone out of the
+ * dashboard with nothing left to sign in against.
+ */
+export async function wipeDb() {
+  await ensureReady();
+  const c = rawClient();
+  await c.batch(
+    [
+      ...DATA_TABLES.map((table) => `DELETE FROM ${table}`),
+      "DELETE FROM admin_users WHERE role <> 'super_admin'"
+    ],
+    "write"
+  );
+  // Survives restarts, so init() does not helpfully reseed what was just wiped.
+  await c.execute({
+    sql: "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+    args: [SEED_SUPPRESSED_KEY, "1"]
+  });
+  // Every customer row is gone, so every customer cookie has to stop working.
   await bumpCustomerAuthEpoch(c);
 }
 

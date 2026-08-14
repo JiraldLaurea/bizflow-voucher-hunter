@@ -186,6 +186,34 @@ describe("schema migration", () => {
     expect(survivor.rows).toHaveLength(0);
   });
 
+  it("does not reseed a database the operator wiped on purpose", async () => {
+    // The Danger Zone's wipe leaves the tables empty, which the self-heal would
+    // otherwise read as damage and repair on the next cold start.
+    const name = unique("wiped");
+    const { db } = await bootAgainst(name);
+    await db.wipeDb();
+
+    const { client } = await bootAgainst(name);
+    const businesses = await client.execute("SELECT id FROM businesses");
+    expect(businesses.rows).toHaveLength(0);
+  });
+
+  it("does not reseed a wiped database through a schema bump either", async () => {
+    const name = unique("wiped-bump");
+    const { db } = await bootAgainst(name);
+    await db.wipeDb();
+    // Pretend this build carries a newer SCHEMA_VERSION than the file was left at.
+    await rawAt(name).execute(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', 'older')",
+    );
+
+    const { client } = await bootAgainst(name);
+    const businesses = await client.execute("SELECT id FROM businesses");
+    expect(businesses.rows).toHaveLength(0);
+    const version = await client.execute("SELECT value FROM meta WHERE key = 'schema_version'");
+    expect((version.rows[0] as Record<string, unknown>).value).toBe(CURRENT_VERSION);
+  });
+
   it("leaves an already-current database alone instead of re-wiping it", async () => {
     // Every serverless cold start calls init(). If a matching version still
     // wiped, each boot would destroy live data.

@@ -34,11 +34,24 @@ export default async function SettingsPage() {
 
       <section className="panel settings-danger-zone">
         <h2>Danger Zone</h2>
-        <p className="muted">
-          Wipes all campaigns, businesses, slots, voucher pools, and hunt logs, then
-          reloads the demo seed data. This cannot be undone.
-        </p>
-        <ResetDataButton />
+        <div className="settings-danger-action">
+          <h3>Reset &amp; reseed</h3>
+          <p className="muted">
+            Wipes all campaigns, businesses, slots, voucher pools, and hunt logs, then
+            reloads the demo seed data. This cannot be undone.
+          </p>
+          <ResetDataButton mode="reseed" />
+        </div>
+        <div className="settings-danger-action">
+          <h3>Wipe everything</h3>
+          <p className="muted">
+            Same wipe, but nothing is reloaded: no demo businesses, campaigns,
+            products or customers. Super-admin logins are kept so you can sign back
+            in and build the real data; staff and admin logins are removed with the
+            businesses they belonged to. This cannot be undone.
+          </p>
+          <ResetDataButton mode="wipe" />
+        </div>
       </section>
     </>
   );

@@ -79,11 +79,12 @@ DATABASE_PATH=./data/bizflow.db
 (Production requires `DATABASE_URL` and `DATABASE_AUTH_TOKEN`; development and
 tests always use the local `DATABASE_PATH` so test data cannot touch production.)
 
-The schema is created and seeded automatically on first DB access. There are three ways to reset:
+The schema is created and seeded automatically on first DB access. There are four ways to reset:
 
 - **Delete the file** — stop the dev server and remove `data/bizflow.db`. The next load recreates and reseeds it.
 - **Admin reset** — Dashboard → Settings → *Reset & Reseed Data* (type `RESET`), or `POST /api/dashboard/reset` (super-admin only). Wipes every table and reseeds.
-- **Schema bump** — bumping `SCHEMA_VERSION` in `src/server/db.ts` (currently `"4"`) forces a full reset + reseed on next start.
+- **Admin wipe** — Dashboard → Settings → *Wipe Data (No Reseed)* (type `WIPE`), or `POST /api/dashboard/reset` with `{"mode":"wipe"}`. Same wipe with no reseed, for handing over a clean install: it also drops staff/admin logins (super admins are kept) and sets `seed_suppressed` in `meta` so neither the startup self-heal nor a schema bump reloads the fixtures. A later *Reset & Reseed* clears that flag.
+- **Schema bump** — bumping `SCHEMA_VERSION` in `src/server/db.ts` (currently `"7"`) forces a full reset + reseed on next start.
 
 **A reset also signs out every customer.** It advances a server-side auth epoch stored in `meta`, which
 invalidates all previously issued auth cookies — so any signed-in device lands back on `/signin` on its

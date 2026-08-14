@@ -295,8 +295,10 @@ export function GoogleLocationPicker({
 
   useEffect(() => {
     if (!apiKey) {
-      setNotice(
-        "Google Maps is not configured. Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY and restart the dashboard.",
+      // As an error, not a notice: nothing is loading, so the map area must stop
+      // saying "Loading Google Maps..." and show the reason it never will.
+      setMapError(
+        "Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY (or GOOGLE_MAPS_API_KEY) in .env.local and restart the dashboard. The address field still works — the pin is optional.",
       );
       return;
     }
