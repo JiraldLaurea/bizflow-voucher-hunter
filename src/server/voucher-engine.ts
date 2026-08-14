@@ -79,7 +79,7 @@ async function addAnalytics(
  * A voucher is redeemable until its booked slot ends — never on a clock that
  * starts at issuance. An issuance-relative window (the retired hours/days/custom
  * types) could elapse before the slot the customer booked ever arrived, handing
- * them a voucher that was dead on arrival at the till.
+ * them a voucher that was dead on arrival at checkout.
  */
 function expiryFor(slot: CampaignSlot) {
   return `${slot.date}T${slot.endTime}:00.000+08:00`;
@@ -1141,11 +1141,11 @@ export function validateVoucher(input: { codeOrToken: string }) {
       campaign,
       business: businessRow ? mapBusiness(businessRow) : undefined,
       // A voucher scanned before its slot opens is still perfectly valid, so
-      // this does not gate redemption — the till decides whether to serve an
+      // this does not gate redemption — the checkout decides whether to serve an
       // early arrival. It exists so staff are told, rather than reading an
       // unremarkable "Valid & Confirmed" and only later noticing the date.
       slotNotStarted: slot ? slotNotStartedYet(slot) : false,
-      // Surfaced so the till sees the condition before serving, not after.
+      // Surfaced so the checkout sees the condition before serving, not after.
       minimumSpend: await minimumSpendFor(tx, voucher)
     };
   });
@@ -1160,7 +1160,7 @@ export async function redeemVoucher(input: { codeOrToken: string; staffName: str
 
     // A tier's minimum spend is the condition it was priced on — a 90%-off
     // voucher only survives contact with a ₱1,500 bill. Checked only when the
-    // till actually entered an amount: with none supplied the server has nothing
+    // checkout actually entered an amount: with none supplied the server has nothing
     // to judge, and refusing there would block every redemption that skips the
     // optional field.
     const minimumSpend = await minimumSpendFor(tx, voucher);
@@ -1171,7 +1171,7 @@ export async function redeemVoucher(input: { codeOrToken: string; staffName: str
         409
       );
     }
-    // Conditional on the status we just read, so two tills scanning the same
+    // Conditional on the status we just read, so two checkouts scanning the same
     // code settle to one redemption rather than both passing the check above and
     // both writing. The read-then-write it replaces only held because SQLite
     // serialises write transactions — correctness should not rest on that.

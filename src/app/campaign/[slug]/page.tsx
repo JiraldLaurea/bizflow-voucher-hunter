@@ -1,32 +1,19 @@
-import { notFound, redirect } from "next/navigation";
-import { getSignedInCustomerPhone } from "@/server/customer-auth";
-import { getOrCreateRewardWallet } from "@/server/rewards-network";
-import { getPublicCampaign } from "@/server/voucher-engine";
-import { PublicStepClient } from "./_components/PublicStepClient";
+import { redirect } from "next/navigation";
 
-export default async function CampaignPage({ params }: { params: { slug: string } }) {
-  // Signed-out visitors go to the single global sign-in and return here. Kept
-  // outside the try/catch below so Next's redirect isn't swallowed.
-  const phone = await getSignedInCustomerPhone();
-  if (!phone) {
-    redirect(`/signin?next=${encodeURIComponent(`/campaign/${params.slug}`)}`);
-  }
-  await getOrCreateRewardWallet({ phone });
-
-  try {
-    const data = await getPublicCampaign(params.slug);
-    if (!data.business) notFound();
-    return (
-      <PublicStepClient
-        step="landing"
-        campaign={data.campaign}
-        businessName={data.business.name}
-        businessLogo={data.business.logoText}
-        slots={data.slots}
-        initialPhone={phone}
-      />
-    );
-  } catch {
-    notFound();
-  }
+/**
+ * The campaign journey lives in the mobile app now; this route only survives as
+ * the address printed on QR codes and shared links.
+ *
+ * It is still a verified Android App Link (see `.well-known/assetlinks.json`),
+ * so a visitor with the app installed never reaches this handler — Android hands
+ * the URL to the app first. This is the fallback for everyone else, and sending
+ * them to the app landing page is the only useful thing left to do with the
+ * request: the campaign they scanned cannot be opened without the app.
+ *
+ * The slug is deliberately dropped rather than passed along. `/client` has no
+ * per-campaign view to deep-link into, so a query string would only be noise in
+ * the address bar.
+ */
+export default function CampaignRedirectPage() {
+  redirect("/client");
 }

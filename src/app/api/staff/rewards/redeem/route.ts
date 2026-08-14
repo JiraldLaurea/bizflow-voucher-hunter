@@ -17,7 +17,7 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     const session = await requireAdmin(request);
-    // Spending a stranger's LP at your own till is the payoff for guessing a
+    // Spending a stranger's LP at your own checkout is the payoff for guessing a
     // code, so the redeem leg is budgeted per account too, not just the lookup.
     await enforceRateLimit(request, "staff/rewards/redeem", {
       limit: 60,

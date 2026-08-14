@@ -47,7 +47,7 @@ export function assertDevToolsEnabled(what: string) {
  *
  * Every one of those is scoped to the caller's own phone and is reversible.
  * Deliberately NOT included are the tools that move money — LP grants, simulated
- * till scans, simulated collection — because those write rows a real partner is
+ * checkout scans, simulated collection — because those write rows a real partner is
  * billed for. They stay on `devToolsEnabled()` and refuse in production for
  * everyone, this account included.
  *

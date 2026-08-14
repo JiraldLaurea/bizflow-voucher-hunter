@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,7 +29,6 @@ import { colors, fonts, radius, shadow, spacing } from "@/theme";
  */
 export default function ShopPurchasesScreen() {
   const t = useTranslation();
-  const router = useRouter();
   const { token } = useAuth();
   const [items, setItems] = useState<RewardPurchasedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +67,8 @@ export default function ShopPurchasesScreen() {
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-      <StepHeader onBack={() => router.back()} title={t("shop.title")} />
+      {/* Same tab root as Browse — see the note in shop/index.tsx. */}
+      <StepHeader title={t("shop.title")} />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
@@ -110,20 +109,37 @@ export default function ShopPurchasesScreen() {
                     onPress={() => setOpenId(open ? "" : item.voucherId)}
                     style={({ pressed }) => [pressed && styles.pressed]}
                   >
-                    <RewardProductImage
-                      borderRadius={11}
-                      product={{
-                        campaign: item.campaign,
-                        imageUrl: item.productImageUrl,
-                        name: item.productName,
-                      }}
-                      style={styles.cardMedia}
-                    />
+                    {/* A global voucher has no product photo and no campaign to
+                        borrow art from, so it gets a plain purple band rather
+                        than the image component's partner fallback. */}
+                    {item.kind === "global_voucher" ? (
+                      <View style={[styles.cardMedia, styles.globalMedia]}>
+                        <Text style={styles.globalMediaText}>
+                          {item.price}
+                        </Text>
+                      </View>
+                    ) : (
+                      <RewardProductImage
+                        borderRadius={11}
+                        product={{
+                          campaign: item.campaign,
+                          imageUrl: item.productImageUrl,
+                          name: item.productName,
+                        }}
+                        style={styles.cardMedia}
+                      />
+                    )}
                     <View style={styles.cardRow}>
                       <View style={styles.cardCopy}>
                         <Text style={styles.cardName}>{item.productName}</Text>
                         <Text style={styles.cardBusiness}>
-                          {item.businessName}
+                          {item.kind === "global_voucher"
+                            ? item.minimumSpend
+                              ? t("shop.globalMinSpend", {
+                                  amount: item.minimumSpend,
+                                })
+                              : t("shop.globalAnyPartner")
+                            : item.businessName}
                         </Text>
                         <View style={styles.badgeRow}>
                           <View
@@ -254,6 +270,18 @@ const styles = StyleSheet.create({
   },
   cardMedia: {
     marginBottom: spacing.md,
+  },
+  globalMedia: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 11,
+    height: 96,
+    justifyContent: "center",
+  },
+  globalMediaText: {
+    color: colors.surface,
+    fontFamily: fonts.extrabold,
+    fontSize: 28,
   },
   cardRow: {
     alignItems: "flex-start",

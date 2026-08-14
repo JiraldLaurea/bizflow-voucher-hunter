@@ -339,7 +339,7 @@ a financial feature at a glance:
 - **The app stores no payment instrument** and processes no payment. There is no
   card, wallet, or bank linkage anywhere in the schema.
 - **The peso amounts are staff input on the web dashboard**, not a transaction in
-  the app — a staff member types the amount a customer already paid at the till
+  the app — a staff member types the amount a customer already paid at checkout
   so the 5% accrual can be computed
   ([RewardsStaffTools.tsx:180](../src/app/dashboard/_components/RewardsStaffTools.tsx#L180)).
   That surface is not part of the Android app at all.

@@ -39,7 +39,7 @@ export default async function BillingPage({
   ]);
   // Staff see only their own partner; admins pick from all of them. Unlike the
   // campaign-scoped pages this is not filtered to businesses that run a
-  // campaign — a partner still owes for LP their till issued either way.
+  // campaign — a partner still owes for LP their checkout issued either way.
   const visible =
     session?.role === "staff"
       ? businesses.filter((item) => session.businessIds.includes(item.id))
@@ -93,7 +93,7 @@ export default async function BillingPage({
         <p className="alert">
           <FiAlertTriangle aria-hidden="true" />{" "}
           <strong>Deposit exhausted — LP issuing is paused.</strong> This
-          partner&apos;s till cannot award Loyalty Points until the deposit is
+          partner&apos;s checkout cannot award Loyalty Points until the deposit is
           topped up. {deposit.topUpDue} brings them back to the{" "}
           {deposit.minimum} minimum.
         </p>

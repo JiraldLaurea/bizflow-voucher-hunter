@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 /**
- * Alphabet for codes a human reads aloud at a till: no O/0 and no I/1, so a
+ * Alphabet for codes a human reads aloud at a checkout: no O/0 and no I/1, so a
  * misheard character cannot resolve to a different valid code.
  */
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";

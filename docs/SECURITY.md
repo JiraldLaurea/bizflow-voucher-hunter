@@ -4,7 +4,7 @@ What this system trusts, what it enforces, and what it knowingly does not. Writt
 after the hardening pass of 2026-08-07; keep it current when a trust boundary moves.
 
 The short version: this app moves real value. Loyalty Points are a liability a
-partner is billed for, vouchers are goods handed over at a till, and every SMS is
+partner is billed for, vouchers are goods handed over at a checkout, and every SMS is
 metered SMPP credit. Treat "a caller can cause value to move" as the definition of
 a bug, not "a caller can cause a 500".
 
@@ -84,7 +84,7 @@ was unset, `preview`, or `staging`.
 production: reset my hunt, refresh my vouchers, force my own next draw. Each is
 scoped to rows keyed by the caller's own session phone and is reversible, and the
 number is compared normalised so no spelling of it slips past. The tools that
-move money — LP grants, simulated till scans, simulated collection — stay on
+move money — LP grants, simulated checkout scans, simulated collection — stay on
 `devToolsEnabled()` and refuse in production for this account too, because those
 write rows a real partner is billed for. It confers no console rights. Both
 clients gate their panel at build time, so the flag is also returned from
@@ -142,7 +142,7 @@ Three things worth doing that no edit in this repo can accomplish:
    subsystems derive from it.
 2. **Alert on anomalous LP movement**: a wallet's balance rising faster than any
    purchase history explains, a partner's issuance spiking, redemptions clustering
-   at one till. The audit log is hash-chained (`reward_audit_logs.event_hash`) but
+   at one checkout. The audit log is hash-chained (`reward_audit_logs.event_hash`) but
    nothing reads it.
 3. **Reconcile LP issued against LP settled** on a schedule, and alarm on drift.
    Double-entry invariants catch classes of bug that no amount of endpoint review

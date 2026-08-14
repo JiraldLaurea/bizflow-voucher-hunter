@@ -6,6 +6,8 @@ import {
   closeBusinessStatement,
   convertRewardCreditToVoucher,
   creditRewardFromPurchase,
+  grantDevBusinessLoyaltyPoints,
+  listGlobalRewards,
   getOrCreateRewardWallet,
   listBusinessDepositEntries,
   listRewardProducts,
@@ -131,7 +133,10 @@ describe("Loyalty Points", () => {
     // Earning lands in the partner's bucket now rather than the global pot, so
     // the spendable side is funded directly: what is under test here is
     // month-end netting, not how the customer came by convertible LP.
-    await run(db, "UPDATE reward_wallets SET balance_centavos = 50000");
+    // Five vouchers at 500 LP each. The cost is what leaves the wallet; the
+    // ₱100 face value is what the partner is later reimbursed, so the two
+    // figures below are deliberately different.
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 250000");
 
     // Conversion mints fixed ₱100 coupons, so 500 LP of redemption is five of
     // them rather than one voucher for the whole amount.
@@ -152,7 +157,7 @@ describe("Loyalty Points", () => {
       );
     }
 
-    // No fee at the till any more: each redemption carries its full value.
+    // No fee at checkout any more: each redemption carries its full value.
     const redeemed = redemptions[redemptions.length - 1];
     expect(redeemed.amount).toBe("100 LP");
     expect(redeemed.serviceFee).toBe("0 LP");
@@ -176,7 +181,7 @@ describe("Loyalty Points", () => {
 
     // A second redemption, funded by LP earned at another partner, tips the
     // month in the partner's favour: PHP 1,000 net, fee PHP 100, payout PHP 900.
-    await run(db, "UPDATE reward_wallets SET balance_centavos = 200000");
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 500000");
     for (let index = 0; index < 10; index += 1) {
       const second = await convertRewardCreditToVoucher({
         phone,
@@ -459,7 +464,7 @@ describe("business Loyalty Points", () => {
     expect(Number(bucket?.balance_centavos)).toBe(50_00);
 
     // The daily app-use award is a global credit, so the pot is not zero — but
-    // none of the 50 LP earned at the till is in it.
+    // none of the 50 LP earned at checkout is in it.
     const global = await one(db, "SELECT balance_centavos FROM reward_wallets WHERE phone = ?", [phone]);
     expect(Number(global?.balance_centavos)).toBe(10_00);
   });
@@ -516,7 +521,7 @@ describe("business Loyalty Points", () => {
     ).rejects.toThrow(/fee applies/);
   });
 
-  it("mints a fixed ₱100 voucher and holds it to a ₱500 bill", async () => {
+  it("mints a fixed ₱100 voucher and holds it to its minimum spend", async () => {
     const wallet = await getOrCreateRewardWallet({ phone });
     const db = await getDb();
     await run(db, "UPDATE reward_wallets SET balance_centavos = 100000");
@@ -528,7 +533,7 @@ describe("business Loyalty Points", () => {
     expect(converted.voucher.amountCentavos).toBe(100_00);
     expect(converted.voucher.minimumSpendCentavos).toBe(500_00);
 
-    // Too small a bill, and the voucher does not apply.
+    // Under the minimum spend, and the voucher does not apply.
     await expect(
       redeemRewardVoucher({
         codeOrToken: converted.voucher.voucherCode,
@@ -537,7 +542,7 @@ describe("business Loyalty Points", () => {
         purchaseAmount: "499",
         staffName: "staff@bizflow.local",
       }),
-    ).rejects.toThrow(/at least ₱500/);
+    ).rejects.toThrow(/₱500.00 minimum spend/);
 
     // Nor can it be split across smaller bills to dodge that floor.
     await expect(
@@ -575,5 +580,119 @@ describe("business Loyalty Points", () => {
         balance: "50 LP",
       }),
     ]);
+  });
+
+  // The app opens the wallet through this call, not the snapshot above. While
+  // it omitted the buckets the phone had no way to see partner points at all,
+  // and the storefront priced its Buy button off the global pot instead.
+  it("lists partner buckets when the app opens the wallet", async () => {
+    await earn("1,000", "business-lp-wallet-open");
+    const opened = await getOrCreateRewardWallet({ phone });
+
+    expect(opened.businessBalances).toEqual([
+      expect.objectContaining({
+        businessId,
+        businessName: "Mesa Manila Test Kitchen",
+        balance: "50 LP",
+        balanceCentavos: 50_00,
+      }),
+    ]);
+    // The two pots stay distinct: earning never touched the spend-anywhere one.
+    expect(opened.wallet.balanceCentavos).toBe(10_00);
+  });
+
+  // The dev tool for the bucket side. Its whole point is landing in the pot the
+  // storefront spends from, without touching the global one.
+  it("grants LP into one partner's bucket from the dev tools", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+
+    const granted = await grantDevBusinessLoyaltyPoints({
+      phone,
+      businessId,
+      amount: "1,500",
+    });
+    expect(granted).toMatchObject({
+      businessId,
+      businessName: "Mesa Manila Test Kitchen",
+      granted: "1,500 LP",
+      balance: "1,500 LP",
+    });
+
+    const snapshot = await rewardWalletSnapshot({
+      phone,
+      walletSecret: wallet.walletSecret,
+    });
+    expect(snapshot.businessBalances).toEqual([
+      expect.objectContaining({ businessId, balance: "1,500 LP" }),
+    ]);
+    // The global pot is untouched — it still holds only the app-use award.
+    expect(snapshot.balance).toBe("10 LP");
+
+    // Enough to actually buy the partner's dearest demo item, which is the
+    // reason for granting directly rather than simulating a sale.
+    const bought = await purchaseRewardProduct({
+      phone,
+      walletSecret: wallet.walletSecret,
+      productId: "rprod_demo_rice_bowl",
+    });
+    expect(bought.balance).toBe("1,000 LP");
+  });
+
+  // The Global LP storefront. Cost and face value are different numbers, which
+  // is the thing most likely to get collapsed back into one by mistake.
+  it("sells a global voucher for its cost, not its face value", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    const [reward] = listGlobalRewards();
+    expect(reward).toMatchObject({
+      id: "global_voucher_100",
+      cost: "500 LP",
+      value: "₱100.00",
+      minimumSpend: "₱500.00",
+    });
+
+    const db = await getDb();
+    await run(db, "UPDATE reward_wallets SET balance_centavos = 60000");
+
+    const bought = await convertRewardCreditToVoucher({
+      phone,
+      walletSecret: wallet.walletSecret,
+      rewardId: reward.id,
+    });
+    // 500 LP left the wallet; the voucher is worth ₱100 off a ₱500 bill.
+    expect(bought.cost).toBe("500 LP");
+    expect(bought.balance).toBe("100 LP");
+    expect(bought.voucher.amountCentavos).toBe(100_00);
+    expect(bought.voucher.minimumSpendCentavos).toBe(500_00);
+
+    // Too little left for a second one.
+    await expect(
+      convertRewardCreditToVoucher({
+        phone,
+        walletSecret: wallet.walletSecret,
+        rewardId: reward.id,
+      }),
+    ).rejects.toThrow(/You need 500 LP in Global LP/);
+  });
+
+  it("refuses a reward that is not in the catalogue", async () => {
+    const wallet = await getOrCreateRewardWallet({ phone });
+    await expect(
+      convertRewardCreditToVoucher({
+        phone,
+        walletSecret: wallet.walletSecret,
+        rewardId: "global_voucher_free_car",
+      }),
+    ).rejects.toThrow(/was not found/);
+  });
+
+  it("refuses a business LP grant for a partner that does not exist", async () => {
+    await getOrCreateRewardWallet({ phone });
+    await expect(
+      grantDevBusinessLoyaltyPoints({
+        phone,
+        businessId: "biz_does_not_exist",
+        amount: "100",
+      }),
+    ).rejects.toThrow(/Business was not found/);
   });
 });

@@ -15,16 +15,20 @@ web. Both clients talk to the same Next.js API in this repo.
 | Customer landing page | `/client` | Customers — what the app does, install link |
 | Admin dashboard | `/dashboard` | Business owners and admins |
 | Staff validation | `/staff` | In-store staff redeeming vouchers and wallet QRs |
-| Web customer flow | `/campaign/[slug]/…` | Fallback only — kept reachable for existing QR codes and deep links |
+| Link fallback | `/campaign/[slug]`, `/vouchers/[voucherId]` | Redirect to `/client` — see below |
 
-The web customer flow is no longer the primary client. It still works, and
-`/campaign/[slug]` remains the target of printed QR codes and referral links, but
-new customer-facing work goes to the app. Retiring it is a post-launch decision
-(`docs/MOBILE_APP_MIGRATION.md` §Phase 7); the API and dashboard stay either way.
+**There is no customer web app.** The hunt, wallet, vouchers and LP screens exist
+only in `apps/mobile`; the web tree is the dashboard, the marketing pages and the
+API. Anything customer-facing goes to the app.
+
+`/campaign/[slug]` and `/vouchers/[voucherId]` survive as two-line redirects
+because they are verified Android App Links and the address on printed QR codes.
+With the app installed Android opens the app and never reaches the server; every
+other visitor is sent to `/client` to install it. Do not rebuild pages there.
 
 ## Current Scope
 
-- Customer voucher hunt shipped as an Expo/React Native **Android app**, with a web fallback flow
+- Customer voucher hunt shipped as an Expo/React Native **Android app** — the only customer client
 - **Loyalty Points (LP)**: daily app-use and referral awards, 5% earn on scanned in-store purchases, conversion to `RWD-` LP vouchers, partner redemption with partial use, and monthly partner settlement (see `docs/REWARDS.md`)
 - In-app **shop** for spending LP with participating partners
 - Desktop-optimized admin dashboard
@@ -55,18 +59,17 @@ offered at.
 **Vouchers are always slot-bound.** A voucher stays redeemable until the slot the
 customer booked ends. There is no issuance-relative expiry window.
 
-| Step | App screen (`apps/mobile/src/app`) | Web fallback route |
-|---|---|---|
-| 1 | Campaign directory — `(tabs)/index` | — (the web root is the business landing page) |
-| 2 | Campaign landing — `(tabs)/campaign/[slug]/index` | `/campaign/july-dinner` |
-| 3 | Voucher roulette — `…/roulette` | `/campaign/july-dinner/roulette` |
-| 4 | Voucher results — `…/results` | `/campaign/july-dinner/results` |
-| 5 | Date & time, tier-gated — `…/datetime` | `/campaign/july-dinner/datetime` |
-| 6 | Confirm & details — `…/confirm` | `/campaign/july-dinner/confirm` |
-| 7 | Confirmation SMS/QR — `…/confirmation` | `/campaign/july-dinner/confirmation` |
+| Step | App screen (`apps/mobile/src/app`) |
+|---|---|
+| 1 | Campaign directory — `(tabs)/index` |
+| 2 | Campaign landing — `(tabs)/campaign/[slug]/index` |
+| 3 | Voucher roulette — `…/roulette` |
+| 4 | Voucher results — `…/results` |
+| 5 | Date & time, tier-gated — `…/datetime` |
+| 6 | Confirm & details — `…/confirm` |
+| 7 | Confirmation SMS/QR — `…/confirmation` |
 
-The app opens the roulette straight from the campaign landing CTA; the web flow
-keeps an extra hunt-intro step at `/campaign/[slug]/hunt`.
+The roulette opens straight from the campaign landing CTA.
 
 Outside the hunt the app carries three more tabs: **Vouchers** (issued vouchers
 and their redemption QR), **Shop** (spend LP with participating partners), and
@@ -74,10 +77,10 @@ and their redemption QR), **Shop** (spend LP with participating partners), and
 
 Sign-in is a single global phone-OTP step (`/api/public/signin/request-otp`), not
 a per-campaign gate. The app authenticates with a **bearer token** in secure
-storage; the web flow uses httpOnly cookies. Both resolve server-side to the same
-verified phone, and a data reset invalidates both.
+storage. The dashboard uses httpOnly cookies; both resolve server-side to the
+same verified identity, and a data reset invalidates both.
 
-Online shop campaigns work the same way — e.g. `/campaign/8pm-drop`.
+Online shop campaigns work the same way — e.g. `8pm-drop`.
 
 Migration background and the remaining phase decisions are in
 `docs/MOBILE_APP_MIGRATION.md`.
@@ -257,7 +260,7 @@ Two environment variables have to be right or protections weaken silently:
   nginx/Cloudflare. Set it too high and callers can pick their own bucket again,
   which makes every limit in the app decorative.
 - `ENABLE_DEV_TOOLS` — gates every tool that mints value or bypasses a rule:
-  loyalty grants, simulated till scans, forced roulette outcomes, hunt resets,
+  loyalty grants, simulated checkout scans, forced roulette outcomes, hunt resets,
   statement backdating, the OTP echo, and the bootstrap login fallback. It fails
   closed — on automatically in `development` and `test`, off for anything
   unrecognised (unset, `preview`, `staging`), and ignored when `NODE_ENV=production`.

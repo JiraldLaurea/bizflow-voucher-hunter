@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   getOrCreateRewardWallet,
   listRewardProducts,
+  partnerBalance,
   type RewardProduct,
   type RewardWalletSnapshot,
 } from "@/api/client";
@@ -30,6 +31,7 @@ import { colors, fonts, radius, shadow, spacing } from "@/theme";
 type Storefront = {
   businessId: string;
   businessName: string;
+  businessIndustry?: string;
   itemCount: number;
   cheapestCentavos: number;
   cheapestPrice: string;
@@ -88,6 +90,7 @@ export default function ShopBusinessesScreen() {
         byBusiness.set(product.businessId, {
           businessId: product.businessId,
           businessName: product.businessName,
+          businessIndustry: product.businessIndustry,
           itemCount: 1,
           cheapestCentavos: product.priceCentavos,
           cheapestPrice: product.price,
@@ -106,11 +109,11 @@ export default function ShopBusinessesScreen() {
     );
   }, [products]);
 
-  const balanceCentavos = wallet?.wallet.balanceCentavos ?? 0;
-
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-      <StepHeader onBack={() => router.back()} title={t("shop.title")} />
+      {/* No back affordance: this is a bottom-tab root, so there is nothing
+          within the storefront to go back to. */}
+      <StepHeader title={t("shop.title")} />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
@@ -124,18 +127,31 @@ export default function ShopBusinessesScreen() {
       >
         <ShopTabs active="shop" />
 
-        {/* Same purple treatment as the wallet on More: one balance, shown
-            the same way wherever the customer meets it. */}
-        <LinearGradient
-          colors={["#6637ff", "#7a44f4"]}
-          end={{ x: 1, y: 1 }}
-          start={{ x: 0, y: 0 }}
-          style={styles.balanceCard}
+        {/* The balance and the way to spend it are one card, not two. Splitting
+            them printed the same figure twice and made the second card look
+            like a different pot. */}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/shop/global" as Href)}
+          style={({ pressed }) => [pressed && styles.globalPressed]}
         >
-          <Text style={styles.balanceLabel}>{t("shop.balanceLabel")}</Text>
-          <Text style={styles.balanceValue}>{wallet?.balance ?? "—"}</Text>
-          <Text style={styles.balanceHint}>{t("shop.subtitle")}</Text>
-        </LinearGradient>
+          <LinearGradient
+            colors={["#6637ff", "#7a44f4"]}
+            end={{ x: 1, y: 1 }}
+            start={{ x: 0, y: 0 }}
+            style={styles.balanceCard}
+          >
+            <Text style={styles.balanceLabel}>{t("shop.balanceLabel")}</Text>
+            <Text style={styles.balanceValue}>{wallet?.balance ?? "—"}</Text>
+            <Text style={styles.balanceHint}>{t("shop.globalHint")}</Text>
+            <View style={styles.globalCta}>
+              <Text style={styles.globalCtaText}>
+                {t("shop.globalStoreMeta")}
+              </Text>
+              <Icon color={colors.surface} name="chevron-right" size={18} />
+            </View>
+          </LinearGradient>
+        </Pressable>
 
         <Text style={styles.sectionTitle}>{t("shop.pickBusiness")}</Text>
 
@@ -154,13 +170,23 @@ export default function ShopBusinessesScreen() {
         ) : (
           <View style={styles.list}>
             {storefronts.map((storefront) => {
-              const anyAffordable = balanceCentavos >= storefront.cheapestCentavos;
+              // Each partner is priced against its own bucket, so two cards on
+              // this screen can disagree about what the holder can afford.
+              const here = partnerBalance(wallet, storefront.businessId);
+              const anyAffordable =
+                here.balanceCentavos >= storefront.cheapestCentavos;
               return (
                 <Pressable
                   key={storefront.businessId}
                   onPress={() =>
                     router.push(
-                      `/shop/${encodeURIComponent(storefront.businessId)}` as Href,
+                      // The industry rides along so the next screen can paint
+                      // its colour on the first frame. Without it that screen
+                      // has no products yet, falls back to the neutral tone and
+                      // visibly flips colour once they load.
+                      `/shop/${encodeURIComponent(storefront.businessId)}?industry=${encodeURIComponent(
+                        storefront.businessIndustry ?? "",
+                      )}` as Href,
                     )
                   }
                   style={({ pressed }) => [
@@ -176,21 +202,45 @@ export default function ShopBusinessesScreen() {
                     />
                   ) : null}
                   <View style={styles.cardRow}>
-                  <View style={styles.cardCopy}>
-                    <Text style={styles.cardName}>{storefront.businessName}</Text>
-                    <Text style={styles.cardMeta}>
-                      {t("shop.itemCount", { count: storefront.itemCount })}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.cardFrom,
-                        !anyAffordable && styles.cardFromLocked,
-                      ]}
-                    >
-                      {t("shop.fromPrice", { price: storefront.cheapestPrice })}
-                    </Text>
-                  </View>
-                  <Icon name="chevron-right" size={18} />
+                    <View style={styles.cardCopy}>
+                      <Text style={styles.cardName}>
+                        {storefront.businessName}
+                      </Text>
+                      {/* Catalogue facts on one line: how many, and the cheapest.
+                          They describe the shop, not the holder. */}
+                      <Text style={styles.cardMeta}>
+                        {t("shop.itemSummary", {
+                          count: storefront.itemCount,
+                          price: storefront.cheapestPrice,
+                        })}
+                      </Text>
+                      {/* The holder's own balance is a different kind of fact, so
+                          it gets a pill rather than a third grey line that reads
+                          as more catalogue copy. Tinted when it can buy
+                          something here, muted when it cannot. */}
+                      <View
+                        style={[
+                          styles.balancePill,
+                          anyAffordable
+                            ? styles.balancePillReady
+                            : styles.balancePillEmpty,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.balancePillText,
+                            anyAffordable
+                              ? styles.balancePillTextReady
+                              : styles.balancePillTextEmpty,
+                          ]}
+                        >
+                          {here.balanceCentavos > 0
+                            ? t("shop.yourBalanceHere", { amount: here.balance })
+                            : t("shop.noBalanceHere")}
+                        </Text>
+                      </View>
+                    </View>
+                    <Icon name="chevron-right" size={18} />
                   </View>
                 </Pressable>
               );
@@ -215,6 +265,46 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: radius.md,
     padding: spacing.lg,
+  },
+  globalPressed: {
+    opacity: 0.9,
+  },
+  globalCta: {
+    alignItems: "center",
+    borderTopColor: "rgba(255, 255, 255, 0.25)",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+  },
+  globalCtaText: {
+    color: colors.surface,
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+  },
+  balancePill: {
+    alignSelf: "flex-start",
+    borderRadius: radius.pill,
+    marginTop: spacing.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  balancePillReady: {
+    backgroundColor: "rgba(92, 61, 255, 0.1)",
+  },
+  balancePillEmpty: {
+    backgroundColor: colors.page,
+  },
+  balancePillText: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+  },
+  balancePillTextReady: {
+    color: colors.primary,
+  },
+  balancePillTextEmpty: {
+    color: colors.textMuted,
   },
   balanceLabel: {
     color: "#eeeaff",
@@ -281,15 +371,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontFamily: fonts.regular,
     fontSize: 13,
-  },
-  cardFrom: {
-    color: colors.primary,
-    fontFamily: fonts.semibold,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  cardFromLocked: {
-    color: colors.textMuted,
   },
   empty: {
     backgroundColor: colors.surface,

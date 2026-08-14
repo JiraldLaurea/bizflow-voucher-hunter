@@ -11,13 +11,13 @@ import {
 
 const schema = z.object({
   businessId: z.string().min(3),
-  /** Pesos spent at the till. LP is 5% of this. */
+  /** Pesos spent at checkout. LP is 5% of this. */
   purchaseAmount: z.union([z.string().trim().min(1), z.number()]),
 });
 
 /**
  * Development-only helper: stands in for a partner's staff scanning the
- * customer's wallet QR at the till.
+ * customer's wallet QR at checkout.
  *
  * Unlike `dev-credit`, this runs the real earning path — it books a
  * `reward_purchase`, so the partner is billed for the LP issued and the month's
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
         walletToken: snapshot.wallet.walletToken,
         businessId: input.businessId,
         purchaseAmount: input.purchaseAmount,
-        staffName: "Dev Tools Till",
+        staffName: "Dev Tools Checkout",
         // Each simulated scan is its own sale.
         idempotencyKey: `dev-purchase-${crypto.randomUUID()}`,
       }),

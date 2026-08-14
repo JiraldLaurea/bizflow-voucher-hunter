@@ -451,7 +451,7 @@ CREATE TABLE IF NOT EXISTS reward_settlements (
   UNIQUE (business_id, period)
 );
 -- Every partner posts a deposit before joining the network. LP issued at their
--- till is money they owe us, so the deposit is what that exposure is drawn
+-- checkout is money they owe us, so the deposit is what that exposure is drawn
 -- against when a month closes in our favour.
 CREATE TABLE IF NOT EXISTS business_deposit_entries (
   id TEXT PRIMARY KEY,
@@ -623,6 +623,10 @@ async function init() {
   // An operator emptied the database on purpose — leave it empty.
   if (suppressed) return;
 
+  // Deliberately after the migrating branch: a version bump wipes and reseeds,
+  // which leaves no pre-split wallet to rebuild buckets for.
+  await runPartnerBucketBackfill(c);
+
   // Same version: self-heal an empty or partially-seeded database.
   if (!(await hasCompleteSeed(c))) await seed(c);
   await ensureSeededRewardProductImages(c);
@@ -756,6 +760,266 @@ async function ensureRewardsSchema(c: Client) {
      SET gross_amount_centavos = COALESCE(gross_amount_centavos, total_amount_centavos),
          service_fee_centavos = COALESCE(service_fee_centavos, 0)`,
   );
+}
+
+// ---- Partner bucket backfill ----------------------------------------------
+// Runs once per database and is then skipped by this flag, so a cold start does
+// not re-scan the ledger. Cleared by resetDb(), which starts a new world. An
+// operator restoring a pre-split backup over a flagged database can delete the
+// meta row to let it run again — the work is idempotent either way.
+const LP_BUCKET_BACKFILL_KEY = "lp_bucket_backfill";
+
+/**
+ * Wallets still holding partner earnings in the global pot.
+ *
+ * A bucket is owed the wallet's `credit_earned` at that partner less what the
+ * bucket has already been credited. Post-split credits are counted in both and
+ * cancel out, leaving only the pre-split ones — which is what makes the whole
+ * backfill safe to run a second time.
+ */
+const LP_BACKFILL_CANDIDATES_SQL = `
+  SELECT e.wallet_id AS wallet_id
+  FROM (
+    SELECT wallet_id, business_id, SUM(delta_centavos) AS earned_centavos
+    FROM reward_ledger_entries
+    WHERE type = 'credit_earned' AND business_id IS NOT NULL
+    GROUP BY wallet_id, business_id
+  ) e
+  LEFT JOIN reward_business_balances b
+    ON b.wallet_id = e.wallet_id AND b.business_id = e.business_id
+  WHERE e.earned_centavos > COALESCE(b.lifetime_earned_centavos, 0)
+  GROUP BY e.wallet_id
+`;
+
+// The same arithmetic for one wallet, biggest debt first so the rounding
+// remainder below lands where there is room for it.
+const LP_BACKFILL_WALLET_BUCKETS_SQL = `
+  SELECT
+    e.business_id AS business_id,
+    e.earned_centavos - COALESCE(b.lifetime_earned_centavos, 0) AS pending_centavos,
+    COALESCE(b.balance_centavos, 0) AS bucket_centavos
+  FROM (
+    SELECT business_id, SUM(delta_centavos) AS earned_centavos
+    FROM reward_ledger_entries
+    WHERE wallet_id = ? AND type = 'credit_earned' AND business_id IS NOT NULL
+    GROUP BY business_id
+  ) e
+  LEFT JOIN reward_business_balances b
+    ON b.wallet_id = ? AND b.business_id = e.business_id
+  WHERE e.earned_centavos - COALESCE(b.lifetime_earned_centavos, 0) > 0
+  ORDER BY pending_centavos DESC, business_id
+`;
+
+/**
+ * What the wallet holds globally, and how much of that was never earned at a
+ * partner. Daily rewards, referrals, dev grants and the credited half of a
+ * transfer are all identified the same way — a positive ledger delta with no
+ * `business_id` — because that is precisely the convention the ledger uses for
+ * the global pot.
+ */
+const LP_BACKFILL_WALLET_GLOBAL_SQL = `
+  SELECT
+    w.balance_centavos AS global_centavos,
+    (SELECT COALESCE(SUM(delta_centavos), 0)
+       FROM reward_ledger_entries
+      WHERE wallet_id = w.id AND delta_centavos > 0 AND business_id IS NULL
+    ) AS global_only_centavos
+  FROM reward_wallets w
+  WHERE w.id = ?
+`;
+
+/**
+ * Moves partner-earned Loyalty Points out of the global pot and into the
+ * per-partner buckets that now hold them.
+ *
+ * Earning used to credit `reward_wallets.balance_centavos` directly. It credits
+ * `reward_business_balances` instead now, which left every wallet that existed
+ * before the split holding its partner earnings in the spend-anywhere pot —
+ * exactly the claim the split exists to give the partner who funded them. Every
+ * historical credit carries its `business_id`, so the buckets can be rebuilt
+ * from the ledger.
+ *
+ * Three rules decide how much moves:
+ *
+ * - Only what the buckets are still owed, per the candidate query above.
+ * - Points that were never earned at a partner stay global. Withholding them is
+ *   the conservative reading for the holder: it never takes away spend-anywhere
+ *   points they already had, and daily rewards were never a partner's liability
+ *   to begin with.
+ * - Nothing may exceed the balance actually left, since spending has drawn the
+ *   pot down since. Where that cap bites the buckets fill pro rata — a
+ *   commingled pot keeps no record of whose points were spent, so preferring
+ *   one partner over another would be inventing one.
+ *
+ * The movement is written to the ledger on both sides rather than applied
+ * silently, so a holder whose global balance drops can see where it went. There
+ * is no audit-log row: the hash chain in rewards-network covers actions taken
+ * against a wallet, and this is a schema migration, like the deposit
+ * reconciliation above.
+ */
+async function runPartnerBucketBackfill(c: Client, force = false) {
+  if (!force) {
+    const done = await one(c, "SELECT value FROM meta WHERE key = ?", [
+      LP_BUCKET_BACKFILL_KEY,
+    ]);
+    if (String(done?.value ?? "") === "1") {
+      return { wallets: 0, movedCentavos: 0 };
+    }
+  }
+
+  const candidates = await all(c, LP_BACKFILL_CANDIDATES_SQL);
+  let wallets = 0;
+  let movedCentavos = 0;
+  for (const candidate of candidates) {
+    const moved = await backfillOneWallet(c, String(candidate.wallet_id));
+    if (moved > 0) {
+      wallets += 1;
+      movedCentavos += moved;
+    }
+  }
+
+  await c.execute({
+    sql: "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+    args: [LP_BUCKET_BACKFILL_KEY, "1"],
+  });
+  return { wallets, movedCentavos };
+}
+
+/**
+ * One wallet, in its own write transaction.
+ *
+ * The figures are read again inside the transaction rather than carried in from
+ * the candidate scan: two serverless instances can cold-start onto the same
+ * database at once, and libSQL serializes write transactions, so whichever
+ * commits second recomputes a debt of zero instead of paying it twice.
+ */
+async function backfillOneWallet(c: Client, walletId: string) {
+  const tx = await c.transaction("write");
+  try {
+    const buckets = await all(tx, LP_BACKFILL_WALLET_BUCKETS_SQL, [
+      walletId,
+      walletId,
+    ]);
+    const wallet = await one(tx, LP_BACKFILL_WALLET_GLOBAL_SQL, [walletId]);
+    if (!wallet || buckets.length === 0) {
+      await tx.rollback();
+      return 0;
+    }
+
+    const pending = buckets.map((row) => Number(row.pending_centavos));
+    const totalPending = pending.reduce((sum, value) => sum + value, 0);
+    const spendAnywhere = Number(wallet.global_only_centavos);
+    const movable = Math.max(
+      0,
+      Math.min(Number(wallet.global_centavos) - spendAnywhere, totalPending),
+    );
+    if (movable === 0) {
+      await tx.rollback();
+      return 0;
+    }
+
+    const shares = pending.map((value) =>
+      Math.floor((value * movable) / totalPending),
+    );
+    // Flooring loses up to a centavo per bucket. Hand each one back to the
+    // biggest bucket that still has room, so the parts add up to exactly what
+    // left the global pot and no bucket is credited more than it is owed.
+    let remainder = movable - shares.reduce((sum, share) => sum + share, 0);
+    for (let index = 0; remainder > 0 && index < shares.length; index += 1) {
+      const room = pending[index] - shares[index];
+      const give = Math.min(room, remainder);
+      shares[index] += give;
+      remainder -= give;
+    }
+
+    const now = new Date().toISOString();
+    let globalAfter = Number(wallet.global_centavos);
+    for (const [index, row] of buckets.entries()) {
+      const share = shares[index];
+      if (share <= 0) continue;
+      const businessId = String(row.business_id);
+      globalAfter -= share;
+      const bucketAfter = Number(row.bucket_centavos) + share;
+      const metadata = JSON.stringify({
+        businessId,
+        movedCentavos: share,
+        owedCentavos: pending[index],
+        reason: "partner_bucket_backfill",
+      });
+
+      await run(
+        tx,
+        `INSERT OR IGNORE INTO reward_business_balances
+         (id, wallet_id, business_id, balance_centavos, lifetime_earned_centavos, lifetime_transferred_centavos, created_at, updated_at)
+         VALUES ('rbb_' || lower(hex(randomblob(8))), ?, ?, 0, 0, 0, ?, ?)`,
+        [walletId, businessId, now, now],
+      );
+      // lifetime_earned_centavos is what the next run measures the remaining
+      // debt against, so it has to move by exactly the same amount.
+      await run(
+        tx,
+        `UPDATE reward_business_balances
+         SET balance_centavos = balance_centavos + ?,
+             lifetime_earned_centavos = lifetime_earned_centavos + ?,
+             updated_at = ?
+         WHERE wallet_id = ? AND business_id = ?`,
+        [share, share, now, walletId, businessId],
+      );
+      // Two rows for one movement, the same shape a transfer writes: business_id
+      // marks the entry that refers to a bucket and is null for the global pot.
+      await run(
+        tx,
+        `INSERT INTO reward_ledger_entries
+         (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, metadata, created_at)
+         VALUES ('rled_' || lower(hex(randomblob(8))), ?, 'backfill_out', ?, ?, 'partner_bucket_backfill', ?, ?, ?)`,
+        [walletId, -share, globalAfter, walletId, metadata, now],
+      );
+      await run(
+        tx,
+        `INSERT INTO reward_ledger_entries
+         (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, business_id, metadata, created_at)
+         VALUES ('rled_' || lower(hex(randomblob(8))), ?, 'backfill_in', ?, ?, 'partner_bucket_backfill', ?, ?, ?, ?)`,
+        [walletId, share, bucketAfter, walletId, businessId, metadata, now],
+      );
+    }
+
+    // Guarded, so a balance that moved under us leaves the wallet untouched and
+    // the transaction rolls back rather than overdrawing it.
+    const debited = await run(
+      tx,
+      `UPDATE reward_wallets
+       SET balance_centavos = balance_centavos - ?, updated_at = ?
+       WHERE id = ? AND balance_centavos >= ?`,
+      [movable, now, walletId, movable],
+    );
+    if (debited !== 1) {
+      await tx.rollback();
+      return 0;
+    }
+
+    await tx.commit();
+    return movable;
+  } catch (error) {
+    try {
+      await tx.rollback();
+    } catch {
+      // Ignore rollback failure; the original error is the useful one.
+    }
+    throw error;
+  }
+}
+
+/**
+ * Runs the partner bucket backfill on demand.
+ *
+ * `force` ignores the completion flag, which is what a manual re-run after a
+ * restore needs. It is safe on a database that has already been migrated: the
+ * debt each bucket is owed is recomputed from the ledger, and there is none
+ * left to pay.
+ */
+export async function backfillPartnerLoyaltyBuckets({ force = false } = {}) {
+  await ensureReady();
+  return runPartnerBucketBackfill(rawClient(), force);
 }
 
 /**
@@ -1573,7 +1837,15 @@ export async function resetDb() {
   );
   await seed(c);
   await ensureDemoCampaignAvailability(c);
-  await c.execute({ sql: "DELETE FROM meta WHERE key = ?", args: [SEED_SUPPRESSED_KEY] });
+  await c.batch(
+    // The reset is a new world: the one-shot bucket backfill has nothing left to
+    // migrate, and its flag must not outlive the data it was set for.
+    [SEED_SUPPRESSED_KEY, LP_BUCKET_BACKFILL_KEY].map((key) => ({
+      sql: "DELETE FROM meta WHERE key = ?",
+      args: [key]
+    })),
+    "write"
+  );
   // Invalidate every customer sign-in: the reseed wipes the users their cookies
   // point at, so bump the epoch to force a fresh sign-in on any device.
   await bumpCustomerAuthEpoch(c);

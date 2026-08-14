@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   getOrCreateRewardWallet,
   getRewardProduct,
+  partnerBalance,
   purchaseRewardProduct,
   type RewardProduct,
   type RewardProductPurchase,
@@ -162,7 +163,14 @@ export default function LpProductScreen() {
               <Text style={styles.receiptValue}>{receipt.product.price}</Text>
             </View>
             <View style={styles.receiptRow}>
-              <Text style={styles.receiptLabel}>{t("shop.balanceLabel")}</Text>
+              {/* The server returns the pot that paid, which is this partner's
+                  bucket — the global balance did not move, so naming it that
+                  would report the wrong number under the wrong label. */}
+              <Text style={styles.receiptLabel}>
+                {t("shop.balanceHereLabel", {
+                  business: receipt.product.businessName,
+                })}
+              </Text>
               <Text style={styles.receiptValue}>{receipt.balance}</Text>
             </View>
           </View>
@@ -179,8 +187,10 @@ export default function LpProductScreen() {
     );
   }
 
-  const balanceCentavos = wallet?.wallet.balanceCentavos ?? 0;
-  const affordable = balanceCentavos >= product.priceCentavos;
+  // Bought from the bucket earned at the partner selling it, so the global pot
+  // is not what decides whether this button works.
+  const here = partnerBalance(wallet, product.businessId);
+  const affordable = here.balanceCentavos >= product.priceCentavos;
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -205,8 +215,10 @@ export default function LpProductScreen() {
             <Text style={styles.detailValue}>{product.price}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>{t("shop.balanceLabel")}</Text>
-            <Text style={styles.detailValue}>{wallet?.balance ?? "—"}</Text>
+            <Text style={styles.detailLabel}>
+              {t("shop.balanceHereLabel", { business: product.businessName })}
+            </Text>
+            <Text style={styles.detailValue}>{here.balance}</Text>
           </View>
         </View>
 

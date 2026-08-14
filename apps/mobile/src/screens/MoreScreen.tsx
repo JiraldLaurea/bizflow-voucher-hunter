@@ -190,6 +190,43 @@ export default function MoreScreen() {
               <Icon name="chevron-right" size={18} />
             </Pressable>
 
+            {/* Points earned at a checkout land against the partner that issued
+                them, not in the balance above. Without this section they are
+                invisible: the holder sees the global pot and concludes their
+                purchases earned nothing. */}
+            {wallet.businessBalances && wallet.businessBalances.length > 0 ? (
+              <View style={styles.partnerCard}>
+                <Text style={styles.partnerTitle}>
+                  {t("loyalty.partnerTitle")}
+                </Text>
+                <Text style={styles.partnerCaption}>
+                  {t("loyalty.partnerCaption")}
+                </Text>
+                {/* An overview, not a control surface. Spending and moving a
+                    bucket both happen on that partner's own screen, where the
+                    items those points buy are in front of you. */}
+                {wallet.businessBalances.map((bucket) => (
+                  <Pressable
+                    accessibilityRole="button"
+                    key={bucket.businessId}
+                    onPress={() =>
+                      router.push(
+                        `/shop/${encodeURIComponent(bucket.businessId)}` as Href,
+                      )
+                    }
+                    style={({ pressed }) => [
+                      styles.partnerRow,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.partnerName}>{bucket.businessName}</Text>
+                    <Text style={styles.partnerAmount}>{bucket.balance}</Text>
+                    <Icon name="chevron-right" size={18} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
             <View style={styles.dailyCard}>
               <View style={styles.dailyHeading}>
                 <View style={styles.dailyHeadingCopy}>
@@ -511,6 +548,44 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     overflow: "hidden",
+  },
+  partnerCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  partnerTitle: {
+    color: colors.ink,
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+  },
+  partnerCaption: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  partnerRow: {
+    alignItems: "center",
+    borderTopColor: colors.borderSoft,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  partnerName: {
+    color: colors.ink,
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+  },
+  partnerAmount: {
+    color: colors.primary,
+    fontFamily: fonts.semibold,
+    fontSize: 13,
   },
   dailyHeading: {
     alignItems: "center",

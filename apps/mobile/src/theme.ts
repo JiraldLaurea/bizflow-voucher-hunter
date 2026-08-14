@@ -108,6 +108,28 @@ type RarityStyle = {
 };
 
 /**
+ * Gradient per business type, so a partner's Loyalty Points card is recognisably
+ * theirs and never mistaken for the global balance — which keeps the app's one
+ * purple.
+ *
+ * Ported from the console's `.mode-*` tiles in `globals.css` so a partner reads
+ * the same colour in the dashboard and in the app. `other` is the fallback for
+ * an unknown or missing industry.
+ */
+export const businessTypeGradients: Record<string, [string, string]> = {
+  restaurant: ["#fb923c", "#ea580c"],
+  online_shop: ["#60a5fa", "#2563eb"],
+  beauty: ["#f472b6", "#db2777"],
+  pet: ["#2dd4bf", "#0d9488"],
+  retail: ["#a78bfa", "#7c3aed"],
+  other: ["#94a3b8", "#475569"],
+};
+
+export function businessTypeGradient(industry?: string): [string, string] {
+  return businessTypeGradients[industry ?? "other"] ?? businessTypeGradients.other;
+}
+
+/**
  * The rarity system from `globals.css` (`.candidate.voucher-*`). Epic and legendary
  * invert to light-on-dark, which is why every rarity carries its own text colours
  * rather than inheriting a single ink token.

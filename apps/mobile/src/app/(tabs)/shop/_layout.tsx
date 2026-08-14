@@ -16,8 +16,15 @@ export default function ShopLayout() {
         contentStyle: { backgroundColor: colors.page },
       }}
     >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="purchases" />
+      {/* Browse and My items are one screen with a segmented control, not two
+          places. They are separate routes only so each keeps its own URL, so
+          the stack must not slide between them — toggling a control that stays
+          put while the content slides in from the side reads as a mis-tap.
+          Drill-down screens below keep the default push animation. */}
+      <Stack.Screen name="index" options={{ animation: "none" }} />
+      <Stack.Screen name="purchases" options={{ animation: "none" }} />
+      {/* Drilled into from the shop, like a partner — so it slides. */}
+      <Stack.Screen name="global" />
       <Stack.Screen name="[businessId]/index" />
       {/* Under a static `item` segment so the partner's own path stays
           unambiguous: as a bare sibling, `[productId]` also matched

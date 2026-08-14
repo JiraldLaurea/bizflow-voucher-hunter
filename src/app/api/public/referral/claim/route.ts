@@ -75,9 +75,14 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Client-side fallback for reverse-proxy/cookie handoff failures. It only runs
- * from the real campaign page, so social preview crawlers still cannot grant a
- * referral merely by fetching the shared URL.
+ * Client-side fallback for reverse-proxy/cookie handoff failures.
+ *
+ * It has no caller since the web customer flow was removed — the campaign page
+ * that posted here is gone, and the app never touches referral endpoints (see
+ * `useDeepLinkGate`). Kept because the GET handoff above can still strand a
+ * grant on a proxy that drops the cookie, and this is the only recovery path;
+ * it is covered by `tests/integration/referral-flow.test.ts`. Delete it if that
+ * recovery is judged unnecessary rather than leaving it half-wired.
  */
 export async function POST(request: NextRequest) {
   try {

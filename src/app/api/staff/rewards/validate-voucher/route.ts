@@ -9,12 +9,12 @@ const schema = z.object({
 });
 
 /**
- * Resolves an LP voucher code for staff at the till.
+ * Resolves an LP voucher code for staff at checkout.
  *
  * Unscoped by design — a plain LP voucher is spendable at any partner, so this
  * cannot be narrowed to the caller's own business the way campaign vouchers can.
  * That makes it the network's one code-lookup oracle, so it is budgeted per
- * account: a till scans a handful of codes an hour, and anything walking the
+ * account: a checkout scans a handful of codes an hour, and anything walking the
  * code space stops long before it finds a stranger's voucher.
  */
 export async function POST(request: Request) {
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       voucher: {
         voucherCode: result.voucher.voucherCode,
         remainingCentavos: result.voucher.remainingCentavos,
-        // Set on fixed-denomination vouchers; the till needs it to know a
+        // Set on fixed-denomination vouchers; the checkout needs it to know a
         // purchase amount is required and what the floor is.
         minimumSpendCentavos: result.voucher.minimumSpendCentavos,
         status: result.voucher.status,

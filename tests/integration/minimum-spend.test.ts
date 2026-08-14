@@ -60,7 +60,7 @@ describe("minimum spend", () => {
     const { voucher } = await huntAndSelect({ campaignSlug: slug, phone: "+639171110002" });
 
     await expect(
-      redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "till@test", purchaseAmount: 200 })
+      redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "checkout@test", purchaseAmount: 200 })
     ).rejects.toMatchObject({ code: "E-VOUCHER-MIN-SPEND" });
 
     // The voucher must survive the refusal — a rejected sale is not a spent one.
@@ -72,18 +72,18 @@ describe("minimum spend", () => {
     const { slug } = await setupCampaign("min-spend-allow", 1500);
     const { voucher } = await huntAndSelect({ campaignSlug: slug, phone: "+639171110003" });
 
-    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "till@test", purchaseAmount: 1500 });
+    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "checkout@test", purchaseAmount: 1500 });
     const validation = await validateVoucher({ codeOrToken: voucher.voucherCode });
     expect(validation.voucher.status).toBe("Redeemed");
   });
 
   it("allows a redemption when no amount was entered", async () => {
-    // The till records the visit without a sale to judge. Refusing here would
+    // The checkout records the visit without a sale to judge. Refusing here would
     // block every redemption that skips the optional amount field.
     const { slug } = await setupCampaign("min-spend-blank", 1500);
     const { voucher } = await huntAndSelect({ campaignSlug: slug, phone: "+639171110004" });
 
-    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "till@test" });
+    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "checkout@test" });
     const validation = await validateVoucher({ codeOrToken: voucher.voucherCode });
     expect(validation.voucher.status).toBe("Redeemed");
   });
@@ -95,7 +95,7 @@ describe("minimum spend", () => {
     const validation = await validateVoucher({ codeOrToken: voucher.voucherCode });
     expect(validation.minimumSpend).toBeUndefined();
 
-    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "till@test", purchaseAmount: 1 });
+    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "checkout@test", purchaseAmount: 1 });
     expect((await validateVoucher({ codeOrToken: voucher.voucherCode })).voucher.status).toBe("Redeemed");
   });
 

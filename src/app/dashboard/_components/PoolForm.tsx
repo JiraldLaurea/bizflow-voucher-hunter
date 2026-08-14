@@ -284,7 +284,7 @@ export function PoolForm({
           <label className="field">
             <FieldLabel
               label="Display Label"
-              hint="This short label is shown to customers on the voucher, and is what staff read at the till when applying the discount."
+              hint="This short label is shown to customers on the voucher, and is what staff read at checkout when applying the discount."
             />
             <input
               placeholder="20% OFF"

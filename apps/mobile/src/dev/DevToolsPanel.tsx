@@ -10,6 +10,7 @@ import {
   clearDevPoolIds,
   devBuild,
   getDevPoolId,
+  grantBusinessLoyaltyPoints,
   grantLoyaltyPoints,
   listDevPools,
   refreshMyVouchers,
@@ -48,14 +49,18 @@ export function DevToolsPanel() {
   // Enough for the dearest demo item (1,200 LP) in one tap.
   const [lpAmount, setLpAmount] = useState("1500");
   const [lpBusy, setLpBusy] = useState(false);
-  // The earning side of the loop: pesos spent at a partner's till, of which 5%
+  // The earning side of the loop: pesos spent at a partner's checkout, of which 5%
   // becomes LP that the same partner is billed for.
-  const [tillBusinessId, setTillBusinessId] = useState("");
-  const [tillAmount, setTillAmount] = useState("1000");
-  const [tillBusy, setTillBusy] = useState(false);
+  const [scanBusinessId, setScanBusinessId] = useState("");
+  const [scanAmount, setScanAmount] = useState("1000");
+  const [scanBusy, setScanBusy] = useState(false);
   const [collectCode, setCollectCode] = useState("");
   const [collectBusy, setCollectBusy] = useState(false);
   const [refreshBusy, setRefreshBusy] = useState(false);
+  // The bucket side of the wallet: which partner, and how much to put in it.
+  const [businessLpId, setBusinessLpId] = useState("");
+  const [businessLpAmount, setBusinessLpAmount] = useState("1500");
+  const [businessLpBusy, setBusinessLpBusy] = useState(false);
 
   useEffect(() => {
     if (!visible || !token) return;
@@ -65,9 +70,11 @@ export function DevToolsPanel() {
         if (!active) return;
         setCampaigns(cards);
         setSlug((current) => current || (cards[0]?.campaign.slug ?? ""));
-        setTillBusinessId(
-          (current) => current || (cards[0]?.campaign.businessId ?? ""),
-        );
+        // Both partner pickers default to the first partner, so neither opens
+        // on an empty select the tool then refuses to run against.
+        const firstBusinessId = cards[0]?.campaign.businessId ?? "";
+        setScanBusinessId((current) => current || firstBusinessId);
+        setBusinessLpId((current) => current || firstBusinessId);
       })
       .catch(() => {
         if (active) setCampaigns([]);
@@ -164,13 +171,13 @@ export function DevToolsPanel() {
   }
 
   async function runSimulatedPurchase() {
-    if (!token || !tillBusinessId) return;
-    setTillBusy(true);
+    if (!token || !scanBusinessId) return;
+    setScanBusy(true);
     setError("");
     setMessage("");
     try {
       const result = await simulatePurchase(
-        { businessId: tillBusinessId, purchaseAmount: tillAmount },
+        { businessId: scanBusinessId, purchaseAmount: scanAmount },
         token,
       );
       setMessage(
@@ -185,7 +192,31 @@ export function DevToolsPanel() {
           : "Unable to simulate the purchase.",
       );
     } finally {
-      setTillBusy(false);
+      setScanBusy(false);
+    }
+  }
+
+  async function grantBusinessLp() {
+    if (!token || !businessLpId) return;
+    setBusinessLpBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await grantBusinessLoyaltyPoints(
+        { businessId: businessLpId, amount: businessLpAmount },
+        token,
+      );
+      setMessage(
+        `Granted ${result.granted} at ${result.businessName} — that bucket is now ${result.balance}.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to grant business Loyalty Points.",
+      );
+    } finally {
+      setBusinessLpBusy(false);
     }
   }
 
@@ -320,7 +351,10 @@ export function DevToolsPanel() {
         <>
           <View style={styles.divider} />
 
-          <Text style={styles.label}>Add Loyalty Points</Text>
+          {/* Named for the pot it credits. The tool below it adds LP to a
+              partner bucket instead, and the two are not interchangeable —
+              only this one converts to the ₱100 voucher. */}
+          <Text style={styles.label}>Add Global LP</Text>
           <Field
             inputMode="decimal"
             keyboardType="decimal-pad"
@@ -336,11 +370,47 @@ export function DevToolsPanel() {
             variant="secondary"
             onPress={grantLp}
           >
-            Add to my wallet
+            Add to Global LP
           </Button>
           <Text style={styles.copy}>
-            Credits this number&apos;s wallet with no purchase behind it, so no
-            partner is billed for it. Use it to test the LP shop and checkout.
+            Credits the spend-anywhere pot with no purchase behind it, so no
+            partner is billed. This is the balance the ₱100 voucher converts
+            from — it cannot buy storefront items.
+          </Text>
+
+          <View style={styles.divider} />
+
+          <Text style={styles.label}>Add Business LP</Text>
+          <Select
+            disabled={businessOptions.length === 0}
+            label="Partner"
+            onChange={setBusinessLpId}
+            options={businessOptions}
+            placeholder="No partners available"
+            value={businessLpId}
+          />
+          <Field
+            inputMode="decimal"
+            keyboardType="decimal-pad"
+            label="Amount (LP)"
+            onChangeText={setBusinessLpAmount}
+            placeholder="1500"
+            value={businessLpAmount}
+          />
+          <Button
+            disabled={!businessLpId || !businessLpAmount.trim()}
+            loading={businessLpBusy}
+            loadingLabel="Granting…"
+            variant="secondary"
+            onPress={grantBusinessLp}
+          >
+            Add to this partner
+          </Button>
+          <Text style={styles.copy}>
+            Puts LP straight into one partner&apos;s bucket — the balance its
+            storefront items are bought with. The simulated purchase below funds
+            the same bucket but only at 5%, so a 1,200 LP item needs a ₱24,000
+            sale; this sets it directly. No partner is billed either way.
           </Text>
 
           <View style={styles.divider} />
@@ -349,22 +419,22 @@ export function DevToolsPanel() {
           <Select
             disabled={businessOptions.length === 0}
             label="Partner"
-            onChange={setTillBusinessId}
+            onChange={setScanBusinessId}
             options={businessOptions}
             placeholder="No partners available"
-            value={tillBusinessId}
+            value={scanBusinessId}
           />
           <Field
             inputMode="decimal"
             keyboardType="decimal-pad"
             label="Amount paid (₱)"
-            onChangeText={setTillAmount}
+            onChangeText={setScanAmount}
             placeholder="1000"
-            value={tillAmount}
+            value={scanAmount}
           />
           <Button
-            disabled={!tillBusinessId || !tillAmount.trim()}
-            loading={tillBusy}
+            disabled={!scanBusinessId || !scanAmount.trim()}
+            loading={scanBusy}
             loadingLabel="Scanning…"
             variant="secondary"
             onPress={runSimulatedPurchase}
@@ -372,7 +442,7 @@ export function DevToolsPanel() {
             Earn 5% as LP
           </Button>
           <Text style={styles.copy}>
-            Stands in for staff scanning your wallet at the till. Unlike the
+            Stands in for staff scanning your wallet at checkout. Unlike the
             grant above, the partner is billed for this LP, so it shows up on
             their monthly statement.
           </Text>

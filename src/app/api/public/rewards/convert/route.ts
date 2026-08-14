@@ -10,6 +10,8 @@ import { convertRewardCreditToVoucher } from "@/server/rewards-network";
 // erroring.
 const schema = z.object({
   walletSecret: z.string().min(16),
+  /** Which catalogue entry. Omitted by clients that predate the catalogue. */
+  rewardId: z.string().min(1).optional(),
 });
 
 export async function POST(request: Request) {
@@ -28,6 +30,7 @@ export async function POST(request: Request) {
       await convertRewardCreditToVoucher({
         phone,
         walletSecret: input.walletSecret,
+        rewardId: input.rewardId,
       }),
     );
   } catch (error) {

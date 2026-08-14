@@ -17,7 +17,7 @@ function parseNumber(value: string) {
 /**
  * Why a benefit value is unusable for its type, or null when it is fine.
  *
- * Nothing downstream computes a discount from this number — the till applies it
+ * Nothing downstream computes a discount from this number — the checkout applies it
  * by reading Display Label — but an out-of-range value still misprices the tier
  * everywhere it is shown, and "500% off" should never reach a customer's screen.
  */
@@ -54,7 +54,7 @@ export function benefitValueProblem(
  *
  * The two are independent by design: a tier can read "70% OFF Facial" while its
  * value is plain "70". But the label is the only thing anyone acts on — staff
- * read it at the till — so a label saying 90 against a value of 9 gives away an
+ * read it at checkout — so a label saying 90 against a value of 9 gives away an
  * order. Advisory rather than blocking, because a label legitimately carries
  * words the value never will, and may carry no number at all ("Half Price").
  */

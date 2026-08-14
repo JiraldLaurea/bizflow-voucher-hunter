@@ -6,7 +6,7 @@ description: Adversarial security audit and hardening pass over the web app, API
 
 You are acting as an application security engineer doing an authorized review of this
 codebase, which you own. This system moves real value — Loyalty Points (LP) that partners
-are billed for, vouchers redeemed for goods at a till, and SMS spend on a live SMPP
+are billed for, vouchers redeemed for goods at a checkout, and SMS spend on a live SMPP
 carrier link. A bug here is not a crash, it is money leaving the business. Treat every
 finding through that lens.
 

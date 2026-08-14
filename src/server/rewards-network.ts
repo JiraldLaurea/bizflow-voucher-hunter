@@ -47,9 +47,64 @@ const LP_TRANSFER_FEE_BPS = 1_000; // 10.00%
  * well clear of that rounding edge rather than right against it.
  */
 const MIN_TRANSFER_CENTAVOS = 10_00; // 10 LP
-/** The one denomination global LP converts to, and the bill it needs to apply to. */
-const FIXED_VOUCHER_CENTAVOS = 100_00; // ₱100 off
-const FIXED_VOUCHER_MIN_SPEND_CENTAVOS = 500_00; // on a bill of ₱500 or more
+/**
+ * What global Loyalty Points convert into.
+ *
+ * A catalogue rather than a pair of constants because the app now renders it as
+ * a storefront alongside the partners, and a second denomination should be one
+ * row here rather than a new code path. One entry today.
+ *
+ * Cost and value are deliberately separate numbers. The cost is global LP the
+ * holder gives up; the value is what the voucher takes off a bill, which is
+ * also what the partner is reimbursed on their statement. They are not the same
+ * figure and nothing should assume they are.
+ */
+export type GlobalReward = {
+  id: string;
+  name: string;
+  description: string;
+  /** Global LP debited from the wallet. */
+  costCentavos: number;
+  /** Face value of the voucher minted, in pesos. */
+  valueCentavos: number;
+  /** The bill the voucher applies to, in pesos. */
+  minimumSpendCentavos: number;
+};
+
+const GLOBAL_REWARDS: readonly GlobalReward[] = [
+  {
+    id: "global_voucher_100",
+    name: "₱100 off",
+    // The minimum spend is shown on its own line by the card, so repeating it
+    // here just says the same thing twice.
+    description: "Spend it at any partner.",
+    costCentavos: 500_00,
+    valueCentavos: 100_00,
+    minimumSpendCentavos: 500_00,
+  },
+];
+
+function globalRewardOrThrow(rewardId?: string) {
+  // Defaulted rather than required, so a client that predates the catalogue
+  // still converts instead of erroring on a missing field.
+  const reward = rewardId
+    ? GLOBAL_REWARDS.find((candidate) => candidate.id === rewardId)
+    : GLOBAL_REWARDS[0];
+  if (!reward) {
+    throw new AppError("E-GLOBAL-REWARD-404", "That reward was not found", 404);
+  }
+  return reward;
+}
+
+/** The catalogue, with every amount preformatted for display. */
+export function listGlobalRewards() {
+  return GLOBAL_REWARDS.map((reward) => ({
+    ...reward,
+    cost: centavosToLoyaltyPoints(reward.costCentavos),
+    value: centavosToMoney(reward.valueCentavos),
+    minimumSpend: centavosToMoney(reward.minimumSpendCentavos),
+  }));
+}
 
 const isoNow = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
@@ -495,6 +550,31 @@ export async function awardReferralLoyaltyPoints(
   });
 }
 
+/**
+ * The wallet's per-partner pots, newest-richest first.
+ *
+ * Joined to businesses so the holder sees "Mesa Manila: 250 LP" rather than an
+ * id. Empty buckets are dropped: a partner they earned at once and spent out is
+ * noise in a wallet, not a balance.
+ */
+async function businessBalancesFor(db: Exec, walletId: string) {
+  const rows = await all(
+    db,
+    `SELECT b.id AS business_id, b.name AS business_name, rbb.balance_centavos AS balance_centavos
+     FROM reward_business_balances rbb
+     JOIN businesses b ON b.id = rbb.business_id
+     WHERE rbb.wallet_id = ? AND rbb.balance_centavos > 0
+     ORDER BY rbb.balance_centavos DESC`,
+    [walletId],
+  );
+  return rows.map((row: Row) => ({
+    businessId: String(row.business_id),
+    businessName: String(row.business_name),
+    balance: centavosToLoyaltyPoints(Number(row.balance_centavos)),
+    balanceCentavos: Number(row.balance_centavos),
+  }));
+}
+
 export async function getOrCreateRewardWallet(input: {
   phone: string;
   name?: string;
@@ -528,7 +608,12 @@ export async function getOrCreateRewardWallet(input: {
     return {
       wallet,
       walletSecret: String(secretRow.wallet_secret),
+      /** The global pot: spend-anywhere, and the only one convertible to a voucher. */
       balance: centavosToLoyaltyPoints(wallet.balanceCentavos),
+      // The app opens the wallet through this endpoint, not the snapshot, so
+      // omitting the buckets here left every partner balance invisible on the
+      // phone — and the storefront pricing itself off the wrong pot.
+      businessBalances: await businessBalancesFor(tx, wallet.id),
       ledger: ledger.map(mapLedger),
       vouchers: vouchers.map(mapRewardVoucher),
       dailyStatus: await loyaltyDailyStatus(tx, wallet.id),
@@ -543,28 +628,11 @@ export async function rewardWalletSnapshot(input: {
 }) {
   const db = await getDb();
   const wallet = await walletByPhoneAndSecret(db, requireWalletPhone(input.phone), input.walletSecret);
-  const [ledger, vouchers, buckets] = await Promise.all([
+  const [ledger, vouchers, businessBalances] = await Promise.all([
     all(db, "SELECT * FROM reward_ledger_entries WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 12", [wallet.id]),
     all(db, "SELECT * FROM reward_vouchers WHERE wallet_id = ? ORDER BY created_at DESC LIMIT 20", [wallet.id]),
-    // Joined to businesses so the holder sees "Mesa Manila: 250 LP" rather than
-    // an id. Empty buckets are dropped: a partner they earned at once and spent
-    // out is noise in a wallet, not a balance.
-    all(
-      db,
-      `SELECT b.id AS business_id, b.name AS business_name, rbb.balance_centavos AS balance_centavos
-       FROM reward_business_balances rbb
-       JOIN businesses b ON b.id = rbb.business_id
-       WHERE rbb.wallet_id = ? AND rbb.balance_centavos > 0
-       ORDER BY rbb.balance_centavos DESC`,
-      [wallet.id],
-    ),
+    businessBalancesFor(db, wallet.id),
   ]);
-  const businessBalances = buckets.map((row: Row) => ({
-    businessId: String(row.business_id),
-    businessName: String(row.business_name),
-    balance: centavosToLoyaltyPoints(Number(row.balance_centavos)),
-    balanceCentavos: Number(row.balance_centavos),
-  }));
   return {
     wallet,
     walletSecret: input.walletSecret,
@@ -607,7 +675,7 @@ export async function creditRewardFromPurchase(input: {
         wallet,
         purchase: existing,
         rewardAmount: centavosToLoyaltyPoints(existing.rewardAmountCentavos),
-        // The pot the scan credited, which is this partner's bucket — the till
+        // The pot the scan credited, which is this partner's bucket — the checkout
         // is reporting what the customer just earned here, not their global pot.
         balance: centavosToLoyaltyPoints(
           await businessBalanceCentavos(tx, existing.walletId, input.businessId),
@@ -622,7 +690,7 @@ export async function creditRewardFromPurchase(input: {
     const wallet = await walletByToken(tx, input.walletToken);
     const business = await getBusinessOrThrow(tx, input.businessId);
     // Issuing LP creates a liability the partner settles from their deposit. An
-    // exhausted deposit means the next point issued is unfunded, so the till
+    // exhausted deposit means the next point issued is unfunded, so the checkout
     // stops earning until they top up. Being under the minimum is only a
     // warning — see MIN_DEPOSIT_CENTAVOS.
     if (Number(business.deposit_balance_centavos ?? 0) <= 0) {
@@ -718,7 +786,7 @@ export async function creditRewardFromPurchase(input: {
  * The wallet's bucket for one partner, created empty on first touch.
  *
  * `INSERT OR IGNORE` against the (wallet_id, business_id) unique index rather
- * than a read-then-insert: two tills scanning the same customer at the same
+ * than a read-then-insert: two checkouts scanning the same customer at the same
  * partner would both find nothing and both insert.
  */
 async function ensureBusinessBalance(tx: Exec, walletId: string, businessId: string) {
@@ -918,21 +986,22 @@ export async function transferBusinessLpToGlobal(input: {
 }
 
 /**
- * Spends global LP on one fixed-denomination voucher.
+ * Spends global LP on one voucher from the global catalogue.
  *
- * Unlike the open-amount vouchers this used to mint, the result is a flat ₱100
- * off a bill of at least ₱500 — spendable at any partner, since global LP is not
- * tied to where it was earned. The denomination is fixed rather than chosen so
- * the voucher reads as a coupon at the till instead of a balance to draw down,
- * and so the minimum spend means the same thing on every one issued.
+ * The cost leaves the wallet; the voucher is minted at its own face value, which
+ * is the smaller number and the one the partner is later reimbursed. Fixed
+ * denominations rather than an open amount, so the voucher reads as a coupon at
+ * checkout instead of a balance to draw down, and so the minimum spend means the
+ * same thing on every one issued.
  */
 export async function convertRewardCreditToVoucher(input: {
   phone: string;
   walletSecret: string;
+  rewardId?: string;
 }) {
   return withTx(async (tx) => {
     const wallet = await walletByPhoneAndSecret(tx, requireWalletPhone(input.phone), input.walletSecret);
-    const amountCentavos = FIXED_VOUCHER_CENTAVOS;
+    const reward = globalRewardOrThrow(input.rewardId);
 
     const now = isoNow();
     const affected = await run(
@@ -942,12 +1011,12 @@ export async function convertRewardCreditToVoucher(input: {
            lifetime_converted_centavos = lifetime_converted_centavos + ?,
            updated_at = ?
        WHERE id = ? AND balance_centavos >= ? AND status = 'Active'`,
-      [amountCentavos, amountCentavos, now, wallet.id, amountCentavos],
+      [reward.costCentavos, reward.costCentavos, now, wallet.id, reward.costCentavos],
     );
     if (affected !== 1) {
       throw new AppError(
         "E-REWARD-BALANCE",
-        `You need ${centavosToLoyaltyPoints(FIXED_VOUCHER_CENTAVOS)} in global Loyalty Points for this voucher`,
+        `You need ${centavosToLoyaltyPoints(reward.costCentavos)} in Global LP for this voucher`,
         409,
       );
     }
@@ -964,14 +1033,29 @@ export async function convertRewardCreditToVoucher(input: {
       `INSERT INTO reward_vouchers
        (id, wallet_id, voucher_code, qr_token, amount_centavos, remaining_centavos, minimum_spend_centavos, status, issued_at, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?)`,
-      [voucherId, wallet.id, voucherCode, qrToken, amountCentavos, amountCentavos, FIXED_VOUCHER_MIN_SPEND_CENTAVOS, now, expires.toISOString(), now],
+      [voucherId, wallet.id, voucherCode, qrToken, reward.valueCentavos, reward.valueCentavos, reward.minimumSpendCentavos, now, expires.toISOString(), now],
     );
     await run(
       tx,
       `INSERT INTO reward_ledger_entries
        (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, metadata, created_at)
        VALUES (?, ?, 'voucher_converted', ?, ?, 'customer_conversion', ?, ?, ?)`,
-      [id("rled"), wallet.id, -amountCentavos, updated.balanceCentavos, voucherId, JSON.stringify({ voucherCode }), now],
+      [
+        id("rled"),
+        wallet.id,
+        -reward.costCentavos,
+        updated.balanceCentavos,
+        voucherId,
+        // Both figures, because the ledger delta is the cost and the voucher is
+        // worth something else — without this the gap looks like a bug.
+        JSON.stringify({
+          voucherCode,
+          rewardId: reward.id,
+          costCentavos: reward.costCentavos,
+          valueCentavos: reward.valueCentavos,
+        }),
+        now,
+      ],
     );
     await audit(tx, {
       actorType: "customer",
@@ -979,12 +1063,18 @@ export async function convertRewardCreditToVoucher(input: {
       action: "loyalty_points_converted",
       entityType: "reward_voucher",
       entityId: voucherId,
-      metadata: { amountCentavos },
+      metadata: {
+        rewardId: reward.id,
+        costCentavos: reward.costCentavos,
+        valueCentavos: reward.valueCentavos,
+      },
     });
 
     return {
       wallet: updated,
+      reward,
       voucher: mapRewardVoucher(await one(tx, "SELECT * FROM reward_vouchers WHERE id = ?", [voucherId])),
+      cost: centavosToLoyaltyPoints(reward.costCentavos),
       balance: centavosToLoyaltyPoints(updated.balanceCentavos),
     };
   });
@@ -1102,7 +1192,7 @@ export async function redeemRewardVoucher(input: {
       if (input.purchaseAmount === undefined || input.purchaseAmount === "") {
         throw new AppError(
           "E-REWARD-VOUCHER-SPEND-REQUIRED",
-          `Enter the purchase amount: this voucher applies to bills of ${centavosToMoney(voucher.minimumSpendCentavos)} or more`,
+          `Enter the purchase amount: this voucher has a ${centavosToMoney(voucher.minimumSpendCentavos)} minimum spend`,
           400,
         );
       }
@@ -1110,7 +1200,7 @@ export async function redeemRewardVoucher(input: {
       if (purchaseCentavos < voucher.minimumSpendCentavos) {
         throw new AppError(
           "E-REWARD-VOUCHER-MIN-SPEND",
-          `This voucher needs a purchase of at least ${centavosToMoney(voucher.minimumSpendCentavos)}. The amount entered was ${centavosToMoney(purchaseCentavos)}.`,
+          `This voucher has a ${centavosToMoney(voucher.minimumSpendCentavos)} minimum spend. The amount entered was ${centavosToMoney(purchaseCentavos)}.`,
           409,
         );
       }
@@ -1125,7 +1215,7 @@ export async function redeemRewardVoucher(input: {
 
     // The service fee is no longer charged here. It is charged once a month, on
     // the net of LP issued against LP redeemed, so a partner whose customers
-    // spend less than their till hands out pays no fee at all. Redemptions
+    // spend less than their checkout hands out pays no fee at all. Redemptions
     // therefore record their full value and `closeBusinessStatement` does the
     // arithmetic. See BusinessStatementTotals.
     const serviceFeeCentavos = 0;
@@ -1280,7 +1370,12 @@ export async function rewardsNetworkOverview() {
   const [totalsRows, pendingRows, heldRows, purchaseRows, redemptionRows] = await batchAll(db, [
     {
       sql: `SELECT
-        COALESCE(SUM(balance_centavos), 0) AS outstanding_credit,
+        COALESCE(SUM(balance_centavos), 0) AS global_credit,
+        -- Partner buckets are where earning lands now, so a liability read off
+        -- the wallet's global pot alone describes a shrinking fraction of what
+        -- the network actually owes. Both pots are spendable LP; they differ
+        -- only in where they can be spent, so the headline total is their sum.
+        (SELECT COALESCE(SUM(balance_centavos), 0) FROM reward_business_balances) AS partner_credit,
         COALESCE(SUM(lifetime_earned_centavos), 0) AS lifetime_earned,
         COALESCE(SUM(lifetime_converted_centavos), 0) AS lifetime_converted,
         COUNT(*) AS wallets
@@ -1340,12 +1435,18 @@ export async function rewardsNetworkOverview() {
     settlementEligible: isSettlementEligible(String(row.created_at)),
   }));
 
+  const globalCredit = Number(totals.global_credit);
+  const partnerCredit = Number(totals.partner_credit);
+
   return {
     summary: {
       wallets: Number(totals.wallets),
-      outstandingCredit: centavosToLoyaltyPoints(
-        Number(totals.outstanding_credit),
-      ),
+      /** Every LP a customer can still spend, in either pot. */
+      outstandingCredit: centavosToLoyaltyPoints(globalCredit + partnerCredit),
+      /** The spend-anywhere share of it. */
+      outstandingGlobalCredit: centavosToLoyaltyPoints(globalCredit),
+      /** The share locked to the partner it was earned at. */
+      outstandingPartnerCredit: centavosToLoyaltyPoints(partnerCredit),
       lifetimeEarned: centavosToLoyaltyPoints(
         Number(totals.lifetime_earned),
       ),
@@ -1552,7 +1653,7 @@ export type BusinessDepositStatus = {
   minimum: string;
   /** Under the network minimum: trading continues, the dashboard nags. */
   belowMinimum: boolean;
-  /** Exhausted: no further LP can be issued at this partner's till. */
+  /** Exhausted: no further LP can be issued at this partner's checkout. */
   blocked: boolean;
   topUpDueCentavos: number;
   topUpDue: string;
@@ -1631,7 +1732,7 @@ export async function listBusinessDepositEntries(businessId: string, limit = 50)
 /**
  * A partner's two sides for a calendar month, in LP hundredths:
  *
- *   issued    LP their till handed out on purchases â€” money they owe us, since
+ *   issued    LP their checkout handed out on purchases â€” money they owe us, since
  *             we carry the liability until the customer spends it.
  *   redeemed  LP their customers spent with them â€” money we owe them.
  *
@@ -2005,6 +2106,8 @@ export type RewardProduct = {
   id: string;
   businessId: string;
   businessName: string;
+  /** The partner's trade (`restaurant`, `beauty`, …), used to colour its storefront. */
+  businessIndustry: string;
   name: string;
   description: string;
   imageUrl: string;
@@ -2038,6 +2141,10 @@ function mapRewardProduct(row: Row): RewardProduct {
     id: row.id,
     businessId: row.business_id,
     businessName: row.business_name ?? "",
+    // The partner's own trade, not the campaign's mode: a partner keeps its
+    // industry whether or not it is running a campaign, so the storefront can
+    // colour itself consistently either way.
+    businessIndustry: String(row.business_industry ?? "other"),
     name: row.name,
     description: row.description ?? "",
     imageUrl: row.image_url ?? "",
@@ -2053,7 +2160,7 @@ function mapRewardProduct(row: Row): RewardProduct {
  * artwork; the campaign join picks the newest active one, and stays a LEFT JOIN
  * so a partner between campaigns still sells.
  */
-const PRODUCT_SELECT = `SELECT p.*, b.name AS business_name,
+const PRODUCT_SELECT = `SELECT p.*, b.name AS business_name, b.industry AS business_industry,
             c.hero_image AS campaign_hero_image, c.slug AS campaign_slug,
             c.title AS campaign_title, c.mode AS campaign_mode
      FROM reward_products p
@@ -2318,6 +2425,105 @@ export async function purchaseRewardProduct(input: {
  * it must never run in production, and why the ledger entry is labelled as a
  * grant rather than dressed up as a purchase.
  */
+/**
+ * Development-only: tops a partner's bucket up directly.
+ *
+ * The counterpart to `grantDevLoyaltyPoints`, which credits the global pot. The
+ * two pots buy different things — a bucket buys that partner's storefront items,
+ * the global pot converts to the ₱100 voucher — so testing the shop needs a way
+ * to fund a bucket specifically.
+ *
+ * A simulated purchase already funds one, but only at 5% of the amount entered:
+ * reaching a 1,200 LP item that way means posting a ₱24,000 sale. This sets the
+ * balance directly instead. Nothing is billed to the partner, which is exactly
+ * why it must never run in production, and why the ledger entry is labelled a
+ * grant rather than dressed up as a purchase.
+ */
+export async function grantDevBusinessLoyaltyPoints(input: {
+  phone: string;
+  businessId: string;
+  amount: string | number;
+}) {
+  assertDevToolsEnabled("Granting Loyalty Points");
+  return withTx(async (tx) => {
+    const wallet = await walletByPhone(tx, requireWalletPhone(input.phone));
+    if (!wallet) {
+      throw new AppError(
+        "E-REWARD-WALLET-404",
+        "This number has no Loyalty Points wallet yet. Open the More tab once to create it.",
+        404,
+      );
+    }
+    const business = await getBusinessOrThrow(tx, input.businessId);
+    const amountCentavos = loyaltyPointsToCentavos(input.amount, "LP amount");
+    if (amountCentavos <= 0 || amountCentavos > MAX_REDEMPTION_CENTAVOS) {
+      throw new AppError(
+        "E-MONEY-RANGE",
+        `Grant must be between 0.01 LP and ${centavosToLoyaltyPoints(MAX_REDEMPTION_CENTAVOS)}`,
+        400,
+      );
+    }
+
+    const now = isoNow();
+    await ensureBusinessBalance(tx, wallet.id, input.businessId);
+    await run(
+      tx,
+      `UPDATE reward_business_balances
+       SET balance_centavos = balance_centavos + ?,
+           lifetime_earned_centavos = lifetime_earned_centavos + ?,
+           updated_at = ?
+       WHERE wallet_id = ? AND business_id = ?`,
+      [amountCentavos, amountCentavos, now, wallet.id, input.businessId],
+    );
+    // The wallet's lifetime figure spans every pot, so it moves with the bucket
+    // even though the global balance does not.
+    await run(
+      tx,
+      `UPDATE reward_wallets
+       SET lifetime_earned_centavos = lifetime_earned_centavos + ?, updated_at = ?
+       WHERE id = ? AND status = 'Active'`,
+      [amountCentavos, now, wallet.id],
+    );
+    const bucketBalance = await businessBalanceCentavos(
+      tx,
+      wallet.id,
+      input.businessId,
+    );
+    // business_id set, per the ledger's convention that an entry naming a
+    // business refers to that bucket rather than the global pot.
+    await run(
+      tx,
+      `INSERT INTO reward_ledger_entries
+       (id, wallet_id, type, delta_centavos, balance_after_centavos, source_type, source_id, business_id, metadata, created_at)
+       VALUES (?, ?, 'dev_grant', ?, ?, 'dev_tool', NULL, ?, ?, ?)`,
+      [
+        id("rled"),
+        wallet.id,
+        amountCentavos,
+        bucketBalance,
+        input.businessId,
+        JSON.stringify({ grantedBy: "dev_tools", businessId: input.businessId }),
+        now,
+      ],
+    );
+    await audit(tx, {
+      actorType: "system",
+      actorId: "dev_tools",
+      action: "business_loyalty_points_granted_dev",
+      entityType: "reward_wallet",
+      entityId: wallet.id,
+      metadata: { businessId: input.businessId, amountCentavos },
+    });
+
+    return {
+      businessId: input.businessId,
+      businessName: business.name,
+      granted: centavosToLoyaltyPoints(amountCentavos),
+      balance: centavosToLoyaltyPoints(bucketBalance),
+    };
+  });
+}
+
 export async function grantDevLoyaltyPoints(input: {
   phone: string;
   amount: string | number;
@@ -2389,12 +2595,20 @@ export type RewardPurchasedItem = {
   voucherId: string;
   voucherCode: string;
   qrToken: string;
+  /**
+   * `item` is bought from one partner's storefront and collected there.
+   * `global_voucher` is converted from Global LP and spendable at any partner,
+   * so it carries no product and no business.
+   */
+  kind: "item" | "global_voucher";
   productId: string;
   productName: string;
   productDescription: string;
   productImageUrl: string;
   businessId: string;
   businessName: string;
+  /** Set only on a global voucher: the bill it applies to. */
+  minimumSpend?: string;
   priceCentavos: number;
   price: string;
   /** Active | Redeemed | Expired â€” the voucher's own state. */
@@ -2423,23 +2637,27 @@ export async function listWalletPurchases(input: { phone: string }) {
 
   const rows = await all(
     db,
+    // Outer joins throughout: a voucher converted from Global LP has no product
+    // and no business, and it belongs on this screen just as much as a bought
+    // item — it is the other thing LP turns into, and the empty state promises
+    // both.
     `SELECT v.id, v.voucher_code, v.qr_token, v.status, v.issued_at, v.redeemed_at, v.expires_at,
-            v.amount_centavos,
+            v.amount_centavos, v.minimum_spend_centavos,
             p.id AS product_id, p.name AS product_name, p.description AS product_description,
             p.image_url AS product_image_url,
             b.id AS business_id, b.name AS business_name,
             c.hero_image AS campaign_hero_image, c.slug AS campaign_slug,
             c.title AS campaign_title, c.mode AS campaign_mode
      FROM reward_vouchers v
-     JOIN reward_products p ON p.id = v.product_id
-     JOIN businesses b ON b.id = v.business_id
+     LEFT JOIN reward_products p ON p.id = v.product_id
+     LEFT JOIN businesses b ON b.id = v.business_id
      LEFT JOIN campaigns c ON c.id = (
        SELECT id FROM campaigns
        WHERE business_id = b.id AND status = 'active'
        ORDER BY start_date DESC, id DESC
        LIMIT 1
      )
-     WHERE v.wallet_id = ? AND v.product_id IS NOT NULL
+     WHERE v.wallet_id = ?
      ORDER BY v.issued_at DESC, v.rowid DESC`,
     [wallet.id],
   );
@@ -2451,20 +2669,35 @@ export async function listWalletPurchases(input: { phone: string }) {
     // Expiry is enforced lazily at redemption, so a voucher can still read
     // "Active" here after its date has passed. Report what staff would find.
     const status = expired && row.status === "Active" ? "Expired" : String(row.status);
+    const isItem = Boolean(row.product_id);
+    const minimumSpendCentavos = Number(row.minimum_spend_centavos ?? 0);
     return {
       voucherId: String(row.id),
       voucherCode: String(row.voucher_code),
       qrToken: String(row.qr_token),
-      productId: String(row.product_id),
-      productName: String(row.product_name),
-      productDescription: row.product_description
-        ? String(row.product_description)
-        : "",
+      kind: isItem ? ("item" as const) : ("global_voucher" as const),
+      productId: isItem ? String(row.product_id) : "",
+      // A global voucher has no product row, so it is named by what it does.
+      productName: isItem
+        ? String(row.product_name)
+        : `${centavosToMoney(Number(row.amount_centavos))} off`,
+      productDescription: isItem
+        ? row.product_description
+          ? String(row.product_description)
+          : ""
+        : "Spend it at any partner.",
       productImageUrl: row.product_image_url ? String(row.product_image_url) : "",
-      businessId: String(row.business_id),
-      businessName: String(row.business_name),
+      businessId: isItem ? String(row.business_id) : "",
+      businessName: isItem ? String(row.business_name) : "",
+      minimumSpend:
+        !isItem && minimumSpendCentavos > 0
+          ? centavosToMoney(minimumSpendCentavos)
+          : undefined,
       priceCentavos: Number(row.amount_centavos),
-      price: centavosToLoyaltyPoints(Number(row.amount_centavos)),
+      // A bought item's amount is the LP paid; a global voucher's is pesos off.
+      price: isItem
+        ? centavosToLoyaltyPoints(Number(row.amount_centavos))
+        : centavosToMoney(Number(row.amount_centavos)),
       status,
       collectable: status === "Active",
       issuedAt: String(row.issued_at),

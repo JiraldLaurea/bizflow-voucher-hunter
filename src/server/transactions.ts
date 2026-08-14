@@ -1,4 +1,4 @@
-// Every movement a customer made at a till, in one list.
+// Every movement a customer made at a checkout, in one list.
 //
 // Three tables record money changing hands and none of them knew about the
 // others: `redemption_logs` when a campaign voucher is marked used,
@@ -28,7 +28,7 @@ export type Transaction = {
   /** What was handed over: the benefit tier, the LP product, or how LP was earned. */
   detail?: string;
   note?: string;
-  /** The bill the customer paid, in centavos. Absent when the till recorded none. */
+  /** The bill the customer paid, in centavos. Absent when the checkout recorded none. */
   purchaseCentavos?: number;
   /** Signed LP movement in centavos: positive earned, negative spent. */
   loyaltyDeltaCentavos?: number;
@@ -51,7 +51,7 @@ export type TransactionTotals = {
   lpEarnedCentavos: number;
   lpSpentCentavos: number;
   /**
-   * Charged once on the month's net rather than at the till, so this is zero
+   * Charged once on the month's net rather than at checkout, so this is zero
    * for anything booked since that rule changed and non-zero only on the rows
    * that predate it.
    */
@@ -82,7 +82,7 @@ const EXPORT_LIMIT = 5000;
  * UNION by position, not by name, so a column added to one branch has to be
  * added to all three.
  *
- * `redemption_logs.purchase_amount` is written in pesos (the till posts the
+ * `redemption_logs.purchase_amount` is written in pesos (the checkout posts the
  * figure a customer typed), while both reward tables hold centavos. It is
  * scaled here so every amount downstream is centavos and nothing has to
  * remember which row it came from.
@@ -211,7 +211,7 @@ function whereFor(
     args.push(filters.kind);
   }
 
-  // Dates are read as Manila days, which is how a till operator means them. The
+  // Dates are read as Manila days, which is how a cashier means them. The
   // stored timestamps are UTC, so a bare string compare would put a 7am sale on
   // the previous day for anyone reading this in Manila.
   if (filters.from) {
@@ -296,7 +296,7 @@ export async function listTransactions(
        COUNT(*) AS count,
        COUNT(CASE WHEN kind = 'voucher_redemption' THEN 1 END) AS voucher_redemption_count,
        -- A voucher redemption and the LP it awarded carry the same bill. Only
-       -- the redemption's copy is summed, so the sales figure is what the till
+       -- the redemption's copy is summed, so the sales figure is what the checkout
        -- actually took.
        COALESCE(SUM(CASE WHEN linked_to_voucher = 0 THEN purchase_centavos END), 0) AS sales_centavos,
        -- A rejected award was reversed off the wallet, so it is shown in the

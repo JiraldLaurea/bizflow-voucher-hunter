@@ -44,9 +44,9 @@ describe("campaign voucher redemption", () => {
       phone: "+639170003333",
     });
 
-    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "till@example.com" });
+    await redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "checkout@example.com" });
     await expect(
-      redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "till@example.com" }),
+      redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "checkout@example.com" }),
     ).rejects.toMatchObject({ code: "E-VOUCHER-REDEEMED" });
 
     // One redemption, one log row: a double scan must not bill the partner twice
@@ -66,7 +66,7 @@ describe("campaign voucher redemption", () => {
       phone: "+639170004444",
     });
 
-    // Stands in for the other till winning the race: the row is already
+    // Stands in for the other checkout winning the race: the row is already
     // Redeemed by the time the UPDATE runs. The conditional `AND status <>
     // 'Redeemed'` is what turns that into a refusal rather than a second
     // redemption log and a second loyalty credit.
@@ -77,7 +77,7 @@ describe("campaign voucher redemption", () => {
     ]);
 
     await expect(
-      redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "till-b@example.com" }),
+      redeemVoucher({ codeOrToken: voucher.voucherCode, staffName: "checkout-b@example.com" }),
     ).rejects.toMatchObject({ code: "E-VOUCHER-REDEEMED" });
 
     const row = await one(

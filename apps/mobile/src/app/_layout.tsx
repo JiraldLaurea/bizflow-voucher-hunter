@@ -10,6 +10,10 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import {
+  SafeAreaProvider,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 
 import { AuthProvider, useAuth } from "@/auth/AuthContext";
 import { LoyaltyAwardModal } from "@/components/LoyaltyAwardModal";
@@ -108,12 +112,24 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <LanguageProvider>
-      <AuthProvider>
-        <OverlayProvider>
-          <RootNavigator />
-        </OverlayProvider>
-      </AuthProvider>
-    </LanguageProvider>
+    /**
+     * `initialMetrics` is what stops screens jumping on first paint.
+     *
+     * Every screen wraps itself in `SafeAreaView`. Without metrics available
+     * synchronously that renders once with no top inset and again with it, so
+     * the content visibly drops into place — most obvious on a tab whose scene
+     * is mounted lazily, because there the first paint happens as you arrive.
+     * `initialWindowMetrics` is read from the native side at startup, so the
+     * first render already has the real insets.
+     */
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <LanguageProvider>
+        <AuthProvider>
+          <OverlayProvider>
+            <RootNavigator />
+          </OverlayProvider>
+        </AuthProvider>
+      </LanguageProvider>
+    </SafeAreaProvider>
   );
 }

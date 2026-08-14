@@ -47,7 +47,7 @@ type LpValidation = {
     remainingCentavos: number;
     /**
      * Set on fixed-denomination vouchers converted from global LP. Its presence
-     * means the till must enter the bill and the voucher goes in one piece.
+     * means the checkout must enter the bill and the voucher goes in one piece.
      */
     minimumSpendCentavos?: number;
     status: string;
@@ -443,7 +443,7 @@ export default function StaffPage() {
 
   const presentation = result ? statusPresentation[result.voucher.status] : undefined;
   const canRedeem = result?.voucher.status === "Issued" || result?.voucher.status === "Delivered";
-  // Mirrors the server's rule so the till learns before pressing the button
+  // Mirrors the server's rule so the checkout learns before pressing the button
   // rather than through a rejected request. A blank amount stays allowed: it
   // records the visit without a sale to judge.
   const belowMinimumSpend =

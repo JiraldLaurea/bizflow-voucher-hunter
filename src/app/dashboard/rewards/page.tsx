@@ -46,6 +46,9 @@ export default async function RewardsNetworkPage() {
         {[
           ["Wallets", overview.summary.wallets],
           ["Outstanding LP", overview.summary.outstandingCredit],
+          // Part of the figure above, not a separate liability: what customers
+          // hold in partner buckets and can only spend where they earned it.
+          ["Held at Partners", overview.summary.outstandingPartnerCredit],
           ["Lifetime LP Earned", overview.summary.lifetimeEarned],
           ["Converted to LP Vouchers", overview.summary.lifetimeConverted],
           ["Pending Partner Payout", overview.summary.pendingSettlement],

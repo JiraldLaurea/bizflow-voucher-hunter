@@ -46,7 +46,7 @@ describe("transactions page", () => {
     await resetDb();
   });
 
-  it("renders an empty state before any till has taken money", async () => {
+  it("renders an empty state before any checkout has taken money", async () => {
     const html = await renderPage();
     expect(html).toContain("Transactions");
     expect(html).toContain("No transactions yet");
@@ -61,7 +61,7 @@ describe("transactions page", () => {
     });
     await redeemVoucher({
       codeOrToken: selected.voucher.voucherCode,
-      staffName: "Till Operator",
+      staffName: "Cashier",
       purchaseAmount: 2000,
     });
     const wallet = await getOrCreateRewardWallet({ phone: "+639182222222" });
@@ -79,7 +79,7 @@ describe("transactions page", () => {
     expect(html).toContain(selected.voucher.voucherCode);
     expect(html).toContain("Voucher redeemed");
     expect(html).toContain("Loyalty Points earned");
-    expect(html).toContain("Till Operator");
+    expect(html).toContain("Cashier");
     // ₱2,000 counted once across the redemption and the award it triggered,
     // plus the ₱1,000 walk-in.
     expect(html).toContain("₱3,000.00");
@@ -96,7 +96,7 @@ describe("transactions page", () => {
     });
     await redeemVoucher({
       codeOrToken: selected.voucher.voucherCode,
-      staffName: "Till Operator",
+      staffName: "Cashier",
       purchaseAmount: 2000,
     });
 

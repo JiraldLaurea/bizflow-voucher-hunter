@@ -41,7 +41,7 @@ async function seedTransactions() {
   // whether this test redeems.
   await redeemVoucher({
     codeOrToken: selected.voucher.voucherCode,
-    staffName: "Till Operator",
+    staffName: "Cashier",
     purchaseAmount: 2000,
     note: "Table 12",
   });
@@ -83,7 +83,7 @@ describe("dashboard transactions", () => {
     await resetDb();
   });
 
-  it("lists nothing before any till has taken money", async () => {
+  it("lists nothing before any checkout has taken money", async () => {
     const { rows, totals } = await listTransactions(ADMIN);
     expect(rows).toEqual([]);
     expect(totals.count).toBe(0);
@@ -95,7 +95,7 @@ describe("dashboard transactions", () => {
     const { rows, totals } = await listTransactions(ADMIN);
 
     // Four movements: the redemption, the LP it awarded, the walk-in award and
-    // the LP handed back at the till.
+    // the LP handed back at checkout.
     expect(rows).toHaveLength(4);
     expect(totals.count).toBe(4);
 
@@ -117,7 +117,7 @@ describe("dashboard transactions", () => {
       customerName: "Voucher Customer",
       reference: voucherCode,
       note: "Table 12",
-      staffName: "Till Operator",
+      staffName: "Cashier",
       status: "Redeemed",
       // Written in pesos, normalised to centavos by the union.
       purchaseCentavos: 200000,
@@ -131,7 +131,7 @@ describe("dashboard transactions", () => {
       // Negative, so the column can be read as a running effect on the wallet.
       loyaltyDeltaCentavos: -50000,
       detail: "Adobo Rice Bowl",
-      // The 10% is charged once on the month's net, not at the till, so a
+      // The 10% is charged once on the month's net, not at checkout, so a
       // redemption is booked at its full value and the fee row stays zero.
       serviceFeeCentavos: 0,
       settlementCentavos: 50000,
@@ -203,7 +203,7 @@ describe("dashboard transactions", () => {
 
     // Two: the redemption and the LP award it triggered were both booked
     // against the operator who rang the sale up.
-    const byStaff = await listTransactions(ADMIN, { search: "Till Operator" });
+    const byStaff = await listTransactions(ADMIN, { search: "Cashier" });
     expect(byStaff.rows).toHaveLength(2);
 
     const byPhone = await listTransactions(ADMIN, { search: "9182222222" });
@@ -251,7 +251,7 @@ describe("dashboard transactions", () => {
     expect(csv).toContain(voucherCode);
     expect(csv).toContain("Voucher redeemed");
     expect(csv).toContain("2000.00");
-    expect(csv).toContain("Till Operator");
+    expect(csv).toContain("Cashier");
   });
 
   it("pages without dropping or repeating a row", async () => {

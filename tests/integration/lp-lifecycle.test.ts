@@ -46,7 +46,7 @@ describe("LP lifecycle end to end", () => {
       belowMinimum: false,
     });
 
-    // 2. A customer pays PHP 4,000 in cash at the till and earns 5% as LP.
+    // 2. A customer pays PHP 4,000 in cash at checkout and earns 5% as LP.
     const credited = await creditRewardFromPurchase({
       walletToken: wallet.wallet.walletToken,
       businessId,
@@ -121,7 +121,7 @@ describe("LP lifecycle end to end", () => {
       amount: "500",
       staffName,
     });
-    // No fee at the till any more — that is charged once, on the month's net.
+    // No fee at checkout any more — that is charged once, on the month's net.
     expect(handedOver).toMatchObject({
       amount: "500 LP",
       serviceFee: "0 LP",
@@ -171,7 +171,7 @@ describe("LP lifecycle end to end", () => {
     expect(closing.statements).toHaveLength(1);
   });
 
-  it("runs a month that ends owing us, and stops the till at zero", async () => {
+  it("runs a month that ends owing us, and stops the checkout at zero", async () => {
     const wallet = await getOrCreateRewardWallet({ phone });
     const db = await getDb();
 
@@ -211,7 +211,7 @@ describe("LP lifecycle end to end", () => {
       "₱4,700.00",
     );
 
-    // Drain the deposit: the till stops issuing until it is topped up.
+    // Drain the deposit: the checkout stops issuing until it is topped up.
     await run(db, "UPDATE businesses SET deposit_balance_centavos = 0 WHERE id = ?", [
       businessId,
     ]);
@@ -264,8 +264,18 @@ describe("LP lifecycle end to end", () => {
     });
     expect(spent.voucher.remainingCentavos).toBe(0);
 
-    // ...and it never shows up as a bought item.
-    expect(await listWalletPurchases({ phone })).toHaveLength(0);
+    // It is kept alongside bought items, since both are things LP turned into
+    // and both are collected with a code — but tagged apart, because this one
+    // belongs to no partner and carries a minimum spend instead.
+    expect(await listWalletPurchases({ phone })).toEqual([
+      expect.objectContaining({
+        kind: "global_voucher",
+        productId: "",
+        businessId: "",
+        price: "₱100.00",
+        minimumSpend: "₱500.00",
+      }),
+    ]);
 
     const remaining = await one(
       db,
@@ -292,7 +302,7 @@ describe("LP lifecycle end to end", () => {
     });
     expect(redeemed.loyalty).toMatchObject({ awarded: true, amount: "100 LP" });
 
-    // The partner is billed for those points, exactly as a till scan would be.
+    // The partner is billed for those points, exactly as a checkout scan would be.
     expect((await businessBillingOverview(businessId)).current).toMatchObject({
       issued: "₱100.00",
       direction: "Collection",

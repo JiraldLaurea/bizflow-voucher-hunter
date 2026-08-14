@@ -228,8 +228,17 @@ export type RewardWalletStatus = "Active" | "Suspended";
 export type RewardLedgerType =
   | "credit_earned"
   | "voucher_converted"
+  | "product_purchased"
   | "daily_app_use"
   | "referral_bonus"
+  // Two pots, so a movement between them writes one entry on each side.
+  | "transfer_out"
+  | "transfer_in"
+  // The one-off migration that rebuilt partner buckets from the ledger, for
+  // wallets that earned their points before the buckets existed.
+  | "backfill_out"
+  | "backfill_in"
+  | "dev_grant"
   | "adjustment";
 export type RewardVoucherStatus = "Active" | "Redeemed" | "Expired" | "Cancelled";
 export type RewardTransactionStatus = "Accepted" | "Held" | "Rejected" | "Adjusted" | "Cancelled";

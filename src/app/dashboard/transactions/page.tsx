@@ -7,7 +7,7 @@ import { centavosToLoyaltyPoints, centavosToMoney } from "@/server/rewards-netwo
 import { listTransactions, TRANSACTIONS_PAGE_SIZE } from "@/server/transactions";
 import { TransactionFilters } from "../_components/TransactionFilters";
 
-// Every row is a movement recorded seconds ago by a till. A cached page would
+// Every row is a movement recorded seconds ago by a checkout. A cached page would
 // show an operator a list that is missing the sale they just rang up.
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -166,7 +166,7 @@ export default async function TransactionsPage({
                         apart. */}
                     {anyFilter
                       ? "No transactions match these filters."
-                      : "No transactions yet. They appear here as soon as a till marks a voucher used or records a sale."}
+                      : "No transactions yet. They appear here as soon as a checkout marks a voucher used or records a sale."}
                   </td>
                 </tr>
               ) : (

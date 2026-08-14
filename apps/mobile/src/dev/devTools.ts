@@ -13,7 +13,7 @@ import { apiRequest, type RoulettePreview } from "@/api/client";
  *
  * The two are not equivalent: a dev build may use everything below, while the
  * production developer account gets only the self-scoped hunt tools. The LP and
- * partner-till helpers refuse in production for every account, so the panel
+ * partner-checkout helpers refuse in production for every account, so the panel
  * hides them rather than offering a button that always 403s.
  */
 export const devBuild = __DEV__;
@@ -119,6 +119,29 @@ export function grantLoyaltyPoints(
   });
 }
 
+export type DevBusinessGrant = {
+  businessId: string;
+  businessName: string;
+  granted: string;
+  /** That partner's bucket after the grant, not the global pot. */
+  balance: string;
+};
+
+/**
+ * Tops one partner's bucket up directly, which is what the storefront spends.
+ * `grantLoyaltyPoints` funds the global pot instead, and the two are not
+ * interchangeable.
+ */
+export function grantBusinessLoyaltyPoints(
+  input: { businessId: string; amount: string },
+  token: string,
+): Promise<DevBusinessGrant> {
+  return apiRequest<DevBusinessGrant>(
+    "/api/public/rewards/dev-business-credit",
+    { method: "POST", body: input, token },
+  );
+}
+
 export type DevPurchaseResult = {
   rewardAmount: string;
   balance: string;
@@ -126,7 +149,7 @@ export type DevPurchaseResult = {
 };
 
 /**
- * Stands in for a partner scanning the wallet QR at their till. Runs the real
+ * Stands in for a partner scanning the wallet QR at their checkout. Runs the real
  * earning path, so the partner is billed for the LP — which is what makes the
  * settlement side testable, unlike `grantLoyaltyPoints`.
  */

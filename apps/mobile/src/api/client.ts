@@ -397,6 +397,33 @@ export type RewardWalletSnapshot = {
   appUseAwardedNow: boolean;
 };
 
+/**
+ * What the holder can actually spend at one partner's storefront.
+ *
+ * Items are bought from the bucket earned at that partner, never from the
+ * global pot, so this — not `wallet.wallet.balanceCentavos` — is the figure
+ * every price, shortfall hint and Buy button on the shop screens is measured
+ * against. Reading the global pot instead disabled Buy on items the bucket
+ * could afford, and enabled it on items the server then refused.
+ *
+ * Falls back to zero when the field is missing, which only happens against a
+ * server older than the buckets. Everything then reads as unaffordable, which
+ * is the safe direction: the alternative is offering a purchase the server
+ * rejects.
+ */
+export function partnerBalance(
+  wallet: RewardWalletSnapshot | null | undefined,
+  businessId: string,
+): Pick<BusinessBalance, "balance" | "balanceCentavos"> {
+  const bucket = wallet?.businessBalances?.find(
+    (candidate) => candidate.businessId === businessId,
+  );
+  // The API omits empty buckets, so a partner the holder has never earned at
+  // has no row rather than a zero one. " LP" is the server's own suffix on
+  // every formatted amount, so the placeholder matches what it would send.
+  return bucket ?? { balance: "0 LP", balanceCentavos: 0 };
+}
+
 export function listClaimedVouchers(token: string): Promise<ClaimedVoucher[]> {
   return apiRequest<ClaimedVoucher[]>("/api/public/vouchers", { token });
 }
@@ -411,15 +438,40 @@ export function getOrCreateRewardWallet(
   });
 }
 
-/**
- * Mints one fixed ₱100 voucher from global points. There is no amount to pass:
- * the denomination is fixed server-side.
- */
+export type GlobalReward = {
+  id: string;
+  name: string;
+  description: string;
+  /** Global LP this costs, e.g. "500 LP". */
+  cost: string;
+  costCentavos: number;
+  /** What the voucher takes off a bill, e.g. "₱100.00". */
+  value: string;
+  valueCentavos: number;
+  /** The bill it applies to, e.g. "₱500.00". */
+  minimumSpend: string;
+  minimumSpendCentavos: number;
+};
+
+/** What Global LP can be turned into. One entry today; the app renders a list. */
+export function listGlobalRewards(token: string): Promise<GlobalReward[]> {
+  return apiRequest<GlobalReward[]>("/api/public/rewards/global", { token });
+}
+
+export type GlobalRewardPurchase = {
+  reward: GlobalReward;
+  voucher: RewardVoucher;
+  /** Global LP given up, which is not the voucher's face value. */
+  cost: string;
+  balance: string;
+};
+
+/** Spends Global LP on one catalogue voucher. */
 export function convertRewardCredit(
-  input: { walletSecret: string },
+  input: { walletSecret: string; rewardId?: string },
   token: string,
-): Promise<unknown> {
-  return apiRequest("/api/public/rewards/convert", {
+): Promise<GlobalRewardPurchase> {
+  return apiRequest<GlobalRewardPurchase>("/api/public/rewards/convert", {
     method: "POST",
     body: input,
     token,
@@ -453,6 +505,12 @@ export type RewardProduct = {
   id: string;
   businessId: string;
   businessName: string;
+  /**
+   * The partner's trade (`restaurant`, `beauty`, …), which colours its
+   * storefront. Optional so a response from a server older than this field
+   * falls back to the neutral tone rather than crashing the screen.
+   */
+  businessIndustry?: string;
   name: string;
   description: string;
   imageUrl: string;
@@ -488,6 +546,14 @@ export type RewardPurchasedItem = {
   voucherId: string;
   voucherCode: string;
   qrToken: string;
+  /**
+   * `item` is collected at the partner that sold it. `global_voucher` came from
+   * Global LP and is spendable at any partner, so it has no product or business.
+   * Optional so a response from a server older than this field still renders.
+   */
+  kind?: "item" | "global_voucher";
+  /** Set only on a global voucher: the bill it applies to. */
+  minimumSpend?: string;
   productId: string;
   productName: string;
   productDescription: string;

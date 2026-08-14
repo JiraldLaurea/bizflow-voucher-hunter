@@ -130,7 +130,7 @@ const staffLabels = new Set([
   "Vouchers",
   "Users",
   "Loyalty Points",
-  // Scoped to their own business by the page, so a partner sees their own till's
+  // Scoped to their own business by the page, so a partner sees their own checkout's
   // history and nobody else's.
   "Transactions",
   // A partner's own staff need to see what they owe and what they are owed.

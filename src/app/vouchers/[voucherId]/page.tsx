@@ -1,18 +1,10 @@
 import { redirect } from "next/navigation";
-import { getSignedInCustomerPhone } from "@/server/customer-auth";
-import { VoucherDetail } from "./VoucherDetail";
 
-export const dynamic = "force-dynamic";
-
-export default async function VoucherDetailPage({
-  params,
-}: {
-  params: { voucherId: string };
-}) {
-  if (!(await getSignedInCustomerPhone())) {
-    redirect(
-      `/signin?next=${encodeURIComponent(`/vouchers/${params.voucherId}`)}`,
-    );
-  }
-  return <VoucherDetail voucherId={params.voucherId} />;
+/**
+ * A shared voucher link. Same reasoning as the campaign redirect: the app
+ * intercepts this URL when installed, and a browser that lands here has no
+ * wallet to show the voucher in, so the app landing page is the destination.
+ */
+export default function VoucherRedirectPage() {
+  redirect("/client");
 }

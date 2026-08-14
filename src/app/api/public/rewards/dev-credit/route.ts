@@ -12,7 +12,7 @@ const schema = z.object({
 /**
  * Development-only helper behind the More tab's dev tools: tops the signed-in
  * wallet up with LP so the storefront and settlement flows can be exercised
- * without scanning purchases at a partner till.
+ * without scanning purchases at a partner checkout.
  *
  * Guarded here and again in `grantDevLoyaltyPoints`: this mints spendable
  * balance that no partner has been billed for.

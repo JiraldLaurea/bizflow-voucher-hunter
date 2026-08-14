@@ -37,6 +37,10 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // Already the navigator's default; stated so a future upstream change
+        // to that default cannot start sliding the scenes. A tab bar is a place
+        // picker, not a journey — the destination should simply be there.
+        animation: "none",
         sceneStyle: { backgroundColor: colors.page },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
