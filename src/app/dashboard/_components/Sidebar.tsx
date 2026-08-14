@@ -12,6 +12,7 @@ import {
   FiFlag,
   FiGift,
   FiGrid,
+  FiList,
   FiRepeat,
   FiSettings,
   FiUserPlus,
@@ -86,6 +87,12 @@ const navSections: { title: string; items: NavItem[] }[] = [
         metricCards: 4,
       },
       {
+        label: "Transactions",
+        href: "/dashboard/transactions",
+        icon: <FiList aria-hidden="true" />,
+        metricCards: 6,
+      },
+      {
         label: "LP Billing",
         href: "/dashboard/billing",
         icon: <FiCreditCard aria-hidden="true" />,
@@ -123,6 +130,9 @@ const staffLabels = new Set([
   "Vouchers",
   "Users",
   "Loyalty Points",
+  // Scoped to their own business by the page, so a partner sees their own till's
+  // history and nobody else's.
+  "Transactions",
   // A partner's own staff need to see what they owe and what they are owed.
   "LP Billing",
   "Scan & Redeem",

@@ -9492,3 +9492,131 @@ th {
         transform: none;
     }
 }
+
+/* --- Transactions: filter bar, kind marks and paging --- */
+
+/* No rule under the bar: the table's own header band is grey and full-bleed, so
+   a hairline 12px above it would read as a second divider. The gap does it. */
+.transaction-filters {
+    display: grid;
+    gap: 14px;
+    padding-bottom: 4px;
+}
+
+/* Flex rather than an auto-fit grid. The business picker is dropped for a
+   partner's own staff, so the control count changes with the role, and a fixed
+   track count left whichever control fell last on a row of its own beside an
+   empty track. Flex closes the row up instead. */
+.transaction-filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    align-items: end;
+}
+
+.transaction-filter-field {
+    margin-bottom: 0;
+    min-width: 0;
+    flex: 1 1 180px;
+}
+
+/* SelectMenu carries the bottom margin `.field` would have given it so that a
+   standalone one spaces itself. In this row the flex gap owns the spacing, and
+   leaving it on floated the dropdown a clear 12px above the inputs beside it. */
+.transaction-filter-field.select-menu-field {
+    margin-bottom: 0;
+}
+
+/* The dropdown captions its own control, so its label rule applies rather than
+   `.field span`. Matched here so the four captions in the row are one size. */
+.transaction-filter-field .select-menu-label {
+    font-size: 0.76rem;
+}
+
+/* A date field is a fixed-width thing — the browser draws its own picker at a
+   set size, and stretching the input just padded whitespace around it. */
+.transaction-filter-date {
+    flex: 0 1 168px;
+}
+
+/* Search takes the slack the date fields give back: a voucher code is the
+   longest thing anyone types into this bar. */
+.transaction-filter-search {
+    flex: 2 1 260px;
+}
+
+.transaction-filter-search .customer-search-field {
+    display: block;
+}
+
+.transaction-filter-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+/* The kind is what the eye sorts this table by, so it carries colour while the
+   status badge stays reserved for rows that need attention. */
+.transaction-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.transaction-kind::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    flex: none;
+}
+
+.transaction-kind.is-voucher_redemption {
+    color: var(--purple);
+}
+
+.transaction-kind.is-lp_earned {
+    color: var(--green);
+}
+
+.transaction-kind.is-lp_spent {
+    color: var(--blue);
+}
+
+.transaction-lp {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.transaction-lp.is-earned {
+    color: var(--green);
+}
+
+.transaction-lp.is-spent {
+    color: var(--blue);
+}
+
+.transaction-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.transaction-pager-actions {
+    display: flex;
+    gap: 8px;
+}
+
+@media (max-width: 720px) {
+    .transaction-filter-search {
+        grid-column: span 1;
+    }
+}

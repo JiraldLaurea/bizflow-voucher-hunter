@@ -11,6 +11,12 @@ export default defineConfig({
       DATABASE_PATH: "./data/test-bizflow.db"
     }
   },
+  // Component tests use JSX without importing React, as the app does. esbuild
+  // otherwise emits the classic React.createElement transform and every .tsx
+  // test fails on "React is not defined".
+  esbuild: {
+    jsx: "automatic"
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url))
